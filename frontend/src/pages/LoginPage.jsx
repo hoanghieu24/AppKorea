@@ -1,76 +1,66 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { authApi } from '../api/auth';
-import { apiErrorMessage } from '../api/client';
-import { useAuthStore } from '../store/authStore';
+import { ArrowRight, BookOpenCheck, BrainCircuit, GraduationCap, Users } from 'lucide-react';
+import { api, saveSession } from '../api.js';
 
-export default function LoginPage() {
-  const navigate = useNavigate();
-  const login = useAuthStore((s) => s.login);
-  const [form, setForm] = useState({ email: '', password: '' });
+const demos = [
+  ['Admin', 'admin@hanquoc.local', 'Admin@123'],
+  ['Giáo viên', 'teacher@hanquoc.local', 'Teacher@123'],
+  ['Học sinh', 'student@hanquoc.local', 'Student@123'],
+];
+
+export default function LoginPage({ onLogin }) {
+  const [email, setEmail] = useState('student@hanquoc.local');
+  const [password, setPassword] = useState('Student@123');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  const submit = async (event) => {
+    event.preventDefault();
+    setLoading(true); setError('');
     try {
-      const res = await authApi.login(form);
-      login(res.token, res.user);
-      navigate('/');
+      const session = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }), toast: false });
+      saveSession(session);
+      onLogin(session);
     } catch (err) {
-      setError(apiErrorMessage(err));
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-logo">
-          <span className="logo-icon">🇰🇷</span>
-          <div>
-            <h1>HanQuoc</h1>
-            <span>Learn AI</span>
-          </div>
+    <div className="login-page">
+      <section className="login-visual">
+        <div className="login-brand"><div className="brand-mark big">한</div><strong>HanQuoc Classroom</strong></div>
+        <div className="hero-copy">
+          <span className="hero-pill">HỌC TIẾNG HÀN · CÙNG MỘT LỚP</span>
+          <h1>Học dễ hơn.<br />Dạy <em>nhẹ đầu</em> hơn.</h1>
+          <p>Từ vựng theo sách, bài tập, kiểm tra và phân tích phần học sinh cần ôn — trong một giao diện gọn trên cả web lẫn điện thoại.</p>
         </div>
-        <div className="auth-title">Đăng nhập vào tài khoản</div>
-
-        {error && <div className="auth-error">⚠️ {error}</div>}
-
-        <form onSubmit={handleSubmit}>
-          <div className="auth-field">
-            <label>Email</label>
-            <input
-              type="email" required autoFocus className="settings-input"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="ban@email.com"
-            />
+        <div className="login-features">
+          <div><Users /><span><strong>Lớp học rõ ràng</strong><small>3 vai trò, đúng quyền</small></span></div>
+          <div><BrainCircuit /><span><strong>AI hỗ trợ chấm</strong><small>Feedback sau khi nộp</small></span></div>
+          <div><BookOpenCheck /><span><strong>Học theo sách</strong><small>Chọn bài, đẩy từ vào lớp</small></span></div>
+        </div>
+      </section>
+      <section className="login-panel">
+        <form className="login-card" onSubmit={submit}>
+          <div className="mobile-login-logo"><GraduationCap /> HanQuoc</div>
+          <span className="eyebrow">CHÀO MỪNG TRỞ LẠI</span>
+          <h2>Đăng nhập</h2>
+          <p>Dùng tài khoản được quản trị viên cấp.</p>
+          <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required /></label>
+          <label>Mật khẩu<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
+          {error && <div className="form-error">{error}</div>}
+          <button className="btn primary full" disabled={loading}>{loading ? 'Đang vào lớp...' : <>Vào lớp <ArrowRight size={18} /></>}</button>
+          <div className="demo-box">
+            <strong>Tài khoản demo</strong>
+            <div className="demo-users">
+              {demos.map(([label, demoEmail, demoPassword]) => <button type="button" key={label} onClick={() => { setEmail(demoEmail); setPassword(demoPassword); }}>{label}</button>)}
+            </div>
           </div>
-          <div className="auth-field">
-            <label>Mật khẩu</label>
-            <input
-              type="password" required className="settings-input"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              placeholder="••••••••"
-            />
-          </div>
-          <button type="submit" className="btn btn-primary btn-lg" style={{ width: '100%', justifyContent: 'center' }} disabled={loading}>
-            {loading ? 'Đang đăng nhập...' : '🔑 Đăng nhập'}
-          </button>
         </form>
-
-        <div className="auth-switch">
-          Chưa có tài khoản? <Link to="/register">Đăng ký ngay</Link>
-        </div>
-        <div className="helper-text" style={{ textAlign: 'center', marginTop: 14 }}>
-          Demo: teacher@demo.com / student@demo.com — mật khẩu 123456
-        </div>
-      </div>
+      </section>
     </div>
   );
 }

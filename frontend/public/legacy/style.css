@@ -83,6 +83,36 @@ input,textarea,select{font-family:inherit}
 ::-webkit-scrollbar-thumb:hover{background:var(--accent-light)}
 a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-light);outline-offset:2px;border-radius:4px}
 
+/* Khi chạy bên trong Classroom: cài đặt hệ thống do Admin quản lý ở app chính. */
+body.classroom-embedded.light-mode {
+  --bg-primary: #f7f7fc;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f8f7ff;
+  --bg-input: #faf9fe;
+  --border: #e9e8f1;
+  --border-active: #b7afff;
+  --text-primary: #28273a;
+  --text-secondary: #69677a;
+  --text-muted: #9895a7;
+  --accent: #6d5dfc;
+  --accent-light: #8e83ff;
+  --accent-glow: rgba(109,93,252,.10);
+  --ai-color: #6d5dfc;
+  --ai-glow: rgba(109,93,252,.11);
+  --pink: #8a72e8;
+  --pink-glow: rgba(109,93,252,.06);
+  --shadow: 0 12px 34px rgba(45,40,90,.07);
+  --shadow-sm: 0 4px 16px rgba(45,40,90,.05);
+}
+body.classroom-embedded #settingsOverlay,
+body.classroom-embedded #themeToggle,
+body.classroom-embedded [onclick*="openSettings"] { display: none !important; }
+body.classroom-embedded.light-mode { background: #f7f7fc; }
+body.classroom-embedded.light-mode .sidebar { background: #fff; }
+body.classroom-embedded.light-mode .nav-item.active { background: #efedff; color: #5546dc; }
+body.classroom-embedded.light-mode .topbar { background: rgba(255,255,255,.94); backdrop-filter: blur(12px); }
+
 /* ===== LAYOUT ===== */
 .sidebar{position:fixed;left:0;top:0;width:var(--sidebar-width);height:100vh;background:var(--bg-secondary);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;transition:transform var(--t),width var(--t);overflow:hidden}
 .main-content{margin-left:var(--sidebar-width);min-height:100vh;display:flex;flex-direction:column;transition:margin var(--t)}
@@ -632,6 +662,7 @@ body.sidebar-collapsed .sidebar-collapse-btn{transform:translate(-50%,0) rotate(
 .gp-exercise{background:var(--bg-card);border:2px solid var(--border);border-radius:var(--radius-lg);padding:20px;transition:border-color .2s}
 .gp-exercise:hover{border-color:var(--border-active)}
 .gp-correct{border-color:var(--green)!important;background:rgba(74,222,128,.04)}
+.gp-partial{border-color:var(--gold)!important;background:rgba(221,165,58,.05)}
 .gp-wrong{border-color:var(--red)!important;background:rgba(248,113,113,.04)}
 .gp-ex-badge{font-size:.72rem;font-weight:700;color:var(--text-muted);letter-spacing:.8px;text-transform:uppercase;margin-bottom:10px}
 .gp-ex-prompt{font-size:1.1rem;font-weight:700;color:var(--text-primary);margin-bottom:7px;font-family:'Noto Sans KR','Be Vietnam Pro',sans-serif;line-height:1.5}
@@ -640,9 +671,11 @@ body.sidebar-collapsed .sidebar-collapse-btn{transform:translate(-50%,0) rotate(
 .gp-ex-input{flex:1;padding:11px 16px;background:var(--bg-input);border:2px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-size:1rem;font-family:'Noto Sans KR','Be Vietnam Pro',sans-serif;outline:none;transition:border-color .15s}
 .gp-ex-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
 .gp-ex-input.input-correct{border-color:var(--green);background:rgba(74,222,128,.07)}
+.gp-ex-input.input-partial{border-color:var(--gold);background:rgba(221,165,58,.08)}
 .gp-ex-input.input-wrong{border-color:var(--red);background:rgba(248,113,113,.07)}
 .gp-ex-result{margin-top:10px;padding:10px 14px;border-radius:var(--radius-sm);font-size:.875rem;font-weight:600;font-family:'Noto Sans KR','Be Vietnam Pro',sans-serif}
 .gp-result-ok{background:rgba(74,222,128,.1);color:var(--green)}
+.gp-result-partial{background:rgba(221,165,58,.12);color:var(--gold)}
 .gp-result-err{background:rgba(248,113,113,.1);color:var(--red)}
 .gp-ex-actions{display:flex;gap:10px;flex-wrap:wrap;padding-top:4px}
 
@@ -1405,6 +1438,10 @@ body.sidebar-collapsed .sidebar-collapse-btn{transform:translate(-50%,0) rotate(
 .comp-q-item.comp-ok {
   border-color: var(--green) !important;
   background: rgba(74,222,128,0.04) !important;
+}
+.comp-q-item.comp-partial {
+  border-color: var(--gold) !important;
+  background: rgba(221,165,58,0.05) !important;
 }
 .comp-q-item.comp-err {
   border-color: var(--red) !important;
@@ -2530,3 +2567,16 @@ body.sidebar-collapsed .sidebar-collapse-btn{transform:translate(-50%,0) rotate(
 .irr-exc-tags { display: flex; flex-wrap: wrap; gap: 8px; }
 .irr-exc-tag { background: var(--bg-card); border: 1px solid rgba(239,68,68,0.3); color: var(--text-primary); padding: 4px 12px; border-radius: 10px; font-size: 0.85rem; font-family: 'Noto Sans KR', sans-serif; }
 .irr-exc-tag small { color: var(--text-muted); font-family: 'Be Vietnam Pro', sans-serif; margin-left: 4px; }
+
+/* ===== PAGINATION — chỉ dựng DOM của trang hiện tại ===== */
+.legacy-pagination { grid-column: 1 / -1; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding: 12px 2px 2px; border-top: 1px solid var(--border-color); color: var(--text-muted); font-size: .78rem; }
+.legacy-pagination > div { display: flex; align-items: center; gap: 6px; }
+.legacy-pagination button { border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); border-radius: 9px; min-height: 34px; padding: 6px 11px; cursor: pointer; font-weight: 700; }
+.legacy-pagination button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.legacy-pagination button:disabled { opacity: .38; cursor: default; }
+#wordChips .legacy-pagination, #grammarChips .legacy-pagination { flex-basis: 100%; }
+
+@media (max-width: 640px) {
+  .legacy-pagination { align-items: stretch; flex-direction: column; }
+  .legacy-pagination > div { justify-content: flex-end; }
+}

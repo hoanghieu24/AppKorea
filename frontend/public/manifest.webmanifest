@@ -1,0 +1,13 @@
+{
+  "name": "HanQuoc Classroom",
+  "short_name": "HanQuoc",
+  "description": "Lớp học tiếng Hàn, bài tập và ôn luyện thông minh",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f7fc",
+  "theme_color": "#6d5dfc",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
