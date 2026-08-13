@@ -716,3 +716,27 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
   .learning-ai-safe { display: none !important; }
 }
 
+/* ===== Vocabulary & Grammar Extensions ===== */
+.lesson-grammar-box-preview { margin-top: 10px; padding: 10px 12px; background: #f5f3ff; border: 1px dashed #d0c7fc; border-radius: 10px; display: grid; gap: 6px; }
+.grammar-head-label { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--purple); }
+.grammar-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.grammar-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: #fff; border: 1px solid #c8c0f9; border-radius: 8px; font-size: .78rem; font-weight: 700; color: #4338ca; }
+
+.class-grammar-summary { margin-bottom: 14px; padding: 12px; background: #fdfcff; border: 1px solid #e7e3fc; border-radius: 12px; display: grid; gap: 8px; }
+.class-grammar-title { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--purple); }
+.grammar-chips-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.grammar-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; background: #eeebff; border-radius: 6px; font-size: .74rem; color: #3730a3; }
+.grammar-badge small { opacity: 0.75; font-size: .68rem; }
+
+.student-vocab-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+.student-vocab-head .vocab-search { flex: 1; min-width: 240px; margin-bottom: 0; }
+
+.student-grammar-block { margin-bottom: 14px; padding: 12px 14px; background: linear-gradient(135deg, #f8f6ff 0%, #f0ebff 100%); border: 1px solid #e0d7fe; border-radius: 14px; display: grid; gap: 8px; }
+.student-grammar-title { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--purple); }
+.student-grammar-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.student-grammar-card { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: #ffffff; border: 1px solid #d8ceff; border-radius: 10px; box-shadow: 0 2px 6px rgba(109,93,252,0.06); }
+.student-grammar-card svg { color: var(--purple); flex-shrink: 0; margin-top: 2px; }
+.student-grammar-card strong { display: block; font-size: .88rem; color: #312e81; font-weight: 800; }
+.student-grammar-card p { margin: 2px 0 0; font-size: .7rem; color: var(--muted); line-height: 1.35; }
+
+

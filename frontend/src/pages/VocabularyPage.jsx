@@ -18,6 +18,7 @@ export default function VocabularyPage({ user }) {
   const [selected, setSelected] = useState(new Set());
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState('list');
+  const [studentViewTab, setStudentViewTab] = useState('all');
   const [message, setMessage] = useState('');
   const [lessonsLoading, setLessonsLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -27,8 +28,6 @@ export default function VocabularyPage({ user }) {
   useEffect(() => {
     Promise.all([api('/classes'), api('/textbook/lessons')]).then(([a, b]) => {
       setClasses(a.classes); setLessons(b.lessons);
-      // Giáo viên có nhiều lớp phải tự chọn lớp đích để không vô tình giao
-      // từ cho lớp đầu tiên do API trả về. Học sinh vẫn tự mở lớp của mình.
       if (a.classes[0] && (user.role !== 'TEACHER' || a.classes.length === 1)) setClassId(String(a.classes[0].id));
       if (b.lessons[0]) setLessonId(String(b.lessons[0].id));
     }).catch((err) => setMessage(err.message)).finally(() => setLessonsLoading(false));
@@ -74,8 +73,8 @@ export default function VocabularyPage({ user }) {
     finally { setSelectingAll(false); }
   };
   const importWords = async () => {
-    if (!classId) return setMessage('Bạn chưa có lớp để đưa từ vựng vào.');
-    if (!selected.size) return setMessage('Chọn ít nhất một từ trước.');
+    if (!classId) return setMessage('Bạn chưa có lớp để giao bài học vào.');
+    if (!selected.size) return setMessage('Chọn ít nhất một từ hoặc toàn bộ bài trước.');
     try {
       const data = await api(`/classes/${classId}/vocabulary/import`, { method: 'POST', body: JSON.stringify({ vocabularyIds: [...selected] }) });
       setMessage(data.message); setSelected(new Set()); setClassPage(1); await loadClassWords(1);
@@ -83,35 +82,87 @@ export default function VocabularyPage({ user }) {
   };
 
   return <>
-    <PageHeader eyebrow={user.role === 'TEACHER' ? 'KHO HỌC LIỆU' : 'ÔN TẬP'} title={user.role === 'TEACHER' ? 'Tích hợp từ vựng từ sách' : 'Từ vựng của lớp'} subtitle={user.role === 'TEACHER' ? 'Chọn bài → tick từ → đẩy vào lớp. Học sinh thấy ngay sau đó.' : 'Học theo danh sách giáo viên đã chọn, rồi đánh dấu từ nào bạn còn yếu.'} />
+    <PageHeader eyebrow={user.role === 'TEACHER' ? 'KHO HỌC LIỆU' : 'ÔN TẬP'} title={user.role === 'TEACHER' ? 'Tích hợp Từ vựng & Ngữ pháp từ sách' : 'Từ vựng & Ngữ pháp của lớp'} subtitle={user.role === 'TEACHER' ? 'Chọn bài → chọn từ vựng & ngữ pháp → giao cho lớp. Học sinh sẽ học đầy đủ cả từ vựng và ngữ pháp.' : 'Học theo danh sách từ vựng và cấu trúc ngữ pháp giáo viên đã giao cho lớp.'} />
     {message && <div className="notice">{message}</div>}
     <div className="vocab-toolbar">
-      <label><span>{user.role === 'TEACHER' ? 'Lớp nhận từ vựng' : 'Lớp'}</span><select value={classId} onChange={(e) => setClassId(e.target.value)}>{user.role === 'TEACHER' && classes.length > 1 && <option value="">-- Chọn đúng lớp cần giao --</option>}{classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}</select></label>
+      <label><span>{user.role === 'TEACHER' ? 'Lớp nhận học liệu' : 'Lớp'}</span><select value={classId} onChange={(e) => setClassId(e.target.value)}>{user.role === 'TEACHER' && classes.length > 1 && <option value="">-- Chọn đúng lớp cần giao --</option>}{classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}</select></label>
       {user.role === 'STUDENT' && <div className="segmented compact"><button className={mode === 'list' ? 'active' : ''} onClick={() => setMode('list')}>Danh sách</button><button className={mode === 'flash' ? 'active' : ''} onClick={() => setMode('flash')}>Flashcard</button></div>}
     </div>
-    {user.role === 'TEACHER' ? <TeacherCatalog lessons={lessons} lessonsLoading={lessonsLoading} catalogLoading={catalogLoading} classWordsLoading={classWordsLoading} selectingAll={selectingAll} lessonId={lessonId} setLessonId={setLessonId} activeLesson={activeLesson} activeClass={activeClass} catalog={catalog} catalogPagination={catalogPagination} setCatalogPage={setCatalogPage} selected={selected} setSelected={setSelected} imported={imported} toggle={toggle} selectAll={selectAll} importWords={importWords} classWords={classWords} classPagination={classPagination} setClassPage={setClassPage} classId={classId} /> : mode === 'flash' ? <><Flashcards words={classWords} /><Pagination pagination={classPagination} loading={classWordsLoading} onPageChange={setClassPage} label="từ" /></> : <StudentVocabulary words={classWords} query={query} setQuery={setQuery} pagination={classPagination} loading={classWordsLoading} setPage={setClassPage} />}
+    {user.role === 'TEACHER' ? <TeacherCatalog lessons={lessons} lessonsLoading={lessonsLoading} catalogLoading={catalogLoading} classWordsLoading={classWordsLoading} selectingAll={selectingAll} lessonId={lessonId} setLessonId={setLessonId} activeLesson={activeLesson} activeClass={activeClass} catalog={catalog} catalogPagination={catalogPagination} setCatalogPage={setCatalogPage} selected={selected} setSelected={setSelected} imported={imported} toggle={toggle} selectAll={selectAll} importWords={importWords} classWords={classWords} classPagination={classPagination} setClassPage={setClassPage} classId={classId} /> : mode === 'flash' ? <><Flashcards words={classWords} /><Pagination pagination={classPagination} loading={classWordsLoading} onPageChange={setClassPage} label="từ" /></> : <StudentVocabulary words={classWords} query={query} setQuery={setQuery} pagination={classPagination} loading={classWordsLoading} setPage={setClassPage} tab={studentViewTab} setTab={setStudentViewTab} />}
   </>;
 }
 
 function TeacherCatalog({ lessons, lessonsLoading, catalogLoading, classWordsLoading, selectingAll, lessonId, setLessonId, activeLesson, activeClass, catalog, catalogPagination, setCatalogPage, selected, setSelected, imported, toggle, selectAll, importWords, classWords, classPagination, setClassPage, classId }) {
+  const assignedGrammar = useMemo(() => {
+    const map = new Map();
+    (classWords || []).forEach((w) => {
+      if (Array.isArray(w.grammar)) {
+        w.grammar.forEach((g) => {
+          if (!map.has(g)) map.set(g, { name: g, lessonId: w.lessonId, lessonTitle: w.lessonTitle });
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [classWords]);
+
   return <div className="two-col vocab-teacher-grid">
     <section className="panel catalog-panel">
-      {!classId && <div className="notice warning">Chọn lớp nhận từ vựng ở phía trên trước khi giao từ.</div>}
+      {!classId && <div className="notice warning">Chọn lớp nhận học liệu ở phía trên trước khi giao.</div>}
       <div className="catalog-controls"><label>Chọn bài trong sách<select value={lessonId} disabled={lessonsLoading || !lessons.length} onChange={(e) => setLessonId(e.target.value)}>{lessonsLoading && <option>Đang tải danh sách bài...</option>}{!lessonsLoading && !lessons.length && <option>Chưa có bài học</option>}{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>Bài {lesson.lessonNumber || lesson.id} · {lesson.title} — {lesson.topic}</option>)}</select></label><div className="catalog-bulk-actions"><button className="btn secondary small" disabled={catalogLoading || selectingAll || !activeLesson} onClick={selectAll}><Check size={15} /> {selectingAll ? 'Đang chọn...' : 'Chọn tất cả'}</button><button className="btn ghost small" disabled={!selected.size} onClick={() => setSelected(new Set())}>Bỏ chọn</button></div></div>
-      {activeLesson && <div className="lesson-info"><span>BÀI {activeLesson.lessonNumber || activeLesson.id} · {activeLesson.vocabularyCount} TỪ</span><h3>{activeLesson.title} · {activeLesson.topic}</h3><div className="grammar-chips">{activeLesson.grammar?.map((grammar) => <b key={grammar}>{grammar}</b>)}</div></div>}
-      <div className="catalog-list">{catalogLoading ? <Empty>Đang tải từ vựng của bài...</Empty> : catalog.length ? catalog.map((word) => { const isImported = imported.has(Number(word.id)); return <label className={`catalog-word ${isImported ? 'imported' : ''}`} key={word.id}><input type="checkbox" disabled={isImported} checked={isImported || selected.has(Number(word.id))} onChange={() => toggle(Number(word.id))} /><span className="fake-check">{isImported ? <Check size={14} /> : null}</span><div className="catalog-korean"><strong>{word.korean}</strong>{word.romanization && <small>{word.romanization}</small>}</div><p>{word.meaningVi}</p>{isImported && <em>Đã có</em>}</label>; }) : <Empty>Chưa có từ vựng cho bài này.</Empty>}</div>
+      {activeLesson && <div className="lesson-info">
+        <span>BÀI {activeLesson.lessonNumber || activeLesson.id} · {activeLesson.vocabularyCount} TỪ VỰNG</span>
+        <h3>{activeLesson.title} · {activeLesson.topic}</h3>
+        {activeLesson.grammar && activeLesson.grammar.length > 0 && <div className="lesson-grammar-box-preview">
+          <div className="grammar-head-label"><Sparkles size={14} /> <strong>Ngữ pháp trọng tâm bài học:</strong></div>
+          <div className="grammar-chips">{activeLesson.grammar.map((grammar) => <b key={grammar} className="grammar-chip"><BookOpen size={13} /> {grammar}</b>)}</div>
+        </div>}
+      </div>}
+      <div className="catalog-list">{catalogLoading ? <Empty>Đang tải học liệu của bài...</Empty> : catalog.length ? catalog.map((word) => { const isImported = imported.has(Number(word.id)); return <label className={`catalog-word ${isImported ? 'imported' : ''}`} key={word.id}><input type="checkbox" disabled={isImported} checked={isImported || selected.has(Number(word.id))} onChange={() => toggle(Number(word.id))} /><span className="fake-check">{isImported ? <Check size={14} /> : null}</span><div className="catalog-korean"><strong>{word.korean}</strong>{word.romanization && <small>{word.romanization}</small>}</div><p>{word.meaningVi}</p>{isImported && <em>Đã có</em>}</label>; }) : <Empty>Chưa có từ vựng cho bài này.</Empty>}</div>
       <Pagination pagination={catalogPagination} loading={catalogLoading} onPageChange={setCatalogPage} label="từ trong bài" />
-      <div className="catalog-action"><span>Đã chọn <strong>{selected.size}</strong> từ{activeClass ? <> · giao cho <strong>{activeClass.name}</strong></> : ''}</span><button className="btn primary" disabled={!classId || !selected.size} onClick={importWords}><Layers3 size={17} /> {activeClass ? `Đưa vào ${activeClass.name}` : 'Chọn lớp trước'}</button></div>
+      <div className="catalog-action"><span>Đã chọn <strong>{selected.size}</strong> mục{activeClass ? <> · giao cho <strong>{activeClass.name}</strong></> : ''}</span><button className="btn primary" disabled={!classId || !selected.size} onClick={importWords}><Layers3 size={17} /> {activeClass ? `Giao Từ vựng & Ngữ pháp vào ${activeClass.name}` : 'Chọn lớp trước'}</button></div>
     </section>
-    <section className="panel class-vocab-panel"><div className="panel-title"><div><span>{activeClass ? `TRONG LỚP · ${activeClass.name}` : 'CHƯA CHỌN LỚP'}</span><h3>{classPagination?.total || 0} từ đã giao</h3></div></div>{classWordsLoading ? <Empty>Đang tải trang từ vựng...</Empty> : classWords.length ? <div className="mini-vocab-list">{classWords.map((word) => <div key={word.id}><strong>{word.korean}</strong><span>{word.meaningVi}</span><small>Bài {word.lessonId}</small></div>)}</div> : <Empty>{activeClass ? 'Chưa có từ nào. Chọn từ bên trái rồi đưa vào lớp.' : 'Chọn lớp ở phía trên để xem và giao từ.'}</Empty>}<Pagination pagination={classPagination} loading={classWordsLoading} onPageChange={setClassPage} label="từ đã giao" /></section>
+    <section className="panel class-vocab-panel">
+      <div className="panel-title"><div><span>{activeClass ? `TRONG LỚP · ${activeClass.name}` : 'CHƯA CHỌN LỚP'}</span><h3>{classPagination?.total || 0} từ & {assignedGrammar.length} cấu trúc ngữ pháp</h3></div></div>
+      {assignedGrammar.length > 0 && <div className="class-grammar-summary">
+        <div className="class-grammar-title"><Sparkles size={15} /> <strong>Ngữ pháp đã giao ({assignedGrammar.length})</strong></div>
+        <div className="grammar-chips-list">{assignedGrammar.map((g) => <span key={g.name} className="grammar-badge"><BookOpen size={12} /> <strong>{g.name}</strong> <small>(Bài {g.lessonId})</small></span>)}</div>
+      </div>}
+      {classWordsLoading ? <Empty>Đang tải trang học liệu...</Empty> : classWords.length ? <div className="mini-vocab-list">{classWords.map((word) => <div key={word.id}><strong>{word.korean}</strong><span>{word.meaningVi}</span><small>Bài {word.lessonId}</small></div>)}</div> : <Empty>{activeClass ? 'Chưa có bài nào. Chọn bài học bên trái rồi giao cho lớp.' : 'Chọn lớp ở phía trên để xem và giao học liệu.'}</Empty>}<Pagination pagination={classPagination} loading={classWordsLoading} onPageChange={setClassPage} label="từ đã giao" />
+    </section>
   </div>;
 }
 
-function StudentVocabulary({ words, query, setQuery, pagination, loading, setPage }) {
-  const grouped = useMemo(() => words.reduce((map, word) => { const key = `Bài ${word.lessonId} · ${word.lessonTitle}`; (map[key] ||= []).push(word); return map; }, {}), [words]);
+function StudentVocabulary({ words, query, setQuery, pagination, loading, setPage, tab, setTab }) {
+  const grouped = useMemo(() => words.reduce((map, word) => {
+    const key = `Bài ${word.lessonId} · ${word.lessonTitle || ''}`;
+    if (!map[key]) map[key] = { lessonId: word.lessonId, title: word.lessonTitle, topic: word.topic, grammar: word.grammar || [], words: [] };
+    map[key].words.push(word);
+    return map;
+  }, {}), [words]);
+
   const speak = (text) => { if (!window.speechSynthesis) return; window.speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(text); utterance.lang = 'ko-KR'; utterance.rate = 0.85; window.speechSynthesis.speak(utterance); };
-  return <section className="panel"><div className="vocab-search"><Search size={18} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm từ tiếng Hàn hoặc nghĩa..." /></div>
-    {loading ? <Empty>Đang tải trang từ vựng...</Empty> : words.length ? Object.entries(grouped).map(([lesson, lessonWords]) => <div className="vocab-group" key={lesson}><div className="vocab-group-head"><h3>{lesson}</h3><span>{lessonWords.length} từ</span></div><div className="word-grid">{lessonWords.map((word) => <article className="word-card" key={word.id}><button className="speak-btn" onClick={() => speak(word.korean)}><Volume2 size={17} /></button><strong>{word.korean}</strong><em>{word.romanization}</em><p>{word.meaningVi}</p>{word.exampleKr && <small>{word.exampleKr}</small>}</article>)}</div></div>) : <Empty>Giáo viên chưa giao từ vựng cho lớp này.</Empty>}
+  return <section className="panel">
+    <div className="student-vocab-head">
+      <div className="vocab-search"><Search size={18} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm từ vựng hoặc nghĩa tiếng Hàn..." /></div>
+      <div className="segmented compact">
+        <button className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>Tất cả</button>
+        <button className={tab === 'vocab' ? 'active' : ''} onClick={() => setTab('vocab')}>Từ vựng</button>
+        <button className={tab === 'grammar' ? 'active' : ''} onClick={() => setTab('grammar')}>Ngữ pháp</button>
+      </div>
+    </div>
+    {loading ? <Empty>Đang tải học liệu...</Empty> : words.length ? Object.entries(grouped).map(([lessonKey, group]) => {
+      const showGrammar = (tab === 'all' || tab === 'grammar') && group.grammar && group.grammar.length > 0;
+      const showWords = (tab === 'all' || tab === 'vocab') && group.words.length > 0;
+      if (!showGrammar && !showWords) return null;
+      return <div className="vocab-group" key={lessonKey}>
+        <div className="vocab-group-head"><h3>{lessonKey} {group.topic ? `(${group.topic})` : ''}</h3><span>{group.words.length} từ vựng · {group.grammar.length} ngữ pháp</span></div>
+        {showGrammar && <div className="student-grammar-block">
+          <div className="student-grammar-title"><Sparkles size={15} /> <strong>Ngữ pháp trọng tâm:</strong></div>
+          <div className="student-grammar-cards">{group.grammar.map((g) => <div className="student-grammar-card" key={g}><BookOpen size={16} /> <div><strong>{g}</strong><p>Cấu trúc ngữ pháp trọng tâm - {group.title || lessonKey}</p></div></div>)}</div>
+        </div>}
+        {showWords && <div className="word-grid">{group.words.map((word) => <article className="word-card" key={word.id}><button className="speak-btn" onClick={() => speak(word.korean)} title="Nghe đọc"><Volume2 size={17} /></button><strong>{word.korean}</strong><em>{word.romanization}</em><p>{word.meaningVi}</p>{word.exampleKr && <small>{word.exampleKr}</small>}</article>)}</div>}
+      </div>;
+    }) : <Empty>Giáo viên chưa giao học liệu cho lớp này.</Empty>}
     <Pagination pagination={pagination} loading={loading} onPageChange={setPage} label="từ" />
   </section>;
 }
@@ -130,3 +181,4 @@ function Flashcards({ words }) {
   };
   return <section className="flash-study"><div className="flash-progress"><span>Flashcard {index + 1}/{words.length}</span><div><i style={{ width: `${((index + 1) / words.length) * 100}%` }} /></div></div><button className={`flash-card ${flipped ? 'flipped' : ''}`} onClick={() => setFlipped((value) => !value)}><span className="flash-label">{flipped ? 'NGHĨA & VÍ DỤ' : `BÀI ${word.lessonId}`}</span>{flipped ? <><h2>{word.meaningVi}</h2><p>{word.exampleKr}</p><small>{word.exampleVi}</small></> : <><strong>{word.korean}</strong><em>{word.romanization}</em><p>Chạm để lật thẻ</p></>}</button>{message && <div className="flash-message">{message}</div>}<div className="flash-actions"><button className="icon-button big" onClick={() => next(-1)}><ChevronLeft /></button><button className="btn weak" onClick={() => record(false)}>Cần ôn lại</button><button className="btn success" onClick={() => record(true)}>Đã nhớ</button><button className="icon-button big" onClick={() => next(1)}><ChevronRight /></button></div></section>;
 }
+
