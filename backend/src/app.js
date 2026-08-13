@@ -967,6 +967,39 @@ app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/notifications/announce', requireAuth, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  const schema = z.object({
+    title: z.string().trim().min(1, 'Vui lòng nhập tiêu đề thông báo.').max(100),
+    message: z.string().trim().min(1, 'Vui lòng nhập nội dung thông báo.').max(1000),
+    classId: z.union([z.string(), z.number()]).optional().default('ALL'),
+  });
+  const parse = schema.safeParse(req.body);
+  if (!parse.success) return res.status(400).json({ message: parse.error.issues[0]?.message || 'Dữ liệu gửi lên chưa đúng.' });
+
+  const { title, message, classId } = parse.data;
+  let count = 0;
+  if (String(classId) === 'ALL') {
+    const result = await query(
+      `INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
+       SELECT id, 'ANNOUNCEMENT', ?, ?, 'ANNOUNCEMENT', NULL
+       FROM users WHERE role = 'STUDENT' AND status = 'ACTIVE'`,
+      [title, message]
+    );
+    count = result.affectedRows || 0;
+  } else {
+    const classNum = Number(classId);
+    const result = await query(
+      `INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
+       SELECT student_id, 'ANNOUNCEMENT', ?, ?, 'ANNOUNCEMENT', NULL
+       FROM class_students WHERE class_id = ?`,
+      [title, message, classNum]
+    );
+    count = result.affectedRows || 0;
+  }
+  res.json({ message: `Đã gửi thông báo thành công đến ${count} học sinh!`, sentCount: count });
+});
+
+
 app.use((req, res) => res.status(404).json({ message: `Không có API ${req.method} ${req.path}` }));
 
 app.use((error, _req, res, _next) => {

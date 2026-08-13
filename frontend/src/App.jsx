@@ -42,7 +42,7 @@ export default function App() {
         <Route path="/admin/students" element={user.role === 'ADMIN' ? <AdminManagementPage mode="students" currentUser={user} /> : <Navigate to="/" replace />} />
         <Route path="/admin/teachers" element={user.role === 'ADMIN' ? <AdminManagementPage mode="teachers" currentUser={user} /> : <Navigate to="/" replace />} />
         <Route path="/admin/users" element={user.role === 'ADMIN' ? <AdminManagementPage mode="users" currentUser={user} /> : <Navigate to="/" replace />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/notifications" element={<NotificationsPage user={user} />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

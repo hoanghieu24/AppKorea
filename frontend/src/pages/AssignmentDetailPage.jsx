@@ -55,7 +55,19 @@ export default function AssignmentDetailPage({ user }) {
     finally { setSubmitting(false); }
   };
 
-  if (!data) return <div className="panel"><p>{message || 'Đang tải bài...'}</p></div>;
+  if (!data || !data.assignment) {
+    return (
+      <div className="panel">
+        <div className="empty-state">
+          <CircleAlert size={32} />
+          <p>{message || 'Không tìm thấy bài tập này hoặc bài tập không thuộc lớp của bạn.'}</p>
+          <Link className="btn primary small" to="/assignments" style={{ marginTop: 12 }}>
+            Quay lại danh sách bài tập
+          </Link>
+        </div>
+      </div>
+    );
+  }
   const { assignment, questions, submission } = data;
 
   return <>
