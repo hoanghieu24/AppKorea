@@ -1,5 +1,5 @@
 const SESSION_KEY = 'hanquoc_classroom_session';
-
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 export function getSession() {
   try {
     return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
@@ -25,7 +25,7 @@ export async function api(path, options = {}) {
   const { toast = true, ...fetchOptions } = options;
   const method = String(fetchOptions.method || 'GET').toUpperCase();
   const isMutation = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${API_BASE}/api${path}`, {
     ...fetchOptions,
     headers: {
       'Content-Type': 'application/json',
