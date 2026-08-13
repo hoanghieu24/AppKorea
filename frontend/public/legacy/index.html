@@ -1,1732 +1,299 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>한국어 배우기 · HanQuoc Learn AI</title>
-  <meta name="description" content="Học tiếng Hàn thông minh với AI Gemini - flashcard, quiz, hội thoại AI, luyện nghe/nói/viết." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Be+Vietnam+Pro:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body class="dark-mode">
+import { useEffect, useState } from 'react';
+import {
+  CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, Clock3, FilePlus2,
+  FileSpreadsheet, ImagePlus, ListPlus, LoaderCircle, Plus, School, Send, Trash2, Type,
+} from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { api, formatDate } from '../api.js';
+import { Empty, PageHeader, Pagination } from '../components/Shell.jsx';
 
-<!-- ===== SETTINGS MODAL ===== -->
-<div class="modal-overlay" id="settingsOverlay" onclick="closeSettings()">
-  <div class="modal" onclick="event.stopPropagation()" id="settingsModal">
-    <div class="modal-header">
-      <h3>⚙️ Cài đặt</h3>
-      <button class="modal-close" onclick="closeSettings()">✕</button>
-    </div>
-    <div class="modal-body">
-      <!-- API KEY -->
-      <div class="settings-section">
-        <div class="settings-label">🤖 Gemini AI</div>
-        <p class="settings-desc">Trong Classroom, Gemini được cấu hình an toàn ở backend. Nếu mở trang học độc lập ngoài Classroom, bạn vẫn có thể nhập API key riêng như bản gốc.</p>
-        <div class="api-key-row">
-          <input type="password" id="apiKeyInput" class="settings-input" placeholder="AIza..." autocomplete="off" />
-          <button class="btn btn-primary btn-sm" onclick="saveApiKey()">💾 Lưu</button>
+const freshQuestion = (patch = {}) => ({
+  type: 'MULTIPLE_CHOICE', prompt: '', optionsText: '', correctAnswer: '', explanation: '', topic: 'Từ vựng', points: 1,
+  ...patch,
+});
+
+const headerKey = (value) => String(value || '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+const splitOptions = (value) => String(value || '').split(/\r?\n|\||;/).map((item) => item.trim()).filter(Boolean);
+const normalizeType = (value, hasOptions, hasAnswer) => {
+  const key = headerKey(value);
+  if (['multiplechoice', 'tracnghiem', 'mcq'].includes(key)) return 'MULTIPLE_CHOICE';
+  if (['shorttext', 'traloinho', 'dientu', 'short'].includes(key)) return 'SHORT_TEXT';
+  if (['essay', 'tuluan'].includes(key)) return 'ESSAY';
+  if (hasOptions) return 'MULTIPLE_CHOICE';
+  if (hasAnswer) return 'SHORT_TEXT';
+  return 'ESSAY';
+};
+
+function extractJson(text) {
+  const raw = String(text || '').trim();
+  const candidates = [raw];
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) candidates.push(fenced[1].trim());
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start >= 0 && end > start) candidates.push(raw.slice(start, end + 1));
+  for (const candidate of candidates) {
+    try { return JSON.parse(candidate.replace(/,\s*([}\]])/g, '$1')); } catch { /* thử tiếp */ }
+  }
+  throw new Error('AI trả về dữ liệu chưa đúng định dạng. Hãy thử ảnh rõ hơn.');
+}
+
+function importedQuestion(raw = {}) {
+  const options = Array.isArray(raw.options) ? raw.options.map(String).filter(Boolean) : splitOptions(raw.optionsText ?? raw.options ?? raw.luaChon ?? raw.luachon);
+  const answer = String(raw.correctAnswer ?? raw.answer ?? raw.dapAn ?? raw.dapan ?? '').trim();
+  const prompt = String(raw.prompt ?? raw.question ?? raw.cauHoi ?? raw.cauhoi ?? raw.noiDung ?? raw.noidung ?? '').trim();
+  const type = normalizeType(raw.type ?? raw.loai, options.length > 0, Boolean(answer));
+  return freshQuestion({
+    type,
+    prompt,
+    optionsText: options.join('\n'),
+    correctAnswer: answer,
+    explanation: String(raw.explanation ?? raw.giaiThich ?? raw.giaithich ?? '').trim(),
+    topic: String(raw.topic ?? raw.chuDe ?? raw.chude ?? 'Tổng hợp').trim() || 'Tổng hợp',
+    points: Number(raw.points ?? raw.diem ?? 1) || 1,
+  });
+}
+
+export default function AssignmentsPage({ user }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedClassId = user.role === 'TEACHER' ? searchParams.get('classId') || '' : '';
+  const [assignments, setAssignments] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [studentFilter, setStudentFilter] = useState('PENDING');
+  const [classes, setClasses] = useState([]);
+  const [creating, setCreating] = useState(false);
+  const [message, setMessage] = useState('');
+  const [inputMode, setInputMode] = useState('single');
+  const [bulkText, setBulkText] = useState('');
+  const [importing, setImporting] = useState('');
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [form, setForm] = useState({ classId: '', type: 'HOMEWORK', title: '', instructions: '', dueAt: '', timeLimitMinutes: '', questions: [freshQuestion()], publishNow: true });
+
+  const load = async () => {
+    setListLoading(true);
+    const params = new URLSearchParams({ page: String(page), pageSize: '8' });
+    if (selectedClassId) params.set('classId', selectedClassId);
+    if (user.role === 'STUDENT') params.set('view', studentFilter);
+    const assignmentPath = `/assignments?${params.toString()}`;
+    const [assignmentData, classData] = await Promise.all([api(assignmentPath), api('/classes')]);
+    setAssignments(assignmentData.assignments); setPagination(assignmentData.pagination); setClasses(classData.classes);
+    setForm((old) => ({ ...old, classId: selectedClassId || old.classId || String(classData.classes[0]?.id || '') }));
+    setListLoading(false);
+  };
+  useEffect(() => { load().catch((err) => { setMessage(err.message); setListLoading(false); }); }, [selectedClassId, page, studentFilter]);
+
+  const updateQuestion = (index, patch) => setForm((old) => ({ ...old, questions: old.questions.map((question, i) => i === index ? { ...question, ...patch } : question) }));
+  const removeQuestion = (index) => setForm((old) => ({ ...old, questions: old.questions.filter((_, i) => i !== index) }));
+  const appendQuestions = (items, label) => {
+    const valid = items.map(importedQuestion).filter((item) => item.prompt.length >= 2);
+    if (!valid.length) throw new Error('Không tìm thấy câu hỏi hợp lệ để thêm.');
+    setForm((old) => {
+      const current = old.questions.length === 1 && !old.questions[0].prompt.trim() ? [] : old.questions;
+      const room = Math.max(0, 100 - current.length);
+      return { ...old, questions: [...current, ...valid.slice(0, room)] };
+    });
+    setMessage(`Đã thêm ${Math.min(valid.length, 100)} câu từ ${label}. Bạn có thể sửa lại từng câu trước khi giao.`);
+  };
+
+  const addBulkQuestions = () => {
+    try {
+      const lines = bulkText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      appendQuestions(lines.map((prompt) => ({ prompt, type: 'ESSAY', topic: 'Tổng hợp', points: 1 })), 'ô nhập nhiều câu');
+      setBulkText('');
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const importExcel = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setImporting('excel'); setMessage('');
+    try {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (!rows.length) throw new Error('File Excel không có dữ liệu.');
+
+      const known = new Set(['cauhoi', 'question', 'prompt', 'noidung', 'loai', 'type', 'luachon', 'options', 'dapan', 'answer', 'giaithich', 'explanation', 'chude', 'topic', 'diem', 'points']);
+      const firstKeys = rows[0].map(headerKey);
+      const hasHeader = firstKeys.some((key) => known.has(key));
+      let questions;
+      if (hasHeader) {
+        const indexOf = (...aliases) => firstKeys.findIndex((key) => aliases.includes(key));
+        const idx = {
+          prompt: indexOf('cauhoi', 'question', 'prompt', 'noidung'), type: indexOf('loai', 'type'),
+          options: indexOf('luachon', 'options'), answer: indexOf('dapan', 'answer'), explanation: indexOf('giaithich', 'explanation'),
+          topic: indexOf('chude', 'topic'), points: indexOf('diem', 'points'),
+        };
+        questions = rows.slice(1).map((row) => ({
+          prompt: idx.prompt >= 0 ? row[idx.prompt] : row[0], type: idx.type >= 0 ? row[idx.type] : '',
+          options: idx.options >= 0 ? row[idx.options] : '', answer: idx.answer >= 0 ? row[idx.answer] : '',
+          explanation: idx.explanation >= 0 ? row[idx.explanation] : '', topic: idx.topic >= 0 ? row[idx.topic] : 'Tổng hợp',
+          points: idx.points >= 0 ? row[idx.points] : 1,
+        }));
+      } else {
+        questions = rows.map((row) => ({ prompt: row[0], answer: row[1] || '', options: row[2] || '', topic: row[3] || 'Tổng hợp' }));
+      }
+      appendQuestions(questions, `Excel “${file.name}”`);
+    } catch (err) { setMessage(err.message || 'Không đọc được file Excel.'); }
+    finally { setImporting(''); }
+  };
+
+  const downloadExcelTemplate = async () => {
+    const XLSX = await import('xlsx');
+    const rows = [
+      { 'Câu hỏi': '저는 학생___ 입니다. Chọn đáp án đúng.', 'Loại': 'MULTIPLE_CHOICE', 'Lựa chọn': '은|는|이|가', 'Đáp án': '은', 'Giải thích': 'Dùng 은 sau phụ âm.', 'Chủ đề': 'Trợ từ', 'Điểm': 1 },
+      { 'Câu hỏi': 'Dịch sang tiếng Hàn: Tôi là học sinh.', 'Loại': 'SHORT_TEXT', 'Lựa chọn': '', 'Đáp án': '저는 학생입니다.', 'Giải thích': '', 'Chủ đề': 'Bài 1', 'Điểm': 1 },
+      { 'Câu hỏi': 'Viết 3 câu giới thiệu bản thân bằng tiếng Hàn.', 'Loại': 'ESSAY', 'Lựa chọn': '', 'Đáp án': '', 'Giải thích': '', 'Chủ đề': 'Viết', 'Điểm': 2 },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'CauHoi');
+    XLSX.writeFile(wb, 'mau-giao-bai-hanquoc.xlsx');
+  };
+
+  const importImagesWithAI = async (event) => {
+    const files = [...(event.target.files || [])];
+    event.target.value = '';
+    if (!files.length) return;
+    setImporting('image'); setOcrProgress(0); setMessage('Đang đọc chữ trong ảnh...');
+    try {
+      const Tesseract = await import('tesseract.js');
+      let currentFileIndex = 0;
+      const worker = await Tesseract.createWorker(['kor', 'eng'], 1, {
+        logger: (info) => {
+          if (info.status === 'recognizing text') setOcrProgress(Math.round(((currentFileIndex + info.progress) / files.length) * 100));
+        },
+      });
+      const ocrTexts = [];
+      try {
+        for (let i = 0; i < files.length; i += 1) {
+          currentFileIndex = i;
+          const result = await worker.recognize(files[i]);
+          ocrTexts.push(result.data.text || '');
+        }
+      } finally {
+        await worker.terminate();
+      }
+      const ocrText = ocrTexts.join('\n\n--- ẢNH TIẾP THEO ---\n\n').trim();
+      if (ocrText.length < 5) throw new Error('Không đọc được chữ trong ảnh. Hãy dùng ảnh rõ, thẳng và đủ sáng.');
+      setMessage('Đã OCR xong. AI đang tách câu hỏi...');
+      const aiResult = await api('/learning/ai', {
+        method: 'POST', toast: false,
+        body: JSON.stringify({
+          systemPrompt: 'Bạn là trợ lý nhập đề tiếng Hàn cho giáo viên. Chỉ trả JSON hợp lệ, không markdown.',
+          prompt: `Từ nội dung OCR dưới đây, hãy tách thành các câu hỏi bài tập. Không tự bịa câu không có trong ảnh.\n\nOCR:\n${ocrText}\n\nTrả đúng JSON dạng:\n{"questions":[{"type":"MULTIPLE_CHOICE|SHORT_TEXT|ESSAY","prompt":"nội dung câu hỏi","options":["A","B"],"correctAnswer":"đáp án nếu suy ra rõ, nếu không để rỗng","explanation":"","topic":"Tổng hợp","points":1}]}\nQuy tắc: nếu không thấy đáp án rõ ràng trong ảnh thì dùng type ESSAY để giáo viên sửa sau; trắc nghiệm phải có ít nhất 2 options.`,
+          temperature: 0.15, maxOutputTokens: 4096, jsonMode: true,
+        }),
+      });
+      const parsed = extractJson(aiResult.text);
+      if (!Array.isArray(parsed.questions)) throw new Error('AI chưa tách được danh sách câu hỏi.');
+      appendQuestions(parsed.questions, `${files.length} ảnh AI quét`);
+    } catch (err) { setMessage(err.message || 'Không quét được ảnh.'); }
+    finally { setImporting(''); setOcrProgress(0); }
+  };
+
+  const createAssignment = async (event) => {
+    event.preventDefault(); setMessage('');
+    try {
+      const payload = {
+        classId: Number(form.classId), type: form.type, title: form.title, instructions: form.instructions,
+        dueAt: form.dueAt || null, timeLimitMinutes: form.timeLimitMinutes ? Number(form.timeLimitMinutes) : null,
+        questions: form.questions.map((q) => ({
+          type: q.type, prompt: q.prompt, correctAnswer: q.correctAnswer, explanation: q.explanation, topic: q.topic,
+          points: Number(q.points), options: q.type === 'MULTIPLE_CHOICE' ? q.optionsText.split('\n').map((x) => x.trim()).filter(Boolean) : [],
+        })),
+      };
+      const created = await api('/assignments', { method: 'POST', body: JSON.stringify(payload) });
+      if (form.publishNow) await api(`/assignments/${created.id}/publish`, { method: 'POST' });
+      setMessage(form.publishNow ? 'Đã tạo và giao bài cho toàn bộ học sinh trong lớp.' : created.message);
+      setCreating(false); setForm({ classId: form.classId, type: 'HOMEWORK', title: '', instructions: '', dueAt: '', timeLimitMinutes: '', questions: [freshQuestion()], publishNow: true });
+      await load();
+    } catch (err) { setMessage(err.message); }
+  };
+  const publish = async (id) => {
+    try { const data = await api(`/assignments/${id}/publish`, { method: 'POST' }); setMessage(data.message); await load(); }
+    catch (err) { setMessage(err.message); }
+  };
+
+  if (user.role === 'STUDENT') return <StudentAssignments assignments={assignments} message={message} filter={studentFilter} setFilter={(value) => { setStudentFilter(value); setPage(1); }} pagination={pagination} page={page} setPage={setPage} loading={listLoading} />;
+  const selectedClass = classes.find((item) => String(item.id) === selectedClassId);
+  const modes = [
+    ['single', Plus, 'Thêm từng câu', 'Soạn và chỉnh từng câu như hiện tại'],
+    ['excel', FileSpreadsheet, 'Thêm từ Excel', 'Đọc .xlsx/.xls và đưa vào danh sách'],
+    ['image', ImagePlus, 'Ảnh → AI quét', 'OCR ảnh rồi AI tự tách thành câu'],
+    ['bulk', ListPlus, 'Nhiều câu một ô', 'Mỗi dòng là một câu hỏi'],
+  ];
+
+  return <>
+    <PageHeader eyebrow="GIÁO VIÊN" title="Bài tập & bài kiểm tra" subtitle={selectedClass ? `Đang xem riêng lớp ${selectedClass.name}. Bài của lớp khác không hiển thị trong danh sách này.` : 'Đang xem tất cả lớp. Mỗi bài vẫn chỉ thuộc đúng một lớp.'} action={<button className="btn primary" onClick={() => { setCreating((v) => !v); if (selectedClassId) setForm((old) => ({ ...old, classId: selectedClassId })); }}><FilePlus2 size={18} /> Tạo bài mới</button>} />
+    {message && <div className="notice">{message}</div>}
+    <div className="assignment-class-filter"><div><School size={17} /><span><strong>Lọc theo lớp</strong><small>Tách lộ trình và bài tập của từng lớp</small></span></div><select value={selectedClassId} onChange={(e) => { const value = e.target.value; setPage(1); setSearchParams(value ? { classId: value } : {}); }}><option value="">Tất cả lớp</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.code}</option>)}</select></div>
+    {creating && <form className="panel assignment-builder" onSubmit={createAssignment}>
+      <div className="panel-title"><div><span>BÀI MỚI</span><h3>Soạn nội dung</h3></div><button type="button" className="btn ghost" onClick={() => setCreating(false)}>Đóng</button></div>
+      <div className="form-grid three">
+        <label>Lớp<select value={form.classId} onChange={(e) => setForm({ ...form, classId: e.target.value })} required><option value="">Chọn lớp</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label>Loại<select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}><option value="HOMEWORK">Bài tập về nhà</option><option value="TEST">Bài kiểm tra</option></select></label>
+        <label>Hạn nộp<input type="datetime-local" value={form.dueAt} onChange={(e) => setForm({ ...form, dueAt: e.target.value })} /></label>
+        <label className="span-2">Tiêu đề<input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Ôn tập Bài 5" required /></label>
+        <label>Thời gian (phút)<input type="number" min="1" max="360" value={form.timeLimitMinutes} onChange={(e) => setForm({ ...form, timeLimitMinutes: e.target.value })} placeholder="Tùy chọn" /></label>
+        <label className="span-3">Hướng dẫn<textarea rows="2" value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} placeholder="Làm cẩn thận, kiểm tra lại trước khi nộp..." /></label>
+      </div>
+
+      <div className="question-source-block">
+        <div className="question-source-title"><div><Type size={18} /><strong>Chọn cách thêm câu hỏi</strong></div><span>Tối đa 100 câu / bài</span></div>
+        <div className="question-source-grid">
+          {modes.map(([id, Icon, title, note]) => <button key={id} type="button" className={`question-source-card ${inputMode === id ? 'active' : ''}`} onClick={() => setInputMode(id)}><Icon size={19} /><span><strong>{title}</strong><small>{note}</small></span></button>)}
         </div>
-        <div class="api-status" id="apiStatus"></div>
+        {inputMode === 'single' && <div className="question-source-action single"><span>Thêm một câu trống rồi nhập nội dung ở danh sách bên dưới.</span><button type="button" className="btn secondary small" onClick={() => setForm((old) => ({ ...old, questions: [...old.questions, freshQuestion()] }))}><Plus size={16} /> Thêm từng câu</button></div>}
+        {inputMode === 'excel' && <div className="question-source-action"><div><strong>Nhập từ Excel</strong><p>Hỗ trợ cột: Câu hỏi, Loại, Lựa chọn, Đáp án, Giải thích, Chủ đề, Điểm. Nếu file chỉ có một cột thì mỗi dòng sẽ thành một câu tự luận.</p></div><div className="source-buttons"><button type="button" className="btn ghost small" onClick={downloadExcelTemplate}><FileSpreadsheet size={16} /> Tải file mẫu</button><label className={`btn secondary small file-button ${importing === 'excel' ? 'disabled' : ''}`}>{importing === 'excel' ? <LoaderCircle className="spin" size={16} /> : <FileSpreadsheet size={16} />} Chọn Excel<input type="file" accept=".xlsx,.xls" onChange={importExcel} disabled={Boolean(importing)} /></label></div></div>}
+        {inputMode === 'image' && <div className="question-source-action"><div><strong>Ảnh → OCR → AI tách câu</strong><p>Chụp thẳng, đủ sáng. Ảnh được OCR trên trình duyệt; phần chữ sau đó gửi tới AI hệ thống để tách câu. Không cần nhập API key ở máy giáo viên.</p>{importing === 'image' && <div className="ocr-progress"><i style={{ width: `${ocrProgress}%` }} /><span>{ocrProgress ? `${ocrProgress}%` : 'AI đang xử lý...'}</span></div>}</div><label className={`btn secondary small file-button ${importing ? 'disabled' : ''}`}>{importing === 'image' ? <LoaderCircle className="spin" size={16} /> : <ImagePlus size={16} />} Chọn ảnh<input type="file" accept="image/*" multiple onChange={importImagesWithAI} disabled={Boolean(importing)} /></label></div>}
+        {inputMode === 'bulk' && <div className="question-source-action bulk"><div><strong>Dán nhiều câu vào một ô</strong><p>Mỗi câu chỉ cần xuống dòng. Hệ thống thêm thành câu tự luận; sau đó có thể đổi từng câu sang trắc nghiệm/điền từ và thêm đáp án.</p></div><textarea rows="7" value={bulkText} onChange={(e) => setBulkText(e.target.value)} placeholder={'Câu 1: Dịch câu sau sang tiếng Hàn...\nCâu 2: Viết 3 câu về cuối tuần...\nCâu 3: Hãy đặt câu với -고 싶다...'} /><button type="button" className="btn secondary small" onClick={addBulkQuestions} disabled={!bulkText.trim()}><ListPlus size={16} /> Thêm các dòng</button></div>}
       </div>
 
-      <!-- VOICE SETTINGS -->
-      <div class="settings-section">
-        <div class="settings-label">🔊 Giọng đọc tiếng Hàn</div>
-        <select id="voiceSelect" class="settings-select">
-          <option value="">-- Đang tải giọng... --</option>
-        </select>
-        <div class="settings-row">
-          <label>Tốc độ: <span id="rateVal">0.8</span></label>
-          <input type="range" id="speechRate" min="0.5" max="1.5" step="0.1" value="0.8" class="settings-range" />
-        </div>
-        <div class="settings-row">
-          <label>Cao độ: <span id="pitchVal">1.0</span></label>
-          <input type="range" id="speechPitch" min="0.5" max="2" step="0.1" value="1.0" class="settings-range" />
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="testVoice()">▶ Thử giọng: 안녕하세요!</button>
-      </div>
-
-      <!-- AI MODEL -->
-      <div class="settings-section">
-        <div class="settings-label">🧠 Mô hình AI</div>
-        <select id="modelSelect" class="settings-select">
-          <option value="gemini-3.5-flash">gemini-3.5-flash (Khuyên dùng - Cực nhanh)</option>
-          <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Nhẹ, tiết kiệm)</option>
-          <option value="gemini-2.5-flash">gemini-2.5-flash (Ổn định)</option>
-          <option value="gemini-2.5-pro">gemini-2.5-pro (Mạnh mẽ)</option>
-          <option value="gemini-1.5-flash">gemini-1.5-flash (Mặc định)</option>
-          <option value="gemini-1.5-pro">gemini-1.5-pro (Nâng cao)</option>
-        </select>
-      </div>
-
-      <!-- AI PERSONALITY -->
-      <div class="settings-section">
-        <div class="settings-label">🎭 Tính cách AI gia sư</div>
-        <div class="personality-grid">
-          <button class="personality-btn active" id="p-hana" onclick="selectPersonality('hana')">
-            <span>👩‍🏫</span><strong>Hana</strong><small>Ân cần, kiên nhẫn</small>
-          </button>
-          <button class="personality-btn" id="p-minho" onclick="selectPersonality('minho')">
-            <span>👨‍💼</span><strong>Minho</strong><small>Nghiêm túc, chuyên nghiệp</small>
-          </button>
-          <button class="personality-btn" id="p-yuri" onclick="selectPersonality('yuri')">
-            <span>👧</span><strong>Yuri</strong><small>Vui vẻ, như bạn bè</small>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== LESSON MANAGEMENT MODAL ===== -->
-<div class="modal-overlay" id="lessonOverlay" onclick="closeLessonModal()">
-  <div class="modal" onclick="event.stopPropagation()" id="lessonModal">
-    <div class="modal-header">
-      <h3>📁 Quản lý bài học (Bài 1, Bài 2, Bài 3...)</h3>
-      <button class="modal-close" onclick="closeLessonModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="settings-section">
-        <div class="settings-label">➕ Tạo bài học mới</div>
-        <div class="api-key-row">
-          <input type="text" id="newLessonInput" class="settings-input" placeholder="Ví dụ: Bài 3: Mua sắm & Giá cả" />
-          <button class="btn btn-primary btn-sm" onclick="addNewLesson()">➕ Tạo bài</button>
-        </div>
-      </div>
-      <div class="settings-section">
-        <div class="settings-label">📋 Danh sách bài học hiện có</div>
-        <div class="lesson-list-manage" id="lessonManageList"></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== SIDEBAR NAV ===== -->
-<aside class="sidebar" id="sidebar">
-  <div class="sidebar-header">
-    <div class="logo">
-      <div class="logo-icon-wrap">
-        <span class="logo-icon">🇰🇷</span>
-      </div>
-      <div class="logo-text">
-        <h1 class="logo-title">HanQuoc</h1>
-        <span class="logo-sub">Learn AI</span>
-      </div>
-    </div>
-  </div>
-
-  <nav class="nav-menu">
-    <!-- NHÓM HỌC -->
-    <div class="nav-section">
-      <div class="nav-group-label">📚 Học</div>
-      <button class="nav-item active" data-mode="home" id="nav-home" onclick="setMode('home')" title="Trang chủ">
-        <span class="nav-icon">🏠</span><span class="nav-label">Trang chủ</span>
-      </button>
-      <button class="nav-item" data-mode="learn" id="nav-learn" onclick="setMode('learn')" title="Học từ vựng">
-        <span class="nav-icon">📖</span><span class="nav-label">Học từ vựng</span>
-      </button>
-      <button class="nav-item" data-mode="batch" id="nav-batch" onclick="setMode('batch')" title="Học theo bộ từ">
-        <span class="nav-icon">🎯</span><span class="nav-label">Học theo bộ</span>
-        <span class="nav-badge-new">HOT</span>
-      </button>
-      <button class="nav-item ai-nav" data-mode="sentencePractice" id="nav-sentencePractice" onclick="setMode('sentencePractice')" title="AI tạo bài tập luyện viết câu theo sách">
-        <span class="nav-icon">📖</span><span class="nav-label">Luyện câu sách</span>
-        <span class="ai-badge">AI</span>
-      </button>
-      <button class="nav-item" data-mode="flashcard" id="nav-flashcard" onclick="setMode('flashcard')" title="Flashcard lật thẻ">
-        <span class="nav-icon">🃏</span><span class="nav-label">Flashcard</span>
-      </button>
-      <button class="nav-item" data-mode="numbers" id="nav-numbers" onclick="setMode('numbers')" title="Bảng tra cứu số Hán Hàn & Thuần Hàn">
-        <span class="nav-icon">🔢</span><span class="nav-label">Bảng số Hàn Quốc</span>
-        <span class="nav-badge-new">NEW</span>
-      </button>
-    </div>
-
-    <!-- NHÓM LUYỆN TẬP -->
-    <div class="nav-section">
-      <div class="nav-group-label">🎮 Luyện tập</div>
-      <button class="nav-item" data-mode="quiz" id="nav-quiz" onclick="setMode('quiz')" title="Trắc nghiệm">
-        <span class="nav-icon">❓</span><span class="nav-label">Trắc nghiệm</span>
-      </button>
-      <button class="nav-item" data-mode="fill" id="nav-fill" onclick="setMode('fill')" title="Điền từ vào chỗ trống">
-        <span class="nav-icon">✏️</span><span class="nav-label">Điền từ</span>
-      </button>
-      <button class="nav-item" data-mode="writing" id="nav-writing" onclick="setMode('writing')" title="Luyện viết chữ Hàn">
-        <span class="nav-icon">🖊️</span><span class="nav-label">Luyện viết</span>
-      </button>
-      <button class="nav-item" data-mode="speaking" id="nav-speaking" onclick="setMode('speaking')" title="Luyện nói phản xạ">
-        <span class="nav-icon">🎤</span><span class="nav-label">Luyện nói</span>
-      </button>
-      <button class="nav-item" data-mode="listening" id="nav-listening" onclick="setMode('listening')" title="Luyện nghe từ vựng">
-        <span class="nav-icon">🎧</span><span class="nav-label">Luyện nghe</span>
-      </button>
-      <button class="nav-item ai-nav" data-mode="listenDial" id="nav-listenDial" onclick="setMode('listenDial')" title="Nghe hội thoại AI">
-        <span class="nav-icon">🎙️</span><span class="nav-label">Nghe hội thoại</span>
-        <span class="ai-badge">AI</span>
-      </button>
-      <button class="nav-item" data-mode="matchGame" id="nav-matchGame" onclick="setMode('matchGame')" title="Game nối từ Hàn - Việt phản xạ nhanh">
-        <span class="nav-icon">🧩</span><span class="nav-label">Nối từ nhanh</span>
-        <span class="nav-badge-new">HOT</span>
-      </button>
-      <button class="nav-item" data-mode="grammarGame" id="nav-grammarGame" onclick="setMode('grammarGame')" title="Game xây câu ngữ pháp tiếng Hàn">
-        <span class="nav-icon">🎯</span><span class="nav-label">Game ngữ pháp</span>
-        <span class="nav-badge-new">NEW</span>
-      </button>
-    </div>
-
-    <!-- NHÓM NGỮ PHÁP & ĐỀ -->
-    <div class="nav-section">
-      <div class="nav-group-label">📐 Ngữ pháp</div>
-      <button class="nav-item" data-mode="grammar" id="nav-grammar" onclick="setMode('grammar')" title="Xem ngữ pháp đã lưu">
-        <span class="nav-icon">📐</span><span class="nav-label">Ngữ pháp</span>
-      </button>
-      <button class="nav-item ai-nav" data-mode="grammarPractice" id="nav-grammarPractice" onclick="setMode('grammarPractice')" title="Luyện ngữ pháp với AI">
-        <span class="nav-icon">🏋️</span><span class="nav-label">Luyện ngữ pháp</span>
-        <span class="ai-badge">AI</span>
-      </button>
-      <button class="nav-item" data-mode="exam" id="nav-exam" onclick="setMode('exam')" title="Luyện đề thi TOPIK">
-        <span class="nav-icon">📝</span><span class="nav-label">Luyện đề thi</span>
-      </button>
-      <button class="nav-item" data-mode="irregulars" id="nav-irregulars" onclick="setMode('irregulars')" title="Tra cứu & học 7 Bất quy tắc tiếng Hàn">
-        <span class="nav-icon">⚡</span><span class="nav-label">Bất quy tắc</span>
-        <span class="nav-badge-new">NEW</span>
-      </button>
-    </div>
-
-    <!-- NHÓM AI HỖ TRỢ -->
-    <div class="nav-section">
-      <div class="nav-group-label">🤖 AI Hỗ trợ</div>
-      <button class="nav-item ai-nav" data-mode="aichat" id="nav-aichat" onclick="setMode('aichat')" title="Trò chuyện AI tiếng Hàn">
-        <span class="nav-icon">💬</span><span class="nav-label">Trò chuyện AI</span>
-        <span class="ai-badge">AI</span>
-      </button>
-      <button class="nav-item ai-nav" data-mode="aitutor" id="nav-aitutor" onclick="setMode('aitutor')" title="Gia sư AI giải đáp thắc mắc">
-        <span class="nav-icon">🧑‍🏫</span><span class="nav-label">Gia sư AI</span>
-        <span class="ai-badge">AI</span>
-      </button>
-      <button class="nav-item ai-nav" data-mode="translate" id="nav-translate" onclick="setMode('translate')" title="Dịch thuật AI">
-        <span class="nav-icon">🔤</span><span class="nav-label">Dịch thuật</span>
-        <span class="ai-badge">AI</span>
-      </button>
-    </div>
-
-    <!-- NHÓM CÔNG CỤ -->
-    <div class="nav-section">
-      <div class="nav-group-label">📂 Công cụ</div>
-      <button class="nav-item" data-mode="dictionary" id="nav-dictionary" onclick="setMode('dictionary')" title="Từ điển tiếng Hàn đầy đủ">
-        <span class="nav-icon">📖</span><span class="nav-label">Từ điển</span>
-      </button>
-      <button class="nav-item" data-mode="pdfStudy" id="nav-pdfStudy" onclick="setMode('pdfStudy')" title="Học từ file PDF sách">
-        <span class="nav-icon">📄</span><span class="nav-label">Tài liệu PDF</span>
-      </button>
-      <button class="nav-item ai-nav" data-mode="homework" id="nav-homework" onclick="setMode('homework')" title="Bài tập về nhà AI chấm">
-        <span class="nav-icon">📑</span><span class="nav-label">Bài tập về nhà</span>
-        <span class="ai-badge">AI</span>
-      </button>
-      <button class="nav-item" data-mode="review" id="nav-review" onclick="setMode('review')" title="Ôn tập SRS thông minh">
-        <span class="nav-icon">🔄</span><span class="nav-label">Ôn tập SRS</span>
-      </button>
-      <button class="nav-item" data-mode="stats" id="nav-stats" onclick="setMode('stats')" title="Thống kê tiến độ học">
-        <span class="nav-icon">📊</span><span class="nav-label">Thống kê</span>
-      </button>
-      <button class="nav-item" data-mode="notebook" id="nav-notebook" onclick="setMode('notebook')" title="Sổ tay ghi chú cá nhân">
-        <span class="nav-icon">📔</span><span class="nav-label">Sổ tay</span>
-        <span class="nav-badge-new">NEW</span>
-      </button>
-    </div>
-  </nav>
-
-  <div class="sidebar-footer">
-    <div class="streak-badge" title="Chuỗi ngày học liên tiếp">
-      <span>🔥</span>
-      <span class="streak-count" id="streakCount">0</span>
-      <span class="streak-label">ngày</span>
-    </div>
-    <div class="footer-right">
-      <button class="icon-btn" id="themeToggle" title="Đổi giao diện sáng/tối">🌙</button>
-      <button class="icon-btn" onclick="openSettings()" title="Cài đặt hệ thống">⚙️</button>
-    </div>
-  </div>
-</aside>
-<button class="sidebar-collapse-btn" id="sidebarCollapseBtn" title="Thu gọn menu" aria-label="Thu gọn hoặc mở rộng menu">‹</button>
-
-<!-- ===== MAIN CONTENT ===== -->
-<main class="main-content" id="mainContent">
-
-  <!-- TOP BAR -->
-  <header class="topbar">
-    <button class="mobile-menu-btn" id="mobileMenuBtn">☰</button>
-    <div class="topbar-search">
-      <input type="text" id="searchInput" placeholder="🔍 Tìm từ vựng..." class="search-input" />
-      <div class="search-results" id="searchResults"></div>
-    </div>
-    <div class="topbar-actions">
-      <div class="lesson-filter-bar">
-        <span class="lesson-filter-label">📁</span>
-        <select id="globalLessonSelect" class="lesson-select" onchange="handleGlobalLessonChange(this.value)">
-          <option value="all">🌐 Tất cả bài học</option>
-        </select>
-        <button class="btn btn-ghost btn-xs" onclick="openLessonModal()" title="Quản lý danh sách bài học">⚙️ Bài học</button>
-      </div>
-      <div class="api-indicator" id="apiIndicator" title="Trạng thái Gemini AI">
-        <span class="api-dot" id="apiDot"></span>
-        <span id="apiLabel">AI</span>
-      </div>
-      <div class="xp-badge"><span>⚡</span><span id="xpCount">0 XP</span></div>
-    </div>
-  </header>
-
-  <!-- ===== HOME ===== -->
-  <section class="page active" id="page-home">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">Thêm từ vựng & ngữ pháp</h2>
-        <p class="page-subtitle">AI tự động tạo nội dung học từ từ bạn nhập ✨</p>
-      </div>
-      <div class="ai-power-badge" id="aiPowerBadge" style="display:none">
-        <span>🤖</span> AI đang hoạt động
-      </div>
-    </div>
-
-    <div class="home-grid">
-      <div class="card add-card">
-        <div class="add-card-header">
-          <span class="add-icon">📝</span>
-          <h3>Thêm từ vựng</h3>
-          <div class="ai-gen-toggle">
-            <label class="toggle-label">
-              <input type="checkbox" id="aiGenToggle" checked />
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              <span>AI tạo nội dung</span>
-            </label>
-          </div>
-        </div>
-        <p class="add-desc">Nhập từng từ tiếng Hàn (1 từ/dòng). <strong>Bật AI</strong> để tự động tạo phiên âm, nghĩa, ví dụ và mẹo nhớ thông minh.</p>
-        <div class="lesson-assign-row">
-          <label>📁 Phân loại vào:</label>
-          <select id="wordLessonSelect" class="settings-select-sm"></select>
-        </div>
-        <textarea id="wordInput" class="word-textarea" placeholder="Ví dụ:&#10;사람&#10;학생&#10;의사&#10;회사원&#10;행복&#10;사랑" rows="7"></textarea>
-        <div class="add-actions">
-          <button class="btn btn-primary" id="addWordsBtn">
-            <span>✨</span> Thêm & Tạo nội dung
-          </button>
-          <button class="btn btn-ghost" id="clearWordsBtn">🗑 Xóa hết</button>
-        </div>
-        <div class="loading-bar" id="loadingBar" style="display:none">
-          <div class="loading-progress" id="loadingProgress"></div>
-          <span class="loading-text" id="loadingText">Đang xử lý...</span>
-        </div>
-      </div>
-
-      <div class="card add-card">
-        <div class="add-card-header">
-          <span class="add-icon">📐</span>
-          <h3>Thêm công thức ngữ pháp</h3>
-        </div>
-        <p class="add-desc">Nhập cấu trúc ngữ pháp. <strong>AI có thể giải thích</strong> chi tiết nếu bạn chỉ nhập tên.</p>
-        <div class="lesson-assign-row">
-          <label>📁 Phân loại vào:</label>
-          <select id="grammarLessonSelect" class="settings-select-sm"></select>
-        </div>
-        <input type="text" id="grammarTitle" class="grammar-input" placeholder="VD: -이에/예요, -고 싶다, -아/어요" />
-        <textarea id="grammarFormula" class="grammar-textarea" placeholder="AI sẽ tự tạo nội dung nếu để trống (cần API key)" rows="4"></textarea>
-        <button class="btn btn-secondary" id="addGrammarBtn">
-          <span>➕</span> Thêm ngữ pháp
-        </button>
-      </div>
-
-      <div class="card word-list-card" id="wordListCard" style="display:none">
-        <div class="add-card-header">
-          <span class="add-icon">📚</span>
-          <h3>Từ vựng (<span id="wordCount">0</span>)</h3>
-          <button class="btn btn-ai btn-sm" id="regenAiBtn" onclick="regenerateAIWords()" style="display:none">🔄 Tạo lại bằng AI</button>
-        </div>
-        <div class="word-chips" id="wordChips"></div>
-        <div class="start-learning-actions">
-          <button class="btn btn-primary" onclick="setMode('learn')">📖 Học ngay</button>
-          <button class="btn btn-secondary" onclick="setMode('batch')">🎯 Lộ trình</button>
-          <button class="btn btn-accent" onclick="setMode('flashcard')">🃏 Flashcard</button>
-          <button class="btn btn-success" onclick="setMode('quiz')">❓ Quiz</button>
-          <button class="btn btn-ai" onclick="setMode('aichat')">🤖 Chat AI</button>
-        </div>
-      </div>
-
-      <div class="card grammar-list-card" id="grammarListCard" style="display:none">
-        <div class="add-card-header">
-          <span class="add-icon">📐</span>
-          <h3>Ngữ pháp (<span id="grammarCount">0</span>)</h3>
-        </div>
-        <div class="grammar-chips" id="grammarChips"></div>
-      </div>
-    </div>
-
-    <div class="sample-section">
-      <h3 class="sample-title">💡 Thử với từ mẫu:</h3>
-      <div class="sample-chips">
-        <button class="sample-chip" onclick="loadSample('basic')">🌱 Cơ bản (10 từ)</button>
-        <button class="sample-chip" onclick="loadSample('body')">🫀 Cơ thể (10 từ)</button>
-        <button class="sample-chip" onclick="loadSample('food')">🍜 Thức ăn (10 từ)</button>
-        <button class="sample-chip" onclick="loadSample('emotion')">😊 Cảm xúc (10 từ)</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== LEARN MODE ===== -->
-  <section class="page" id="page-learn">
-    <div class="page-header">
-      <h2 class="page-title">📖 Học từ vựng</h2>
-      <div class="learn-controls">
-        <button class="btn btn-ghost btn-sm" onclick="prevLearnCard()">← Trước</button>
-        <span class="card-counter" id="learnCounter">1 / 0</span>
-        <button class="btn btn-ghost btn-sm" onclick="nextLearnCard()">Tiếp →</button>
-      </div>
-    </div>
-    <div class="progress-bar-wrapper">
-      <div class="progress-bar-fill" id="learnProgress"></div>
-    </div>
-    <div class="learn-card-container" id="learnCardContainer">
-      <div class="learn-card" id="learnCard">
-        <div class="learn-card-top">
-          <span class="word-pos" id="lcPos">명사</span>
-          <div class="learn-top-right">
-            <button class="audio-btn" onclick="speakWord('learn')" title="Nghe phát âm">🔊</button>
-            <button class="ai-explain-btn" onclick="aiExplainWord()" title="AI giải thích">🤖</button>
-          </div>
-        </div>
-        <div class="korean-word" id="lcWord">사람</div>
-        <div class="romanization" id="lcRoman">saram</div>
-        <div class="meaning" id="lcMeaning">người, con người</div>
-        <div class="divider"></div>
-        <div class="example-block">
-          <div class="example-label">Ví dụ <button class="mini-audio-btn" onclick="speakExample()">🔊</button></div>
-          <div class="example-korean" id="lcExample">저는 사람이에요.</div>
-          <div class="example-viet" id="lcExampleViet">Tôi là người.</div>
-        </div>
-        <div class="tip-block">
-          <div class="tip-icon">💡</div>
-          <div class="tip-text" id="lcTip">Mẹo nhớ...</div>
-        </div>
-        <div class="ai-explain-box" id="aiExplainBox" style="display:none">
-          <div class="ai-explain-header"><span>🤖</span> Gemini giải thích</div>
-          <div class="ai-explain-content" id="aiExplainContent"></div>
-        </div>
-        <div class="learn-card-actions">
-          <button class="know-btn" onclick="markKnown(true)">✅ Đã biết</button>
-          <button class="unknown-btn" onclick="markKnown(false)">🔁 Học lại</button>
-        </div>
-      </div>
-    </div>
-    <div class="empty-state" id="learnEmpty" style="display:none">
-      <div class="empty-icon">📭</div>
-      <p>Chưa có từ vựng. <button class="link-btn" onclick="setMode('home')">Thêm từ mới →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== BATCH LEARNING (HỌC THEO LỘ TRÌNH) ===== -->
-  <section class="page" id="page-batch">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">🎯 Học theo lộ trình</h2>
-        <p class="page-subtitle">Học từng bộ 10-20 từ, bấm "Kiểm tra" khi xong — đúng hết cả bộ mới mở khóa bộ từ mới tiếp theo ✨</p>
-      </div>
-      <div class="batch-size-picker">
-        <label for="batchSizeSelect">📦 Số từ/bộ:</label>
-        <select id="batchSizeSelect" class="settings-select-sm" onchange="setBatchSize(parseInt(this.value))">
-          <option value="10">10 từ/bộ</option>
-          <option value="15">15 từ/bộ</option>
-          <option value="20" selected>20 từ/bộ</option>
-          <option value="30">30 từ/bộ</option>
-          <option value="50">50 từ/bộ</option>
-          <option value="100">100 từ/bộ</option>
-          <option value="9999">Tất cả trong 1 bộ</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="batch-overview" id="batchOverview"></div>
-
-    <div class="batch-main" id="batchMain">
-      <div id="batchBody"></div>
-    </div>
-
-    <div class="empty-state" id="batchEmpty" style="display:none">
-      <div class="empty-icon">📭</div>
-      <p>Chưa có từ vựng. <button class="link-btn" onclick="setMode('home')">Thêm từ mới →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== KOREAN NUMBERS MODULE (Bảng Số Hán Hàn & Thuần Hàn) ===== -->
-  <section class="page" id="page-numbers">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">🔢 Bảng Số Tiếng Hàn Quốc</h2>
-        <p class="page-subtitle">So sánh & Tra cứu <strong>Số Hán Hàn (한자어)</strong> vs <strong>Số Thuần Hàn (고유어)</strong> — Có công cụ đổi số tự động & Mẹo phân biệt ✨</p>
-      </div>
-    </div>
-
-    <!-- Converter Box -->
-    <div class="num-converter-card">
-      <div class="num-converter-header">
-        <span class="num-conv-icon">⚡</span>
-        <div>
-          <h3>Công cụ Đổi Số Thông Minh</h3>
-          <p>Nhập số nguyên bất kỳ (Ví dụ: 7, 24, 10500) để xem cách đọc Hán-Hàn và Thuần-Hàn ngay lập tức!</p>
-        </div>
-      </div>
-      <div class="num-input-row">
-        <input type="number" id="numConvInput" class="num-conv-input" placeholder="Nhập số ví dụ: 25" min="0" max="999999999" oninput="runNumConverter(this.value)">
-        <button class="btn btn-primary" onclick="runNumConverter(document.getElementById('numConvInput').value)">🔍 Đổi số</button>
-      </div>
-      <div class="num-conv-results" id="numConvResults" style="display:none">
-        <div class="num-result-box sino">
-          <div class="num-res-tag">Số Hán - Hàn (한자어)</div>
-          <div class="num-res-kr" id="resSinoKr">이십오</div>
-          <div class="num-res-rom" id="resSinoRom">isipo</div>
-          <button class="mini-audio-btn" onclick="TTS.speak(document.getElementById('resSinoKr').textContent)" title="Nghe phát âm">🔊 Nghe</button>
-          <div class="num-res-usage" id="resSinoUsage">📌 Dùng cho: Tiền tệ, Ngày tháng, Số điện thoại, Phút/Giây, Tầng nhà</div>
-        </div>
-        <div class="num-result-box native">
-          <div class="num-res-tag">Số Thuần - Hàn (고유어)</div>
-          <div class="num-res-kr" id="resNativeKr">스물다섯</div>
-          <div class="num-res-rom" id="resNativeRom">seumuldaseot</div>
-          <button class="mini-audio-btn" onclick="TTS.speak(document.getElementById('resNativeKr').textContent)" title="Nghe phát âm">🔊 Nghe</button>
-          <div class="num-res-usage" id="resNativeUsage">📌 Dùng cho: Tuổi tác, Giờ, Đếm món/người/con (Dạng đếm: 스물다섯 개)</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Rule Highlight Card (Dạng biến đổi rút gọn) -->
-    <div class="num-rule-card">
-      <div class="rule-card-header">
-        <span class="rule-card-badge">📌 LƯU Ý QUAN TRỌNG: DẠNG RÚT GỌN KHI ĐẾM</span>
-        <p class="rule-card-sub">Khi đứng trước danh từ đếm (살, 개, 명, 마리, 시...):</p>
-      </div>
-      <div class="rule-card-grid">
-        <div class="rule-item"><span class="rule-orig">하나</span> <span class="rule-arrow">=></span> <span class="rule-mod">한</span> <span class="rule-ex">(Ví dụ: 한 개, 한 살)</span></div>
-        <div class="rule-item"><span class="rule-orig">둘</span> <span class="rule-arrow">=></span> <span class="rule-mod">두</span> <span class="rule-ex">(Ví dụ: 두 개, 두 살)</span></div>
-        <div class="rule-item"><span class="rule-orig">셋</span> <span class="rule-arrow">=></span> <span class="rule-mod">세</span> <span class="rule-ex">(Ví dụ: 세 개, 세 살)</span></div>
-        <div class="rule-item"><span class="rule-orig">넷</span> <span class="rule-arrow">=></span> <span class="rule-mod">네</span> <span class="rule-ex">(Ví dụ: 네 개, 네 살)</span></div>
-        <div class="rule-item"><span class="rule-orig">스물</span> <span class="rule-arrow">=></span> <span class="rule-mod">스무</span> <span class="rule-ex">(Ví dụ: 스무 개, 스무 살)</span></div>
-      </div>
-    </div>
-
-    <!-- Personal Notes Box -->
-    <div class="num-personal-notes-card">
-      <div class="notes-header">
-        <span>📝 Ô ghi chú cá nhân của bạn (Tự động lưu)</span>
-        <span class="notes-status" id="numNotesStatus">✔ Đã lưu</span>
-      </div>
-      <textarea id="numPersonalNotes" class="num-notes-textarea" placeholder="Nhập ghi chú hoặc mẹo nhớ riêng của bạn tại đây..." oninput="savePersonalNumNotes(this.value)"></textarea>
-    </div>
-
-    <!-- Tabs Navigation -->
-    <div class="num-tabs-row">
-      <button class="num-tab-btn active" id="tabBtnSino" onclick="switchNumTab('sino')">🔢 1. Bảng Số Hán - Hàn (한자어)</button>
-      <button class="num-tab-btn" id="tabBtnNative" onclick="switchNumTab('native')">🔢 2. Bảng Số Thuần - Hàn (고유어)</button>
-      <button class="num-tab-btn" id="tabBtnTips" onclick="switchNumTab('tips')">💡 3. Mẹo phân biệt khi nào dùng</button>
-    </div>
-
-    <!-- Tab 1: Sino Table -->
-    <div class="num-tab-content active" id="tabSino">
-      <div class="num-section-info">
-        <h3>📌 Hệ Số Hán - Hàn (한자어 숫자)</h3>
-        <p>Gốc Hán Việt, dùng cho số đếm lớn, tiền bạc, ngày tháng năm, số điện thoại, thời gian (phút/giây).</p>
-      </div>
-      <div class="num-table-grid" id="sinoTableGrid"></div>
-    </div>
-
-    <!-- Tab 2: Native Table -->
-    <div class="num-tab-content" id="tabNative" style="display:none">
-      <div class="num-section-info">
-        <h3>📌 Hệ Số Thuần - Hàn (고유어 숫자)</h3>
-        <p>Gốc Hàn thuần túy, dùng đếm số lượng nhỏ (1-99), đếm tuổi, đếm giờ. Lưu ý: 1, 2, 3, 4, 20 có dạng rút gọn khi đi kèm danh từ đếm!</p>
-      </div>
-      <div class="num-table-grid" id="nativeTableGrid"></div>
-    </div>
-
-    <!-- Tab 3: Usage Tips -->
-    <div class="num-tab-content" id="tabTips" style="display:none">
-      <div class="num-usage-tips-grid">
-        <div class="tip-card sino-card">
-          <h4>🏢 Khi nào dùng SỐ HÁN - HÀN?</h4>
-          <ul>
-            <li>💵 <strong>Tiền tệ:</strong> 1,000원 (천 원), 50,000원 (오만 원)</li>
-            <li>📞 <strong>Số điện thoại:</strong> 010-1234-5678 (공일공-일이삼사-오육칠팔)</li>
-            <li>📅 <strong>Ngày tháng năm:</strong> Năm 2026 (이천이십육년), Tháng 8 (팔월), Ngày 3 (삼일)</li>
-            <li>⏱️ <strong>Phút / Giây:</strong> 15 phút (십오 분), 30 giây (삼십 초)</li>
-            <li>🏢 <strong>Tầng / Số phòng:</strong> Tầng 5 (오 층), Phòng 302 (삼백이 호)</li>
-          </ul>
-        </div>
-        <div class="tip-card native-card">
-          <h4>🎂 Khi nào dùng SỐ THUẦN - HÀN?</h4>
-          <ul>
-            <li>🎂 <strong>Tuổi tác:</strong> 20 tuổi (스물 살 / 스무 살), 25 tuổi (스물다섯 살)</li>
-            <li>⏰ <strong>Giờ (Clock Hour):</strong> 3 giờ (세 시), 7 giờ (일곱 시)</li>
-            <li>🍎 <strong>Đếm đồ vật (개):</strong> 1 cái (한 개), 2 cái (두 개), 3 cái (세 개)</li>
-            <li>👥 <strong>Đếm người (명/분):</strong> 3 người (세 명), 4 vị (네 분)</li>
-            <li>🐶 <strong>Đếm con vật (마리):</strong> 1 con (한 마리), 2 con (두 마리)</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SENTENCE PRACTICE (AI Luyện câu theo sách) ===== -->
-  <section class="page" id="page-sentencePractice">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">📖 Luyện viết câu AI theo sách</h2>
-        <p class="page-subtitle">Bài tập dịch câu từ sách <strong>Tiếng Hàn Tổng Hợp Sơ cấp 1</strong> — AI tạo câu, bạn dịch, AI chấm ✨</p>
-      </div>
-    </div>
-
-    <!-- Controls -->
-    <div class="sp-controls-row">
-      <div class="sp-control-group">
-        <label class="sp-label">📚 Chọn bài học</label>
-        <select id="spLessonSelect" class="settings-select-sm sp-select" onchange="spUpdateLesson()">
-          <!-- Options rendered by JS -->
-        </select>
-      </div>
-      <div class="sp-control-group">
-        <label class="sp-label">🔀 Chiều dịch</label>
-        <select id="spDirectionSelect" class="settings-select-sm sp-select">
-          <option value="vn2kr">🇻🇳 → 🇰🇷 Tiếng Việt → Tiếng Hàn</option>
-          <option value="kr2vn">🇰🇷 → 🇻🇳 Tiếng Hàn → Tiếng Việt</option>
-          <option value="random">🔀 Ngẫu nhiên</option>
-        </select>
-      </div>
-      <div class="sp-control-group">
-        <label class="sp-label">📝 Loại bài tập</label>
-        <select id="spTypeSelect" class="settings-select-sm sp-select">
-          <option value="sentence">💬 Câu theo ngữ cảnh</option>
-          <option value="vocab">📚 Câu từ từ vựng bài học</option>
-          <option value="grammar">📐 Câu dùng ngữ pháp bài</option>
-        </select>
-      </div>
-      <button class="btn btn-primary sp-gen-btn" id="spGenBtn" onclick="spGenerate()">
-        <span>✨</span> Tạo câu bài tập
-      </button>
-    </div>
-
-    <!-- Lesson Info Banner -->
-    <div class="sp-lesson-banner" id="spLessonBanner"></div>
-
-    <!-- Exercise area -->
-    <div class="sp-exercise-wrap" id="spExerciseWrap" style="display:none">
-      <div class="sp-exercise-card">
-        <!-- Direction badge -->
-        <div class="sp-dir-badge" id="spDirBadge">🇻🇳 → 🇰🇷</div>
-
-        <!-- The sentence to translate -->
-        <div class="sp-question-label" id="spQuestionLabel">Dịch câu sau sang tiếng Hàn:</div>
-        <div class="sp-question-sentence" id="spQuestionSentence"></div>
-        <div class="sp-question-hint" id="spQuestionHint"></div>
-
-        <!-- Vocabulary hint chips -->
-        <div class="sp-vocab-hints" id="spVocabHints"></div>
-
-        <!-- User input -->
-        <div class="sp-input-wrap">
-          <textarea id="spAnswerInput" class="sp-answer-textarea" placeholder="Nhập câu dịch của bạn ở đây..." rows="3" onkeydown="if(event.key==='Enter'&&event.ctrlKey)spCheckAnswer()"></textarea>
-          <div class="sp-input-tips">💡 Nhấn <kbd>Ctrl+Enter</kbd> để kiểm tra</div>
-        </div>
-
-        <!-- Action buttons -->
-        <div class="sp-answer-actions" id="spAnswerActions">
-          <button class="btn btn-primary" onclick="spCheckAnswer()" id="spCheckBtn">✅ Kiểm tra</button>
-          <button class="btn btn-ghost" onclick="spShowAnswer()" id="spShowBtn">👁 Xem đáp án</button>
-          <button class="btn btn-ghost" onclick="spListenQuestion()" id="spListenBtn">🔊 Nghe câu</button>
-        </div>
-
-        <!-- Feedback / result area -->
-        <div class="sp-feedback" id="spFeedback" style="display:none"></div>
-
-        <!-- Next / new exercise -->
-        <div class="sp-next-actions" id="spNextActions" style="display:none">
-          <button class="btn btn-primary" onclick="spGenerate()">✨ Câu mới</button>
-          <button class="btn btn-secondary" onclick="spRetryCurrent()">🔄 Làm lại câu này</button>
-          <button class="btn btn-ghost" onclick="spReset()">🗑 Xóa làm lại</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Loading state -->
-    <div class="sp-loading" id="spLoading" style="display:none">
-      <div class="sp-loading-spinner"></div>
-      <p>AI đang tạo câu bài tập...</p>
-    </div>
-
-    <!-- Stats row -->
-    <div class="sp-stats-row" id="spStatsRow">
-      <div class="sp-stat-chip">🎯 <span id="spStatTotal">0</span> câu đã luyện</div>
-      <div class="sp-stat-chip">✅ <span id="spStatCorrect">0</span> đúng</div>
-      <div class="sp-stat-chip">📊 Độ chính xác: <span id="spStatPct">—</span></div>
-    </div>
-  </section>
-
-  <!-- ===== FLASHCARD ===== -->
-  <section class="page" id="page-flashcard">
-    <div class="page-header">
-      <h2 class="page-title">🃏 Flashcard</h2>
-      <div class="learn-controls">
-        <button class="btn btn-ghost btn-sm" onclick="prevFlash()">←</button>
-        <span class="card-counter" id="flashCounter">1 / 0</span>
-        <button class="btn btn-ghost btn-sm" onclick="nextFlash()">→</button>
-        <button class="btn btn-ghost btn-sm" onclick="shuffleFlash()">🔀</button>
-      </div>
-    </div>
-    <div class="progress-bar-wrapper">
-      <div class="progress-bar-fill" id="flashProgress"></div>
-    </div>
-    <div class="flashcard-scene" id="flashScene" onclick="flipCard()">
-      <div class="flashcard" id="flashcard">
-        <div class="flashcard-front">
-          <div class="flash-hint">Nhấn để lật thẻ</div>
-          <div class="flash-korean" id="flashKorean">사람</div>
-          <div class="flash-sub" id="flashSub">명사</div>
-          <button class="flash-audio-btn" onclick="e=>{e.stopPropagation();speakWord('flash')}">🔊</button>
-        </div>
-        <div class="flashcard-back">
-          <div class="flash-roman" id="flashRoman">saram</div>
-          <div class="flash-meaning" id="flashMeaning">người, con người</div>
-          <div class="flash-example" id="flashExample">저는 사람이에요.</div>
-          <div class="flash-tip" id="flashTip">💡 Mẹo nhớ...</div>
-        </div>
-      </div>
-    </div>
-    <div class="flash-rate-btns" id="flashRateBtns" style="display:none">
-      <button class="rate-btn rate-hard" onclick="rateFlash('hard')">😰 Khó</button>
-      <button class="rate-btn rate-medium" onclick="rateFlash('medium')">🤔 Vừa</button>
-      <button class="rate-btn rate-easy" onclick="rateFlash('easy')">😎 Dễ</button>
-    </div>
-    <div class="empty-state" id="flashEmpty" style="display:none">
-      <div class="empty-icon">📭</div>
-      <p>Chưa có từ vựng. <button class="link-btn" onclick="setMode('home')">Thêm từ mới →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== QUIZ ===== -->
-  <section class="page" id="page-quiz">
-    <div class="page-header">
-      <h2 class="page-title">❓ Trắc nghiệm</h2>
-      <div class="quiz-score-bar">
-        <span class="score-display" id="quizScore">🏆 0 / 0</span>
-        <button class="btn btn-ghost btn-sm" onclick="startQuiz()">🔄 Làm lại</button>
-      </div>
-    </div>
-    <div class="progress-bar-wrapper"><div class="progress-bar-fill" id="quizProgress"></div></div>
-    <div class="quiz-container" id="quizContainer">
-      <div class="quiz-type-badge" id="quizTypeBadge">🇰🇷 → 🇻🇳</div>
-      <div class="quiz-question" id="quizQuestion">사람</div>
-      <div class="quiz-hint" id="quizHint"></div>
-      <div class="quiz-options" id="quizOptions"></div>
-      <div class="quiz-feedback" id="quizFeedback" style="display:none"></div>
-      <button class="btn btn-primary quiz-next-btn" id="quizNextBtn" style="display:none" onclick="nextQuiz()">Tiếp theo →</button>
-    </div>
-    <div class="empty-state" id="quizEmpty" style="display:none">
-      <div class="empty-icon">📭</div>
-      <p>Cần ít nhất 4 từ để làm quiz. <button class="link-btn" onclick="setMode('home')">Thêm từ →</button></p>
-    </div>
-    <div class="quiz-result" id="quizResult" style="display:none">
-      <div class="result-emoji" id="resultEmoji">🎉</div>
-      <div class="result-text" id="resultText">Hoàn thành!</div>
-      <div class="result-score" id="resultScore">10 / 10</div>
-      <button class="btn btn-primary" onclick="startQuiz()">🔄 Làm lại</button>
-      <button class="btn btn-ghost" onclick="setMode('home')">🏠 Trang chủ</button>
-    </div>
-  </section>
-
-  <!-- ===== FILL ===== -->
-  <section class="page" id="page-fill">
-    <div class="page-header">
-      <h2 class="page-title">✏️ Điền từ</h2>
-      <span class="score-display" id="fillScore">✅ 0 / 0</span>
-    </div>
-    <div class="progress-bar-wrapper"><div class="progress-bar-fill" id="fillProgress"></div></div>
-    <div class="fill-container" id="fillContainer">
-      <div class="fill-sentence" id="fillSentence"></div>
-      <div class="fill-viet" id="fillViet"></div>
-      <div class="fill-input-row">
-        <input type="text" class="fill-input" id="fillInput" placeholder="Nhập từ tiếng Hàn..." autocomplete="off" />
-        <button class="btn btn-primary" onclick="checkFill()">Kiểm tra</button>
-      </div>
-      <div class="fill-feedback" id="fillFeedback" style="display:none"></div>
-      <div class="fill-hint-btn">
-        <button class="btn btn-ghost btn-sm" onclick="showFillHint()">💡 Gợi ý</button>
-        <button class="btn btn-ghost btn-sm" onclick="nextFill()">→ Bỏ qua</button>
-      </div>
-    </div>
-    <div class="empty-state" id="fillEmpty" style="display:none">
-      <div class="empty-icon">📭</div>
-      <p>Cần thêm từ vựng. <button class="link-btn" onclick="setMode('home')">Thêm từ →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== LISTENING ===== -->
-  <section class="page" id="page-listening">
-    <div class="page-header">
-      <h2 class="page-title">🎧 Luyện nghe</h2>
-      <span class="score-display" id="listenScore">🎯 0 / 0</span>
-    </div>
-    <div class="progress-bar-wrapper"><div class="progress-bar-fill" id="listenProgress"></div></div>
-    <div class="listen-container" id="listenContainer">
-      <div class="listen-play-area">
-        <button class="big-play-btn" onclick="playListenAudio()">
-          <span class="play-icon">▶</span>
-          <span class="play-text">Nghe từ</span>
-        </button>
-        <div class="listen-wave" id="listenWave">
-          <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
-          <div class="wave-bar"></div><div class="wave-bar"></div>
-        </div>
-      </div>
-      <div class="listen-options" id="listenOptions"></div>
-      <div class="listen-feedback" id="listenFeedback" style="display:none"></div>
-    </div>
-    <div class="empty-state" id="listenEmpty" style="display:none">
-      <div class="empty-icon">📭</div>
-      <p>Cần ít nhất 4 từ. <button class="link-btn" onclick="setMode('home')">Thêm từ →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== LISTEN DIALOGUE ===== -->
-  <section class="page" id="page-listenDial">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">🎙️ Nghe hội thoại</h2>
-        <p class="page-subtitle">Nghe đoạn hội thoại tiếng Hàn do AI tạo, rồi điền thông tin còn thiếu</p>
-      </div>
-    </div>
-    <div class="listen-dial-page" id="listenDialContainer"></div>
-    <div class="empty-state" id="listenDialEmpty" style="display:none">
-      <div class="empty-icon">💭</div>
-      <p>Cần ít nhất 3 từ để tạo hội thoại. <button class="link-btn" onclick="setMode('home')">Thêm từ →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== WRITING ===== -->
-  <section class="page" id="page-writing">
-    <div class="page-header">
-      <h2 class="page-title">🖊️ Luyện viết</h2>
-      <span class="score-display" id="writeScore">📝 0 / 0</span>
-    </div>
-    <div class="progress-bar-wrapper"><div class="progress-bar-fill" id="writeProgress"></div></div>
-    <div class="write-container" id="writeContainer">
-      <div class="write-prompt">
-        <div class="write-meaning-label">Nghĩa tiếng Việt:</div>
-        <div class="write-meaning" id="writeMeaning">người</div>
-        <div class="write-pos" id="writePos">명사</div>
-      </div>
-      <div class="write-input-area">
-        <input type="text" class="write-input" id="writeInput" placeholder="Nhập từ tiếng Hàn..." autocomplete="off" />
-        <div class="write-keyboard-hint">💡 Bật bàn phím tiếng Hàn: Win + Space</div>
-      </div>
-      <div class="write-actions">
-        <button class="btn btn-primary" onclick="checkWrite()">✅ Kiểm tra</button>
-        <button class="btn btn-ghost btn-sm" onclick="showWriteHint()">💡 Gợi ý</button>
-        <button class="btn btn-ghost btn-sm" onclick="nextWrite()">→ Bỏ qua</button>
-      </div>
-      <div class="write-feedback" id="writeFeedback" style="display:none"></div>
-    </div>
-    <div class="empty-state" id="writeEmpty" style="display:none">
-      <div class="empty-icon">📭</div>
-      <p>Cần thêm từ vựng. <button class="link-btn" onclick="setMode('home')">Thêm từ →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== SPEED MATCH GAME (Game Nối từ phản xạ) ===== -->
-  <section class="page" id="page-matchGame">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">🧩 Game Nối từ phản xạ</h2>
-        <p class="page-subtitle">Nối các thẻ Tiếng Hàn và Tiếng Việt tương ứng càng nhanh càng tốt! Thách thức tốc độ não bộ ✨</p>
-      </div>
-      <div class="match-game-stats">
-        <div class="match-stat-pill">⏳ Thời gian: <span id="matchTimer">45</span>s</div>
-        <div class="match-stat-pill">🔥 Combo: <span id="matchCombo">0</span>x</div>
-        <div class="match-stat-pill">⭐ Điểm: <span id="matchScore">0</span></div>
-      </div>
-    </div>
-
-    <div class="match-game-body" id="matchGameBody">
-      <div class="match-controls-bar">
-        <div class="match-time-picker">
-          <label for="matchTimeSelect">⏱️ Thời gian chọn:</label>
-          <select id="matchTimeSelect" class="settings-select-sm" onchange="changeMatchTimeLimit(this.value)">
-            <option value="30">30 giây</option>
-            <option value="45" selected>45 giây</option>
-            <option value="60">60 giây</option>
-            <option value="90">90 giây</option>
-            <option value="120">120 giây</option>
-            <option value="0">♾️ Vô hạn thời gian</option>
-          </select>
-        </div>
-        <button class="btn btn-primary btn-md" onclick="startMatchGame()">🎮 Ván mới</button>
-      </div>
-
-      <!-- 3 Quyền Trợ Giúp -->
-      <div class="match-lifelines-bar">
-        <span class="lifelines-title">🛡️ Trợ giúp:</span>
-        <button class="lifeline-btn" id="btnHelpHint" onclick="useMatchHint()" title="Tự động nối đúng 1 cặp từ">
-          💡 Gợi ý (<span id="countHelpHint">1</span>)
-        </button>
-        <button class="lifeline-btn" id="btnHelpTime" onclick="useMatchTimeBonus()" title="Thêm +15 giây vào đồng hồ">
-          ⏱️ +15s (<span id="countHelpTime">1</span>)
-        </button>
-        <button class="lifeline-btn" id="btnHelpFreeze" onclick="useMatchFreeze()" title="Tạm dừng thời gian trong 10 giây">
-          ❄️ Đóng băng 10s (<span id="countHelpFreeze">1</span>)
-        </button>
-      </div>
-
-      <div class="match-grid" id="matchGrid"></div>
-    </div>
-
-    <div class="match-victory-overlay" id="matchVictory" style="display:none">
-      <div class="match-victory-card">
-        <div class="victory-icon">🎉</div>
-        <h3>HOÀN THÀNH XUẤT SẮC!</h3>
-        <p class="victory-sub" id="victoryText">Bạn đã ghép xong toàn bộ từ trong thời gian ngắn kỷ lục!</p>
-        <div class="victory-stats">
-          <div><strong id="vicScore">240</strong><span>Điểm số</span></div>
-          <div><strong id="vicCombo">5x</strong><span>Max Combo</span></div>
-          <div><strong id="vicXP">+25 XP</strong><span>Thưởng</span></div>
-        </div>
-        <button class="btn btn-primary btn-lg" onclick="startMatchGame()">🔄 Chơi ván tiếp theo</button>
-      </div>
-    </div>
-
-    <div class="empty-state" id="matchEmpty" style="display:none">
-      <div class="empty-icon">📭</div>
-      <p>Cần ít nhất 4 từ vựng trong sổ để chơi Game nối từ. <button class="link-btn" onclick="setMode('home')">Thêm từ →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== SPEAKING ===== -->
-  <section class="page" id="page-speaking">
-    <div class="page-header"><h2 class="page-title">🎤 Luyện nói</h2></div>
-    <div class="speak-container" id="speakContainer">
-      <div class="speak-word-display">
-        <div class="speak-korean" id="speakKorean">사람</div>
-        <div class="speak-roman" id="speakRoman">saram</div>
-        <div class="speak-meaning" id="speakMeaning">người</div>
-      </div>
-      <div class="speak-actions">
-        <button class="btn btn-accent btn-lg" onclick="speakWord('speak')">🔊 Nghe mẫu</button>
-        <button class="btn btn-primary btn-lg" id="recordBtn" onclick="toggleRecord()">🎤 Bắt đầu nói</button>
-      </div>
-      <div class="speak-result" id="speakResult" style="display:none">
-        <div class="speak-result-label">Bạn đã nói:</div>
-        <div class="speak-result-text" id="speakResultText"></div>
-        <div class="speak-score" id="speakScoreDisplay"></div>
-      </div>
-      <button class="btn btn-ghost" onclick="nextSpeak()">→ Từ tiếp theo</button>
-    </div>
-    <div class="empty-state" id="speakEmpty" style="display:none">
-      <div class="empty-icon">📭</div>
-      <p>Cần thêm từ vựng. <button class="link-btn" onclick="setMode('home')">Thêm từ →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== AI CHAT MODE ===== -->
-  <section class="page" id="page-aichat">
-    <div class="page-header">
-      <div class="ai-tutor-info">
-        <div class="tutor-avatar" id="tutorAvatar">👩‍🏫</div>
-        <div>
-          <h2 class="page-title" id="tutorName">Hana - AI Gia sư tiếng Hàn</h2>
-          <p class="page-subtitle" id="tutorSubtitle">Trò chuyện bằng tiếng Hàn và tiếng Việt để luyện tập!</p>
-        </div>
-      </div>
-      <div class="chat-controls">
-        <button class="btn btn-ghost btn-sm" onclick="clearChat()">🗑 Xóa chat</button>
-        <button class="btn btn-ghost btn-sm" onclick="openSettings()">⚙️ API Key</button>
-      </div>
-    </div>
-
-    <div class="chat-wrapper">
-      <div class="chat-suggestions" id="chatSuggestions">
-        <p class="suggestions-label">💡 Gợi ý câu hỏi:</p>
-        <div class="suggestion-chips" id="suggestionChips"></div>
-      </div>
-
-      <div class="chat-messages" id="chatMessages">
-        <div class="chat-message ai-message">
-          <div class="chat-avatar">👩‍🏫</div>
-          <div class="message-bubble">
-            <div class="message-text">
-              안녕하세요! 저는 Hana예요. 한국어를 같이 공부해요! 🎉<br><br>
-              <em>Xin chào! Mình là Hana, gia sư AI của bạn. Hãy trò chuyện với mình bằng tiếng Hàn hoặc tiếng Việt nhé!</em>
+      <div className="question-builder-head"><div><strong>Câu hỏi đã thêm</strong><span>{form.questions.length} câu</span></div><button type="button" className="btn secondary small" onClick={() => setForm({ ...form, questions: [...form.questions, freshQuestion()] })}><Plus size={16} /> Thêm câu</button></div>
+      <div className="question-builder-list">
+        {form.questions.map((question, index) => <div className="question-edit" key={index}>
+          <div className="question-number">{index + 1}</div>
+          <div className="question-edit-main">
+            <div className="question-meta-row">
+              <select value={question.type} onChange={(e) => updateQuestion(index, { type: e.target.value })}><option value="MULTIPLE_CHOICE">Trắc nghiệm</option><option value="SHORT_TEXT">Điền / trả lời ngắn</option><option value="ESSAY">Tự luận · AI chấm</option></select>
+              <input value={question.topic} onChange={(e) => updateQuestion(index, { topic: e.target.value })} placeholder="Chủ đề: Ngữ pháp bài 5" />
+              <label className="points-input"><input type="number" min="0.25" step="0.25" value={question.points} onChange={(e) => updateQuestion(index, { points: e.target.value })} /> điểm</label>
+              {form.questions.length > 1 && <button type="button" className="icon-button danger" onClick={() => removeQuestion(index)}><Trash2 size={17} /></button>}
             </div>
-            <div class="message-time">Hana</div>
+            <textarea rows="2" value={question.prompt} onChange={(e) => updateQuestion(index, { prompt: e.target.value })} placeholder="Nội dung câu hỏi" required />
+            {question.type === 'MULTIPLE_CHOICE' && <textarea rows="3" value={question.optionsText} onChange={(e) => updateQuestion(index, { optionsText: e.target.value })} placeholder={'Các lựa chọn, mỗi dòng 1 đáp án\n학교\n병원\n은행'} required />}
+            <div className="answer-row"><input value={question.correctAnswer} onChange={(e) => updateQuestion(index, { correctAnswer: e.target.value })} placeholder={question.type === 'ESSAY' ? 'Đáp án tham khảo cho AI (khuyên có)' : 'Đáp án đúng · có thể dùng A||B để chấp nhận nhiều đáp án'} required={question.type !== 'ESSAY'} /><input value={question.explanation} onChange={(e) => updateQuestion(index, { explanation: e.target.value })} placeholder="Giải thích khi sai (tùy chọn)" /></div>
           </div>
-        </div>
+        </div>)}
       </div>
+      <div className="builder-actions"><label className="check-label"><input type="checkbox" checked={form.publishNow} onChange={(e) => setForm({ ...form, publishNow: e.target.checked })} /> Giao ngay cho toàn bộ học sinh</label><button className="btn primary"><Send size={17} /> {form.publishNow ? 'Tạo & giao bài' : 'Lưu bản nháp'}</button></div>
+    </form>}
+    <section className="panel"><div className="panel-title"><div><span>DANH SÁCH</span><h3>{selectedClass ? `Bài của lớp ${selectedClass.name}` : 'Bài của tất cả lớp'}</h3></div>{selectedClass && <span className="class-context-badge"><School size={14} /> {selectedClass.code}</span>}</div>
+      {listLoading ? <Empty>Đang tải trang bài tập...</Empty> : assignments.length ? <div className="assignment-cards">{assignments.map((item) => <article className="assignment-card" key={item.id}>
+        <div className={`assignment-type ${item.type.toLowerCase()}`}>{item.type === 'TEST' ? <ClipboardCheck /> : <ClipboardList />}</div>
+        <div className="assignment-main"><div className="assignment-title-row"><strong>{item.title}</strong><span className={`status ${item.status.toLowerCase()}`}>{item.status === 'DRAFT' ? 'Bản nháp' : item.status === 'PUBLISHED' ? 'Đang mở' : 'Đã đóng'}</span></div><p className="assignment-class-name"><School size={14} /> Lớp: <strong>{item.className}</strong></p><div className="assignment-meta"><span><Clock3 size={15} /> {formatDate(item.due_at)}</span><span><CheckCircle2 size={15} /> {item.submittedCount || 0}/{item.studentCount || 0} đã nộp</span></div></div>
+        <div className="assignment-actions">{item.status === 'DRAFT' && <button className="btn secondary small" onClick={() => publish(item.id)}><Send size={15} /> Giao bài</button>}<Link className="btn ghost small" to={`/assignments/${item.id}`}>Chi tiết</Link></div>
+      </article>)}</div> : <Empty>Chưa có bài nào. Tạo bài đầu tiên nhé.</Empty>}
+      <Pagination pagination={pagination} loading={listLoading} onPageChange={setPage} label="bài" />
+    </section>
+  </>;
+}
 
-      <div class="no-api-notice" id="noApiNotice">
-        <span>⚠️ Cần API Key để dùng AI. </span>
-        <button class="link-btn" onclick="openSettings()">Cài đặt →</button>
-      </div>
-
-      <div class="chat-input-area">
-        <div class="chat-mode-btns">
-          <button class="chat-mode-btn active" id="modeKr" onclick="setChatMode('kr')">🇰🇷 Hàn</button>
-          <button class="chat-mode-btn" id="modeVn" onclick="setChatMode('vn')">🇻🇳 Việt</button>
-          <button class="chat-mode-btn" id="modeMix" onclick="setChatMode('mix')">🌏 Mix</button>
-        </div>
-        <div class="chat-input-row">
-          <button class="chat-voice-btn" id="chatVoiceBtn" onclick="toggleChatRecord()" title="Nói bằng giọng">🎤</button>
-          <input type="text" id="chatInput" class="chat-input" placeholder="Nhập tin nhắn... (hoặc nhấn 🎤)" />
-          <button class="chat-send-btn" onclick="sendChatMessage()" id="chatSendBtn">
-            <span>→</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== AI TUTOR (Grammar/Explain) ===== -->
-  <section class="page" id="page-aitutor">
-    <div class="page-header">
-      <h2 class="page-title">🧑‍🏫 Gia sư AI - Hỏi đáp</h2>
-      <p class="page-subtitle">Hỏi bất kỳ câu hỏi nào về tiếng Hàn!</p>
-    </div>
-    <div class="tutor-container">
-      <div class="tutor-quick-btns">
-        <p class="tutor-quick-label">📚 Câu hỏi gợi ý:</p>
-        <div class="tutor-quick-grid">
-          <button class="tutor-quick-btn" onclick="askTutor('Giải thích cách dùng 이에요/예요')">📌 이에요/예요</button>
-          <button class="tutor-quick-btn" onclick="askTutor('Sự khác nhau giữa 은/는 và 이/가')">📌 은/는 vs 이/가</button>
-          <button class="tutor-quick-btn" onclick="askTutor('Cách đọc bảng chữ cái tiếng Hàn Hangul')">📌 Bảng chữ cái</button>
-          <button class="tutor-quick-btn" onclick="askTutor('Cách dùng -고 싶다 để nói muốn làm gì')">📌 -고 싶다</button>
-          <button class="tutor-quick-btn" onclick="askTutorAboutWords()">📚 Giải thích từ vựng của tôi</button>
-          <button class="tutor-quick-btn" onclick="askTutor('Tạo bài tập ôn từ vựng cho tôi')">✏️ Tạo bài tập</button>
-        </div>
-      </div>
-
-      <div class="tutor-chat" id="tutorChat"></div>
-
-      <div class="no-api-notice" id="noApiNoticeTutor">
-        <span>⚠️ Cần API Key để dùng AI. </span>
-        <button class="link-btn" onclick="openSettings()">Cài đặt →</button>
-      </div>
-
-      <div class="tutor-input-row">
-        <input type="text" id="tutorInput" class="chat-input" placeholder="Hỏi bất kỳ điều gì về tiếng Hàn..." />
-        <button class="chat-send-btn" onclick="sendTutorMessage()" id="tutorSendBtn">→</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== REVIEW ===== -->
-  <section class="page" id="page-review">
-    <div class="page-header"><h2 class="page-title">🔄 Ôn tập (Spaced Repetition)</h2></div>
-    <div class="review-container" id="reviewContainer">
-      <div class="review-card" id="reviewCard">
-        <div class="review-card-front" id="reviewFront">
-          <div class="review-korean" id="reviewKorean">사람</div>
-          <div class="review-hint">Nhớ nghĩa không?</div>
-          <button class="btn btn-primary" onclick="revealReview()">👀 Hiện đáp án</button>
-        </div>
-      <div class="review-card-back" id="reviewBack" style="display:none">
-          <div class="review-roman" id="reviewRoman">saram</div>
-          <div class="review-meaning" id="reviewMeaning">người</div>
-          <div class="review-example" id="reviewExample"></div>
-          <div class="review-rate-btns">
-            <button class="rate-btn rate-hard" onclick="rateReview('hard')">😰 Khó<br><small>Học lại sớm</small></button>
-            <button class="rate-btn rate-medium" onclick="rateReview('medium')">🤔 Vừa<br><small>1 ngày</small></button>
-            <button class="rate-btn rate-easy" onclick="rateReview('easy')">😎 Dễ<br><small>3 ngày</small></button>
-          </div>
-        </div>
-      </div>
-      <div class="review-stats-mini">
-        <span class="rs-hard" id="rsHard">😰 0</span>
-        <span class="rs-medium" id="rsMedium">🤔 0</span>
-        <span class="rs-easy" id="rsEasy">😎 0</span>
-      </div>
-    </div>
-    <div class="empty-state" id="reviewEmpty" style="display:none">
-      <div class="empty-icon">🎉</div>
-      <p>Đã ôn hết! <button class="link-btn" onclick="startReview()">Ôn lại →</button></p>
-    </div>
-  </section>
-
-  <!-- ===== GRAMMAR ===== -->
-  <section class="page" id="page-grammar">
-    <div class="page-header"><h2 class="page-title">📐 Ngữ pháp</h2></div>
-    <div class="grammar-container" id="grammarContainer">
-      <div class="empty-state"><div class="empty-icon">📐</div><p>Chưa có ngữ pháp. <button class="link-btn" onclick="setMode('home')">Thêm ngữ pháp →</button></p></div>
-    </div>
-  </section>
-
-  <!-- ===== GRAMMAR PRACTICE ===== -->
-  <section class="page" id="page-grammarPractice">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">🌳 Luyện ngữ pháp</h2>
-        <p class="page-subtitle">Chọn cấu trúc → chọn mức độ → AI tạo bài ngay ✨</p>
-      </div>
-      <div class="gp-top-controls">
-        <div class="gp-diff-selector">
-          <button class="gp-diff-btn active" id="gpdiff-easy" onclick="setGpDifficulty('easy',this)">🟢 Dễ</button>
-          <button class="gp-diff-btn" id="gpdiff-medium" onclick="setGpDifficulty('medium',this)">🟡 Thường</button>
-          <button class="gp-diff-btn" id="gpdiff-hard" onclick="setGpDifficulty('hard',this)">🔴 Khó</button>
-        </div>
-        <button class="btn btn-ai btn-sm" onclick="generateGrammarExercises()">🤖 Tạo bài tập</button>
-        <button class="btn btn-secondary btn-sm" onclick="startGrammarComprehensiveTest()">📝 Kiểm tra tổng hợp</button>
-      </div>
-    </div>
-    <div class="gp-layout">
-      <div class="gp-sidebar">
-        <div class="gp-sidebar-title">📐 Cấu trúc đã lưu</div>
-        <div class="gp-grammar-list" id="gpGrammarList"></div>
-        <div class="empty-state" id="gpEmptyGrammar" style="display:none">
-          <div class="empty-icon">📐</div>
-          <p><button class="link-btn" onclick="setMode('home')">Thêm ngữ pháp →</button></p>
-        </div>
-      </div>
-      <div class="gp-main">
-        <div class="gp-header" id="gpHeader">
-          <div class="gp-selected-title" id="gpSelectedTitle">Chọn cấu trúc để luyện tập →</div>
-        </div>
-        <div class="gp-exercises" id="gpExercises">
-          <div class="gp-welcome">
-            <div class="gp-welcome-icon">🌳</div>
-            <h3>Luyện ngữ pháp cùng AI</h3>
-            <div class="gp-welcome-steps">
-              <div class="gp-step"><span class="gp-step-num">1</span><span>← Chọn cấu trúc ngữ pháp bên trái</span></div>
-              <div class="gp-step"><span class="gp-step-num">2</span><span>Chọn mức độ phía trên: <strong>🟢 Dễ / 🟡 Thường / 🔴 Khó</strong></span></div>
-              <div class="gp-step"><span class="gp-step-num">3</span><span>Nhấn <strong>🤖 Tạo bài tập</strong> để bắt đầu luyện</span></div>
-            </div>
-            <div class="gp-diff-guide">
-              <div class="gp-diff-row"><span class="gp-diff-tag easy">🟢 Dễ</span><span>Chỉ dùng từ đã học — câu ngắn, thân thuộc, dễ điền</span></div>
-              <div class="gp-diff-row"><span class="gp-diff-tag medium">🟡 Thường</span><span>Có thêm một số từ mới, câu tự nhiên và đa dạng hơn</span></div>
-              <div class="gp-diff-row"><span class="gp-diff-tag hard">🔴 Khó</span><span>Nhiều từ mới, câu phức tạp, sát đề thi TOPIK thật</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <!-- Comprehensive test overlay -->
-    <div class="gp-comp-overlay" id="gpCompOverlay" style="display:none">
-      <div class="gp-comp-modal">
-        <div class="gp-comp-header">
-          <span>📝 Kiểm tra ngữ pháp tổng hợp</span>
-          <button class="gp-comp-close" onclick="closeGrammarCompTest()">×</button>
-        </div>
-        <div id="gpCompContent"></div>
-      </div>
-    </div>
-  </section>
-
-
-  <!-- ===== EXAM / LUYỆN ĐỀ ===== -->
-  <section class="page" id="page-exam">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">📝 Luyện đề TOPIK</h2>
-        <p class="page-subtitle">Bài kiểm tra tổng hợp theo format đề thi thật</p>
-      </div>
-    </div>
-    <div class="exam-setup" id="examSetup">
-      <div class="exam-setup-grid">
-        <div class="card exam-option-card" onclick="startExam('vocab')" id="examOptVocab">
-          <div class="exam-opt-icon">📚</div>
-          <div class="exam-opt-title">Từ vựng</div>
-          <div class="exam-opt-desc">Kiểm tra từ vựng đã học (20 câu)</div>
-          <div class="exam-opt-diff">⭐⭐ Cơ bản</div>
-        </div>
-        <div class="card exam-option-card" onclick="startExam('grammar')" id="examOptGrammar">
-          <div class="exam-opt-icon">📐</div>
-          <div class="exam-opt-title">Ngữ pháp</div>
-          <div class="exam-opt-desc">Kiểm tra ngữ pháp & điền từ (15 câu)</div>
-          <div class="exam-opt-diff">⭐⭐⭐ Trung bình</div>
-        </div>
-        <div class="card exam-option-card" onclick="startExam('mixed')" id="examOptMixed">
-          <div class="exam-opt-icon">🎯</div>
-          <div class="exam-opt-title">Tổng hợp</div>
-          <div class="exam-opt-desc">Tất cả loại câu hỏi (25 câu)</div>
-          <div class="exam-opt-diff">⭐⭐⭐⭐ Khó</div>
-        </div>
-        <div class="card exam-option-card ai-glow-card" onclick="startExam('ai')" id="examOptAi">
-          <div class="exam-opt-icon">🤖</div>
-          <div class="exam-opt-title">AI tạo đề</div>
-          <div class="exam-opt-desc">AI tạo đề thi riêng theo từ vựng của bạn</div>
-          <div class="exam-opt-diff">⭐⭐⭐⭐⭐ Cao cấp</div>
-        </div>
-      </div>
-      <div class="exam-history" id="examHistory">
-        <h3 class="section-subtitle">📋 Lịch sử làm đề</h3>
-        <div id="examHistoryList"><p style="color:var(--text-muted);font-size:.85rem">Chưa có lịch sử</p></div>
-      </div>
-    </div>
-    <div class="exam-running" id="examRunning" style="display:none">
-      <div class="exam-header">
-        <div class="exam-meta">
-          <span class="exam-type-badge" id="examTypeBadge">📚 Từ vựng</span>
-          <span class="exam-timer" id="examTimer">⏱ 00:00</span>
-        </div>
-        <div class="exam-prog-info">
-          <span id="examQNum">Câu 1/20</span>
-          <div class="exam-progress-bar"><div class="exam-progress-fill" id="examProgressFill"></div></div>
-        </div>
-        <button class="btn btn-ghost btn-sm" onclick="endExam()">✕ Nộp bài</button>
-      </div>
-      <div class="exam-body" id="examBody"></div>
-      <div class="exam-nav">
-        <button class="btn btn-ghost" id="examPrevBtn" onclick="examNav(-1)">← Trước</button>
-        <div class="exam-dots" id="examDots"></div>
-        <button class="btn btn-primary" id="examNextBtn" onclick="examNav(1)">Tiếp →</button>
-      </div>
-    </div>
-    <div class="exam-result" id="examResult" style="display:none">
-      <div class="exam-result-inner">
-        <div class="exam-result-emoji" id="examResultEmoji">🎉</div>
-        <div class="exam-result-title" id="examResultTitle">Hoàn thành bài thi!</div>
-        <div class="exam-result-score" id="examResultScore">20/20</div>
-        <div class="exam-result-stats" id="examResultStats"></div>
-        <div class="exam-review" id="examReview"></div>
-        <div class="exam-result-btns">
-          <button class="btn btn-primary" onclick="resetExam()">🔄 Làm lại</button>
-          <button class="btn btn-ghost" onclick="setMode('home')">🏠 Trang chủ</button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== DICTIONARY ===== -->
-  <section class="page" id="page-dictionary">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">📖 Từ điển Hàn – Việt</h2>
-        <p class="page-subtitle">Tra cứu toàn bộ từ vựng (Phiên âm, tiếng Hàn, tiếng Việt), tìm kiếm tức thì & AI phân tích ✨</p>
-      </div>
-    </div>
-
-    <!-- Quick Search & Control Bar -->
-    <div class="dict-search-bar">
-      <div style="flex:1; display:flex; gap:8px; flex-wrap:wrap; width:100%;">
-        <input type="text" id="dictInput" class="dict-main-input" placeholder="🔍 Gõ tiếng Hàn, phiên âm, hoặc tiếng Việt để tìm ngay..." autocomplete="off" oninput="handleDictFilterChange()" />
-        <button class="btn btn-primary" onclick="dictSearch()">🔍 Tra từ AI</button>
-        <button class="btn btn-ai btn-sm" onclick="dictAIAnalyze()">🤖 AI Phân Tích</button>
-      </div>
-    </div>
-
-    <!-- Filter & Sort Controls -->
-    <div class="dict-filter-bar">
-      <div class="dict-filter-group">
-        <label class="dict-filter-label">📚 Bài học:</label>
-        <select id="dictLessonFilter" class="dict-select" onchange="handleDictFilterChange()">
-          <option value="all">Tất cả bài học</option>
-        </select>
-      </div>
-
-      <div class="dict-filter-group">
-        <label class="dict-filter-label">🏷️ Từ loại:</label>
-        <select id="dictPosFilter" class="dict-select" onchange="handleDictFilterChange()">
-          <option value="all">Tất cả từ loại</option>
-          <option value="명사">Danh từ (명사)</option>
-          <option value="동사">Động từ (동사)</option>
-          <option value="형용사">Tính từ (형용사)</option>
-          <option value="부사">Phó từ (부사)</option>
-          <option value="표현">Biểu hiện (표현)</option>
-        </select>
-      </div>
-
-      <div class="dict-filter-group">
-        <label class="dict-filter-label">📂 Nguồn từ:</label>
-        <select id="dictSourceFilter" class="dict-select" onchange="handleDictFilterChange()">
-          <option value="all">Tất cả (Hệ thống + Bài học)</option>
-          <option value="mywords">Từ vựng của tôi</option>
-          <option value="saved">Từ đã lưu (⭐)</option>
-        </select>
-      </div>
-
-      <div class="dict-filter-group">
-        <label class="dict-filter-label">🔤 Sắp xếp:</label>
-        <select id="dictSortFilter" class="dict-select" onchange="handleDictFilterChange()">
-          <option value="kr-asc">Tiếng Hàn (가 - 하)</option>
-          <option value="vi-asc">Tiếng Việt (A - Z)</option>
-          <option value="roman-asc">Phiên âm (A - Z)</option>
-        </select>
-      </div>
-
-      <div class="dict-filter-group">
-        <label class="dict-filter-label">👁️ Hiển thị:</label>
-        <div class="dict-view-btn-group">
-          <button class="dict-view-btn" id="dview-cols1" onclick="setDictViewMode('cols1')" title="1 hàng 1 từ (1 Cột)">📄 1 Cột</button>
-          <button class="dict-view-btn active" id="dview-cols3" onclick="setDictViewMode('cols3')" title="1 hàng 3 từ (3 Cột)">🎴 3 Cột</button>
-          <button class="dict-view-btn" id="dview-cols5" onclick="setDictViewMode('cols5')" title="1 hàng 5 từ (5 Cột)">🎛️ 5 Cột</button>
-        </div>
-      </div>
-
-      <div class="dict-count-badge" id="dictCountBadge">Hiển thị: 0 từ</div>
-    </div>
-
-    <!-- Tabs Navigation -->
-    <div class="dict-tabs">
-      <button class="dict-tab active" id="dtab-allwords" onclick="switchDictTab('allwords')">📖 Tất cả từ vựng</button>
-      <button class="dict-tab" id="dtab-result" onclick="switchDictTab('result')">📝 Tra cứu AI / Chi tiết</button>
-      <button class="dict-tab" id="dtab-mywords" onclick="switchDictTab('mywords')">⭐ Từ đã lưu</button>
-      <button class="dict-tab" id="dtab-history" onclick="switchDictTab('history')">🕐 Lịch sử tra</button>
-      <button class="dict-tab" id="dtab-conjugate" onclick="switchDictTab('conjugate')">🔄 Biến thể động từ</button>
-    </div>
-
-    <!-- TAB: Tất cả từ vựng (Full Dictionary List View) -->
-    <div class="dict-tab-content" id="dictTabAllwords">
-      <div class="dict-list-container" id="dictAllwordsList"></div>
-    </div>
-
-    <!-- TAB: Kết quả tra AI -->
-    <div class="dict-tab-content" id="dictTabResult" style="display:none">
-      <div class="dict-result" id="dictResult">
-        <div class="empty-state"><div class="empty-icon">🔍</div><p>Nhập từ vào ô tìm kiếm và nhấn <strong>Tra từ AI</strong></p></div>
-      </div>
-    </div>
-
-    <!-- TAB: Từ đã lưu -->
-    <div class="dict-tab-content" id="dictTabMywords" style="display:none">
-      <div class="dict-mywords" id="dictMywords"></div>
-    </div>
-
-    <!-- TAB: Lịch sử -->
-    <div class="dict-tab-content" id="dictTabHistory" style="display:none">
-      <div class="dict-history-list" id="dictHistoryList"></div>
-    </div>
-
-    <!-- TAB: Biến thể -->
-    <div class="dict-tab-content" id="dictTabConjugate" style="display:none">
-      <div class="dict-conjugate-area">
-        <p class="dict-conj-desc">Nhập động từ/tính từ tiếng Hàn để xem biến thể đầy đủ:</p>
-        <div class="dict-conj-input-row">
-          <input type="text" id="conjInput" class="dict-main-input" placeholder="VD: 가다, 먹다, 좋다..." />
-          <button class="btn btn-ai" onclick="dictConjugate()">🔄 Xem biến thể</button>
-        </div>
-        <div id="conjResult"></div>
-      </div>
-    </div>
-  </section>
-
-
-  <!-- ===== TRANSLATE ===== -->
-  <section class="page" id="page-translate">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">🔤 Dịch thuật AI</h2>
-        <p class="page-subtitle">Dịch câu song ngữ Hàn - Việt, phát âm & phân tích chi tiết cấu trúc</p>
-      </div>
-    </div>
-    <div class="translate-container">
-      <div class="translate-box card">
-        <div class="translate-lang-header">
-          <select id="translateSrcLang" class="settings-select-sm" onchange="handleSrcLangChange()">
-            <option value="ko" selected>🇰🇷 Tiếng Hàn</option>
-            <option value="vi">🇻🇳 Tiếng Việt</option>
-          </select>
-          <button class="btn btn-ghost btn-sm" onclick="swapTranslateLanguages()" title="Đổi chiều dịch" style="font-size: 1.1rem;">⇄</button>
-          <select id="translateDestLang" class="settings-select-sm" onchange="handleDestLangChange()">
-            <option value="vi" selected>🇻🇳 Tiếng Việt</option>
-            <option value="ko">🇰🇷 Tiếng Hàn</option>
-          </select>
-        </div>
-        <textarea id="translateInput" class="translate-textarea" placeholder="Nhập văn bản cần dịch..." rows="5" oninput="updateTranslateCharCount()"></textarea>
-        <div class="translate-actions-row">
-          <span class="char-counter" id="translateCharCount">0 / 1000</span>
-          <div class="translate-btns">
-            <button class="btn btn-ghost btn-sm" onclick="clearTranslateInput()">🗑 Xóa</button>
-            <button class="btn btn-ai" onclick="runTranslateAI()">🤖 Dịch bằng AI</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="translate-result-card card" id="translateResultCard" style="display:none">
-        <div class="translate-result-header">
-          <span class="translate-result-title">✨ Bản dịch</span>
-          <div class="translate-result-audio-btns">
-            <button class="btn btn-ghost btn-xs" id="btnSpeakSrc" onclick="speakTranslateText('src')" title="Nghe câu gốc">🔊 Nghe gốc</button>
-            <button class="btn btn-ghost btn-xs" id="btnSpeakDest" onclick="speakTranslateText('dest')" title="Nghe bản dịch">🔊 Nghe dịch</button>
-          </div>
-        </div>
-        <div class="translate-result-text" id="translateResultText"></div>
-        <div class="translate-roman" id="translateRomanText" style="display:none"></div>
-        
-        <!-- Grammar/Vocab breakdown -->
-        <div class="translate-breakdown-section" id="translateBreakdownSec">
-          <h4 class="breakdown-title">📊 Phân tích chi tiết:</h4>
-          <div class="breakdown-content" id="translateBreakdown"></div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== PDF STUDY READER ===== -->
-  <section class="page" id="page-pdfStudy">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">📄 Tài liệu & Sách PDF Học Tiếng Hàn</h2>
-        <p class="page-subtitle">Tải file PDF sách học lên để đọc trực tiếp, phân tích từ vựng & tạo Bài Tập Về Nhà ✨</p>
-      </div>
-      <div class="chat-controls">
-        <label class="btn btn-primary btn-sm" style="cursor:pointer">
-          <span>📤 Tải PDF mới</span>
-          <input type="file" id="pdfFileInput" accept="application/pdf" style="display:none" onchange="handlePdfUpload(event)">
-        </label>
-      </div>
-    </div>
-
-    <div class="pdf-layout">
-      <!-- Sidebar PDF List -->
-      <div class="pdf-sidebar card">
-        <div class="pdf-sidebar-header">
-          <span>📁 Tủ sách của tôi (<span id="pdfCount">0</span>)</span>
-        </div>
-        <div class="pdf-list" id="pdfList"></div>
-      </div>
-
-      <!-- Main Reader Area -->
-      <div class="pdf-main">
-        <div class="pdf-toolbar card" id="pdfToolbar" style="display:none">
-          <div class="pdf-title-info" id="pdfTitleInfo">
-            <span class="pdf-icon">📄</span>
-            <span class="pdf-name" id="pdfActiveName">Tài liệu</span>
-          </div>
-          <div class="pdf-toolbar-btns">
-            <button class="btn btn-ai btn-sm" onclick="analyzeActivePdfAI()">🤖 AI Trích Từ Vựng</button>
-            <button class="btn btn-accent btn-sm" onclick="createHomeworkFromActivePdf()">📑 Tạo BTVN từ PDF</button>
-            <button class="btn btn-ghost btn-sm" onclick="closeActivePdf()">✕ Đóng</button>
-          </div>
-        </div>
-
-        <div class="pdf-viewer-card card" id="pdfViewerCard">
-          <div class="empty-state" id="pdfEmptyState">
-            <div class="empty-icon">📄</div>
-            <h3>Chưa mở file PDF nào</h3>
-            <p>Nhấn <strong>"📤 Tải PDF mới"</strong> hoặc chọn file PDF từ tủ sách bên trái để học tập.</p>
-          </div>
-          <div id="pdfFrameWrapper" style="display:none; width:100%; height:650px;">
-            <iframe id="pdfIframe" style="width:100%; height:100%; border:none; border-radius:var(--radius);"></iframe>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== HOMEWORK (BTVN) ===== -->
-  <section class="page" id="page-homework">
-    <div class="page-header">
-      <div>
-        <h2 class="page-title">📑 Bài Tập Về Nhà (BTVN)</h2>
-        <p class="page-subtitle">Làm bài tập AI giao hoặc dán đề bài từ sách PDF, AI sẽ chấm điểm & sửa lỗi chi tiết cho bạn ✨</p>
-      </div>
-      <div class="chat-controls">
-        <button class="btn btn-ai btn-sm" onclick="openHomeworkModal()">➕ Tạo / Nhập BTVN Mới</button>
-      </div>
-    </div>
-
-    <div class="hw-layout">
-      <div class="hw-main" id="hwMainContainer">
-        <div class="empty-state" id="hwEmptyState">
-          <div class="empty-icon">📑</div>
-          <h3>Chưa có bài tập về nhà nào</h3>
-          <p>Nhấn <strong>"➕ Tạo / Nhập BTVN Mới"</strong> để AI tự sinh bài tập hoặc dán đề bài từ sách PDF vào làm.</p>
-          <button class="btn btn-ai btn-lg" style="margin-top:12px" onclick="openHomeworkModal()">🤖 Tạo BTVN Đầu Tiên</button>
-        </div>
-        <div id="hwActiveView" style="display:none"></div>
-      </div>
-
-      <div class="hw-sidebar card">
-        <div class="hw-sidebar-header">
-          <span>📋 Lịch sử BTVN đã làm</span>
-        </div>
-        <div class="hw-history-list" id="hwHistoryList"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== STATS ===== -->
-  <section class="page" id="page-stats">
-    <div class="page-header"><h2 class="page-title">📊 Thống kê học tập</h2></div>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-icon">📚</div><div class="stat-value" id="statTotalWords">0</div><div class="stat-label">Từ vựng</div></div>
-      <div class="stat-card"><div class="stat-icon">✅</div><div class="stat-value" id="statKnown">0</div><div class="stat-label">Đã thuộc</div></div>
-      <div class="stat-card"><div class="stat-icon">🎯</div><div class="stat-value" id="statAccuracy">0%</div><div class="stat-label">Độ chính xác</div></div>
-      <div class="stat-card"><div class="stat-icon">❓</div><div class="stat-value" id="statQuizzes">0</div><div class="stat-label">Quiz</div></div>
-      <div class="stat-card"><div class="stat-icon">🔥</div><div class="stat-value" id="statStreak">0</div><div class="stat-label">Chuỗi ngày</div></div>
-      <div class="stat-card"><div class="stat-icon">😰</div><div class="stat-value" id="statDifficult">0</div><div class="stat-label">Từ khó</div></div>
-      <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-value" id="statXP">0</div><div class="stat-label">XP</div></div>
-      <div class="stat-card"><div class="stat-icon">🤖</div><div class="stat-value" id="statAiMsgs">0</div><div class="stat-label">AI tin nhắn</div></div>
-      <div class="stat-card"><div class="stat-icon">📦</div><div class="stat-value" id="statBatches">0/0</div><div class="stat-label">Bộ đã hoàn thành</div></div>
-    </div>
-    <div class="difficult-words-section" id="difficultSection" style="display:none">
-      <h3 class="section-subtitle">😰 Từ cần ôn thêm</h3>
-      <div class="difficult-list" id="difficultList"></div>
-    </div>
-    <div class="progress-section">
-      <h3 class="section-subtitle">📈 Tiến độ</h3>
-      <div class="progress-overview">
-        <div class="progress-label-row"><span>Đã thuộc</span><span id="progressPct">0%</span></div>
-        <div class="progress-bar-lg"><div class="progress-bar-fill-lg" id="progressBarLg"></div></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== PAGE: Sổ TAY GHI CHÚ ===== -->
-  <section class="page" id="page-notebook" style="display:none">
-    <div class="notebook-header">
-      <div class="notebook-title-row">
-        <h2>📔 Sổ Tay Ghi Chú</h2>
-        <span class="notebook-autosave-label" id="nbSaveStatus">✔ Đã lưu</span>
-      </div>
-      <p class="notebook-subtitle">Ghi chú tự do, mẹo học, quy tắc ngữ pháp — tất cả đều được lưu vĩnh viễn.</p>
-    </div>
-
-    <div class="nb-toolbar">
-      <div class="nb-tabs" id="nbTabsBar"></div>
-      <div class="nb-tools">
-        <button class="nb-tool-btn" onclick="addNbTab()">➕ Trang mới</button>
-        <button class="nb-tool-btn danger" onclick="deleteNbTab()">🗑️ Xóa trang</button>
-        <span class="nb-sep">|</span>
-        <button class="nb-tool-btn" onclick="insertNbTemplate('vocab')">📘 Mẫu từ vựng</button>
-        <button class="nb-tool-btn" onclick="insertNbTemplate('grammar')">📐 Mẫu ngữ pháp</button>
-        <button class="nb-tool-btn" onclick="insertNbTemplate('rule')">📌 Mẫu quy tắc</button>
-        <span class="nb-sep">|</span>
-        <button class="nb-tool-btn" onclick="copyNbContent()">📋 Copy</button>
-        <button class="nb-tool-btn" onclick="clearNbContent()">🧹 Xóa nội dung</button>
-      </div>
-    </div>
-
-    <div class="nb-editor-wrap">
-      <textarea id="nbEditor" class="nb-editor" placeholder="Bắt đầu ghi chú tại đây...&#10;&#10;Mẹo: Bấm &quot;Mẫu từ vựng&quot; / &quot;Mẫu ngữ pháp&quot; / &quot;Mẫu quy tắc&quot; để có khung mẫu sẵn!&#10;&#10;Ghi chú của bạn được tự động lưu vào bộ nhớ, không bao giờ mất." oninput="onNbEditorInput(this.value)"></textarea>
-      <div class="nb-word-count" id="nbWordCount">0 ký tự</div>
-    </div>
-
-    <div class="nb-quick-ref">
-      <span class="nb-ref-label">📌 Gợi ý nhanh:</span>
-      <button class="nb-ref-btn" onclick="insertNbText('→')">&#x2192;</button>
-      <button class="nb-ref-btn" onclick="insertNbText('⭐')">⭐</button>
-      <button class="nb-ref-btn" onclick="insertNbText('✅')">✅</button>
-      <button class="nb-ref-btn" onclick="insertNbText('❌')">❌</button>
-      <button class="nb-ref-btn" onclick="insertNbText('💡')">💡</button>
-      <button class="nb-ref-btn" onclick="insertNbText('📌')">📌</button>
-      <button class="nb-ref-btn" onclick="insertNbText('🔥')">🔥</button>
-      <button class="nb-ref-btn" onclick="insertNbText('\n───────────────────\n')">&#x2500;&#x2500;&#x2500;</button>
-      <button class="nb-ref-btn" onclick="insertNbText('이다 / 아니다\n')">이다</button>
-      <button class="nb-ref-btn" onclick="insertNbText('은/는 (chủ ngữ)\n')">은/는</button>
-      <button class="nb-ref-btn" onclick="insertNbText('을/를 (tân ngữ)\n')">을/를</button>
-      <button class="nb-ref-btn" onclick="insertNbText('에 (nơi chốn / thời gian)\n')">에</button>
-    </div>
-  </section>
-
-  <!-- ===== PAGE: GAME NGỮ PHÁP ===== -->
-  <section class="page" id="page-grammarGame" style="display:none">
-    <div class="gg-header">
-      <div>
-        <h2>🎯 Game Ngữ Pháp — Xây Câu Tiếng Hàn</h2>
-        <p class="gg-subtitle">Chọn từ để ghép thành câu đúng theo ngữ pháp. Học mà chơi, chơi mà học!</p>
-      </div>
-      <div class="gg-score-bar">
-        <div class="gg-score-item"><span>🏆 Điểm</span><strong id="ggScore">0</strong></div>
-        <div class="gg-score-item"><span>❤️ Tim</span><strong id="ggLives">3</strong></div>
-        <div class="gg-score-item"><span>📚 Câu</span><strong id="ggProgress">1/10</strong></div>
-      </div>
-    </div>
-
-    <!-- Grammar point explanation -->
-    <div class="gg-grammar-tag" id="ggGrammarTag">
-      <span class="gg-tag-label">📐 Điểm ngữ pháp:</span>
-      <span id="ggGrammarPoint">—</span>
-    </div>
-
-    <!-- Meaning prompt -->
-    <div class="gg-prompt-card">
-      <div class="gg-prompt-label">🇻🇳 Dịch câu này sang tiếng Hàn:</div>
-      <div class="gg-prompt-text" id="ggPrompt">Đang tải...</div>
-    </div>
-
-    <!-- Built sentence display -->
-    <div class="gg-built-row">
-      <div class="gg-built-label">✏️ Câu của bạn:</div>
-      <div class="gg-built-sentence" id="ggBuiltSentence">
-        <span class="gg-placeholder">Bấm vào các từ bên dưới để xây câu...</span>
-      </div>
-      <button class="gg-clear-btn" onclick="ggClear()">🗑️ Xóa</button>
-    </div>
-
-    <!-- Word tiles -->
-    <div class="gg-tiles-area" id="ggTiles"></div>
-
-    <!-- Action buttons -->
-    <div class="gg-actions">
-      <button class="btn btn-primary gg-submit-btn" onclick="ggSubmit()">✅ Kiểm tra</button>
-      <button class="btn btn-secondary gg-hint-btn" onclick="ggHint()">💡 Gợi ý</button>
-      <button class="btn btn-secondary gg-skip-btn" onclick="ggSkip()">⏭️ Bỏ qua</button>
-    </div>
-
-    <!-- Feedback area -->
-    <div class="gg-feedback" id="ggFeedback" style="display:none"></div>
-
-    <!-- Progress bar -->
-    <div class="gg-progress-wrap">
-      <div class="gg-progress-bar"><div class="gg-progress-fill" id="ggProgressBar" style="width:10%"></div></div>
-    </div>
-
-    <!-- Game over overlay -->
-    <div class="gg-gameover" id="ggGameover" style="display:none">
-      <div class="gg-gameover-card">
-        <div class="gg-go-emoji" id="ggGoEmoji">🎉</div>
-        <h3 id="ggGoTitle">Xuất sắc!</h3>
-        <p id="ggGoMsg">Bạn đã hoàn thành 10 câu!</p>
-        <div class="gg-go-score">Điểm: <strong id="ggGoScore">0</strong></div>
-        <div class="gg-go-btns">
-          <button class="btn btn-primary" onclick="initGrammarGame()">🔄 Chơi lại</button>
-          <button class="btn btn-secondary" onclick="ggChangeDifficulty()">⚙️ Đổi cấp độ</button>
-        </div>
-      </div>
-    </div>
-  <!-- ===== PAGE: BẤT QUY TẮC TIẾNG HÀN ===== -->
-  <section class="page" id="page-irregulars" style="display:none">
-    <div class="irr-header">
-      <div>
-        <h2>⚡ Bất Quy Tắc Tiếng Hàn (불규칙)</h2>
-        <p class="irr-subtitle">Tổng hợp toàn bộ 7 quy tắc biến đổi bất quy tắc (ㅂ, ㄷ, ㄹ, ㅎ, ㅅ, 르, 으) kèm từ ngoại lệ & công cụ chia đuôi tự động.</p>
-      </div>
-    </div>
-
-    <!-- Auto Conjugator / Search Card -->
-    <div class="irr-conjugator-card">
-      <div class="irr-conj-title">🔍 Thử chia đuôi từ bất quy tắc</div>
-      <div class="irr-conj-row">
-        <input type="text" id="irrInput" class="irr-input" placeholder="Nhập từ nguyên thể (Ví dụ: 춥다, 듣다, 살다, 모르다, 그렇다, 짓다, 바쁘다...)" onkeyup="if(event.key==='Enter') testIrrConjugate()">
-        <button class="btn btn-primary" onclick="testIrrConjugate()">⚡ Tra & Chia đuôi</button>
-      </div>
-      <div id="irrConjResult" class="irr-conj-result" style="display:none"></div>
-    </div>
-
-    <!-- Filter Tabs -->
-    <div class="irr-tabs-bar">
-      <button class="irr-tab active" onclick="filterIrregulars('all')">Tất cả (7)</button>
-      <button class="irr-tab" onclick="filterIrregulars('b')">ㅂ 불규칙</button>
-      <button class="irr-tab" onclick="filterIrregulars('d')">ㄷ 불규칙</button>
-      <button class="irr-tab" onclick="filterIrregulars('r')">ㄹ 불규칙</button>
-      <button class="irr-tab" onclick="filterIrregulars('h')">ㅎ 불규칙</button>
-      <button class="irr-tab" onclick="filterIrregulars('s')">ㅅ 불규칙</button>
-      <button class="irr-tab" onclick="filterIrregulars('reu')">르 불규칙</button>
-      <button class="irr-tab" onclick="filterIrregulars('eu')">으 불규칙</button>
-    </div>
-
-    <!-- Rules List Container -->
-    <div class="irr-cards-list" id="irrCardsList"></div>
-  </section>
-
-</main>
-
-<!-- ===== HOMEWORK MODAL ===== -->
-<div class="gp-comp-overlay" id="hwModalOverlay" style="display:none">
-  <div class="gp-comp-modal" style="max-width:650px">
-    <div class="gp-comp-header">
-      <span>📑 Tạo / Nhập Bài Tập Về Nhà</span>
-      <button class="gp-comp-close" onclick="closeHomeworkModal()">×</button>
-    </div>
-    <div style="padding:20px; display:flex; flex-direction:column; gap:16px;">
-      <div class="hw-tab-row">
-        <button class="btn btn-ghost btn-sm active" id="hwTabGen" onclick="switchHwModalTab('gen')">🤖 AI Tự Giao BTVN</button>
-        <button class="btn btn-ghost btn-sm" id="hwTabPaste" onclick="switchHwModalTab('paste')">📝 Tự Dán Đề Bài BTVN</button>
-      </div>
-
-      <!-- Tab AI Gen -->
-      <div id="hwModalGenTab">
-        <div class="setting-group" style="margin-bottom:12px">
-          <label class="setting-label">📌 Chọn chủ đề / nguồn giao bài tập:</label>
-          <select id="hwSourceSelect" class="settings-select-sm" style="width:100%">
-            <option value="vocab">📚 Từ vựng & Câu ví dụ đã học</option>
-            <option value="grammar">📐 Các cấu trúc ngữ pháp đã lưu</option>
-            <option value="topik">📝 Tổng hợp dạng đề thi TOPIK Sơ/Trung cấp</option>
-          </select>
-        </div>
-        <div class="setting-group" style="margin-bottom:12px">
-          <label class="setting-label">📊 Mức độ bài tập:</label>
-          <select id="hwDiffSelect" class="settings-select-sm" style="width:100%">
-            <option value="easy">🟢 Dễ (Chỉ dùng từ/cấu trúc quen thuộc)</option>
-            <option value="medium" selected>🟡 Thường (Vừa phải, tự nhiên)</option>
-            <option value="hard">🔴 Khó (Nhiều câu ghép, nâng cao)</option>
-          </select>
-        </div>
-        <div class="setting-group">
-          <label class="setting-label">🔢 Số lượng câu hỏi:</label>
-          <select id="hwCountSelect" class="settings-select-sm" style="width:100%">
-            <option value="5">5 câu (Nhanh)</option>
-            <option value="8" selected>8 câu (Tiêu chuẩn)</option>
-            <option value="10">10 câu (Đầy đủ)</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Tab Self Paste -->
-      <div id="hwModalPasteTab" style="display:none">
-        <div class="setting-group">
-          <label class="setting-label">📝 Dán đề bài tập (Từ sách PDF hoặc đề giáo viên giao):</label>
-          <textarea id="hwPasteTextarea" class="translate-textarea" rows="6" placeholder="VD:&#10;Câu 1: Dịch sang tiếng Hàn: Hôm nay thời tiết rất đẹp.&#10;Câu 2: Chia động từ: 가다 (thì quá khứ lịch sự)..."></textarea>
-        </div>
-      </div>
-
-      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
-        <button class="btn btn-ghost" onclick="closeHomeworkModal()">Hủy</button>
-        <button class="btn btn-ai" onclick="submitCreateHomework()">🚀 Tạo & Bắt Đầu Làm</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== FLOATING AI ROBOT ASSISTANT (MASCOT) ===== -->
-<div class="robot-widget" id="robotWidget">
-  <div class="robot-speech-bubble" id="robotBubble" onclick="interactWithRobot()">
-    <div class="robot-bubble-text" id="robotBubbleText">안녕! Hôm nay bạn muốn học từ vựng hay luyện BTVN với tớ nè? 🤖✨</div>
-    <div class="robot-bubble-close" onclick="event.stopPropagation(); hideRobotBubble()">×</div>
-  </div>
-  <div class="robot-avatar" onclick="interactWithRobot()" title="Bấm để trò chuyện với Robot trợ lý!">
-    <div class="robot-antenna"></div>
-    <div class="robot-head">
-      <div class="robot-eyes">
-        <span class="robot-eye"></span>
-        <span class="robot-eye"></span>
-      </div>
-      <div class="robot-mouth"></div>
-    </div>
-    <div class="robot-badge">AI</div>
-  </div>
-</div>
-
-<!-- Robot Interactive Dialog Modal -->
-<div class="gp-comp-overlay" id="robotModalOverlay" style="display:none">
-  <div class="gp-comp-modal" style="max-width:480px; text-align:center;">
-    <div class="gp-comp-header">
-      <span>🤖 AI Robot Trợ Lý Học Tập</span>
-      <button class="gp-comp-close" onclick="closeRobotModal()">×</button>
-    </div>
-    <div style="padding:24px; display:flex; flex-direction:column; align-items:center; gap:14px;">
-      <div class="robot-avatar-lg">🤖</div>
-      <h3 style="margin:0; font-weight:800; color:var(--accent-light)">"파이팅! Chúc bạn học thật tốt!"</h3>
-      <p id="robotModalTip" style="font-size:0.9rem; color:var(--text-secondary); line-height:1.6; margin:0">
-        Tớ là Robot Trợ lý AI đồng hành cùng bạn. Tớ có thể gợi ý lời khuyên học tập, trích từ vựng từ PDF, và chấm bài tập về nhà cho bạn nữa đấy!
-      </p>
-      
-      <div style="display:flex; flex-direction:column; gap:8px; width:100%; margin-top:8px;">
-        <button class="btn btn-ai" onclick="TTS.speak('한국어 공부 파이팅! 할 수 있어요!'); showToast('🔊 Robot: 한국어 공부 파이팅!', 'success')">🔊 Nghe Robot hô quyết tâm</button>
-        <button class="btn btn-primary" onclick="closeRobotModal(); setMode('aitutor');">🎓 Nhờ Robot làm Gia sư AI giải đáp</button>
-        <button class="btn btn-secondary" onclick="generateRobotRandomTip()">💡 Đổi lời khuyên ngẫu nhiên</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="toast" id="toast"></div>
-<div class="overlay" id="overlay" onclick="closeSidebar()"></div>
-
-
-<script src="app.js"></script>
-<script src="sidebar-toggle.js"></script>
-</body>
-</html>
+function StudentAssignments({ assignments, message, filter, setFilter, pagination, setPage, loading }) {
+  return <>
+    <PageHeader eyebrow="HỌC SINH" title="Bài của tôi" subtitle="Bài mới từ giáo viên sẽ tự xuất hiện ở đây." />
+    {message && <div className="notice">{message}</div>}
+    <div className="segmented"><button className={filter === 'PENDING' ? 'active' : ''} onClick={() => setFilter('PENDING')}>Cần làm</button><button className={filter === 'DONE' ? 'active' : ''} onClick={() => setFilter('DONE')}>Đã nộp</button><button className={filter === 'ALL' ? 'active' : ''} onClick={() => setFilter('ALL')}>Tất cả</button></div>
+    <section className="panel">
+      {loading ? <Empty>Đang tải trang bài tập...</Empty> : assignments.length ? <div className="student-assignment-grid">{assignments.map((item) => <Link className="student-assignment-card" to={`/assignments/${item.id}`} key={item.id}><div className="student-assignment-top"><span className={`type-pill ${item.type.toLowerCase()}`}>{item.type === 'TEST' ? 'Bài kiểm tra' : 'Bài tập'}</span>{item.submissionId ? <span className="score-pill">{Math.round(item.percentage)} điểm</span> : <ChevronDown size={18} />}</div><h3>{item.title}</h3><p>{item.className}</p><div className="student-assignment-bottom"><span><Clock3 size={15} /> {formatDate(item.due_at)}</span><strong>{item.submissionId ? 'Xem kết quả' : 'Làm bài →'}</strong></div></Link>)}</div> : <Empty>{filter === 'PENDING' ? 'Không còn bài đang chờ.' : 'Chưa có bài phù hợp.'}</Empty>}
+      <Pagination pagination={pagination} loading={loading} onPageChange={setPage} label="bài" />
+    </section>
+  </>;
+}
