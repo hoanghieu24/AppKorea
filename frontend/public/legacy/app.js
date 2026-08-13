@@ -128,7 +128,7 @@ function requestClassroomAI(payload) {
 // ============ GEMINI API ============
 const GEMINI = {
   getKey: () => {
-    return localStorage.getItem('hq_gemini_key') || '';
+    return localStorage.getItem('hq_api_key') || localStorage.getItem('hq_gemini_key') || (classroomSession()?.token ? 'CLASSROOM_BACKEND' : '');
   },
   getModel: () => {
     const model = localStorage.getItem('hq_model') || 'gemini-3.5-flash';
@@ -948,25 +948,23 @@ function generateWordData(korean) {
 
 // ============ API KEY MANAGEMENT ============
 function saveApiKey() {
-  if (classroomSession()?.token) {
-    showApiStatus('⏳ Đang kiểm tra Gemini trên backend...', 'loading');
-    testApiKey('');
-    return;
+  const inputEl = document.getElementById('apiKeyInput');
+  const key = inputEl ? inputEl.value.trim() : '';
+  if (key) {
+    localStorage.setItem('hq_api_key', key);
+    localStorage.setItem('hq_gemini_key', key);
   }
-  const key = document.getElementById('apiKeyInput').value.trim();
-  if (!key) { showApiStatus('Vui lòng nhập API key!', 'err'); return; }
-  localStorage.setItem('hq_api_key', key);
   showApiStatus('⏳ Đang kiểm tra và lưu key...', 'loading');
   testApiKey(key);
 }
 async function testApiKey(key) {
   try {
-    if (classroomSession()?.token) {
-      await GEMINI.call('Chỉ trả lời đúng một từ: OK', '', { temperature: 0, maxOutputTokens: 128 });
-      showApiStatus('✅ Gemini backend đang hoạt động.', 'ok');
+    if (!key && classroomSession()?.token) {
+      showApiStatus('✅ Gemini backend đang kết nối với Classroom.', 'ok');
       updateApiIndicator(true);
-      document.getElementById('aiPowerBadge').style.display = 'flex';
-      showToast('🤖 AI backend đã kết nối!', 'success');
+      const badge = document.getElementById('aiPowerBadge');
+      if (badge) badge.style.display = 'flex';
+      showToast('🤖 AI backend Classroom đã sẵn sàng!', 'success');
       return;
     }
     const model = GEMINI.getModel();
@@ -978,29 +976,31 @@ async function testApiKey(key) {
     if (res.ok) {
       showApiStatus('✅ Đã lưu! AI đã hoạt động.', 'ok');
       updateApiIndicator(true);
-      document.getElementById('aiPowerBadge').style.display = 'flex';
+      const badge = document.getElementById('aiPowerBadge');
+      if (badge) badge.style.display = 'flex';
       showToast('🤖 Gemini AI đã kết nối!', 'success');
     } else {
       const err = await res.json().catch(() => ({}));
       const msg = err?.error?.message || 'Lỗi không xác định';
-      showApiStatus(`⚠️ Đã lưu nhưng kiểm tra lỗi: ${msg}. Bạn vẫn có thể thử chat xem sao.`, 'err');
-      updateApiIndicator(true); // Vẫn cho phép hiện xanh/hoạt động
-      document.getElementById('aiPowerBadge').style.display = 'flex';
+      showApiStatus(`⚠️ Đã lưu nhưng kiểm tra lỗi: ${msg}.`, 'err');
+      updateApiIndicator(true);
     }
   } catch(e) {
-    showApiStatus(`⚠️ Đã lưu nhưng lỗi kết nối: ${e.message}`, 'err');
+    showApiStatus(`⚠️ Lỗi kết nối: ${e.message}`, 'err');
     updateApiIndicator(true);
-    document.getElementById('aiPowerBadge').style.display = 'flex';
   }
 }
 function showApiStatus(msg, cls) {
   const el = document.getElementById('apiStatus');
-  el.textContent = msg;
-  el.className = 'api-status ' + cls;
+  if (el) {
+    el.textContent = msg;
+    el.className = 'api-status ' + cls;
+  }
 }
 function updateApiIndicator(ok) {
   const dot = document.getElementById('apiDot');
   const label = document.getElementById('apiLabel');
+  if (!dot || !label) return;
   if (ok) {
     dot.classList.add('active');
     dot.classList.remove('error');
@@ -1016,18 +1016,16 @@ function updateApiIndicator(ok) {
 
 // ============ SETTINGS MODAL ============
 function openSettings() {
-  if (classroomSession()?.token) {
-    showToast('⚙️ Cấu hình Phòng tự học do Admin quản lý.', 'info');
-    return;
-  }
   const modal = document.getElementById('settingsOverlay');
-  modal.classList.add('open');
-  // Show existing key (masked)
-  const key = GEMINI.getKey();
-  if (key) {
-    document.getElementById('apiKeyInput').value = key;
-    showApiStatus('Key đã được lưu. Kiểm tra lại nếu cần.', 'ok');
+  if (modal) modal.classList.add('open');
+  const key = localStorage.getItem('hq_api_key') || localStorage.getItem('hq_gemini_key') || '';
+  const inputEl = document.getElementById('apiKeyInput');
+  if (inputEl) {
+    inputEl.value = key;
+    if (key) showApiStatus('Key riêng đã được lưu.', 'ok');
+    else if (classroomSession()?.token) showApiStatus('Đang dùng AI cấu hình mặc định từ Classroom.', 'ok');
   }
+
   // Populate model
   const modelSel = document.getElementById('modelSelect');
   const savedModel = GEMINI.getModel();
