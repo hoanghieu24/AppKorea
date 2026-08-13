@@ -30,6 +30,7 @@ export default function Shell({ user, onLogout, children }) {
     if (user.role !== 'ADMIN') items.push({ to: '/learning', label: 'Phòng tự học', icon: BrainCircuit });
     if (user.role !== 'ADMIN') items.push({ to: '/assignments', label: user.role === 'TEACHER' ? 'Giao & chấm bài' : 'Bài của tôi', icon: ClipboardList });
     if (user.role !== 'ADMIN') items.push({ to: '/vocabulary', label: 'Từ vựng', icon: BookOpen });
+    if (user.role === 'TEACHER') items.push({ to: '/teacher/students', label: 'Học sinh của tôi', icon: Users });
     if (user.role === 'ADMIN') {
       items.push({ to: '/admin/classes', label: 'Quản lý lớp', icon: School });
       items.push({ to: '/admin/students', label: 'Quản lý học sinh', icon: Users });

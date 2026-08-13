@@ -11,6 +11,7 @@ import LearningHubPage from './pages/LearningHubPage.jsx';
 import AdminSettingsPage from './pages/AdminSettingsPage.jsx';
 import AdminManagementPage from './pages/AdminManagementPage.jsx';
 import NotificationsPage from './pages/NotificationsPage.jsx';
+import TeacherStudentsPage from './pages/TeacherStudentsPage.jsx';
 
 export default function App() {
   const [session, setSession] = useState(() => getSession());
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/admin/students" element={user.role === 'ADMIN' ? <AdminManagementPage mode="students" currentUser={user} /> : <Navigate to="/" replace />} />
         <Route path="/admin/teachers" element={user.role === 'ADMIN' ? <AdminManagementPage mode="teachers" currentUser={user} /> : <Navigate to="/" replace />} />
         <Route path="/admin/users" element={user.role === 'ADMIN' ? <AdminManagementPage mode="users" currentUser={user} /> : <Navigate to="/" replace />} />
+        <Route path="/teacher/students" element={user.role === 'TEACHER' ? <TeacherStudentsPage user={user} /> : <Navigate to="/" replace />} />
         <Route path="/notifications" element={<NotificationsPage user={user} />} />
         <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />

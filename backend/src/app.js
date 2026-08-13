@@ -177,6 +177,67 @@ app.get('/api/classes/:id/members', requireAuth, async (req, res) => {
   });
 });
 
+app.get('/api/teacher/students', requireAuth, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  const pagination = getPagination(req, 10);
+  const classId = req.query.classId ? Number(req.query.classId) : null;
+  const keyword = String(req.query.q || '').trim();
+
+  const conditions = ["u.role = 'STUDENT'"];
+  const params = [];
+
+  if (req.user.role === 'TEACHER') {
+    conditions.push('EXISTS (SELECT 1 FROM class_teachers ct WHERE ct.class_id = cs.class_id AND ct.teacher_id = ?)');
+    params.push(req.user.id);
+  }
+
+  if (classId) {
+    conditions.push('cs.class_id = ?');
+    params.push(classId);
+  }
+
+  if (keyword) {
+    conditions.push('(u.full_name LIKE ? OR u.email LIKE ?)');
+    params.push(`%${keyword}%`, `%${keyword}%`);
+  }
+
+  const whereSql = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const totalRows = await query(
+    `SELECT COUNT(DISTINCT u.id, cs.class_id) total
+     FROM users u
+     JOIN class_students cs ON cs.student_id = u.id
+     JOIN classes c ON c.id = cs.class_id
+     ${whereSql}`,
+    params
+  );
+
+  const limitSql = paginationLimitSql(pagination);
+
+  const students = await query(
+    `SELECT u.id, u.email, u.full_name fullName, u.active,
+            c.id classId, c.name className, c.code classCode,
+            (SELECT COUNT(*) FROM submissions s WHERE s.student_id = u.id AND s.class_id = c.id) submissionCount,
+            (SELECT AVG(s.percentage) FROM submissions s WHERE s.student_id = u.id AND s.class_id = c.id) avgPercentage
+     FROM users u
+     JOIN class_students cs ON cs.student_id = u.id
+     JOIN classes c ON c.id = cs.class_id
+     ${whereSql}
+     ORDER BY c.name, u.full_name
+     ${limitSql}`,
+    params
+  );
+
+  res.json({
+    students: students.map((s) => ({
+      ...s,
+      active: Boolean(s.active),
+      submissionCount: Number(s.submissionCount || 0),
+      avgPercentage: s.avgPercentage != null ? Math.round(Number(s.avgPercentage)) : null,
+    })),
+    pagination: paginationMeta(totalRows[0]?.total || 0, pagination),
+  });
+});
+
 app.get('/api/admin/users', requireAuth, requireRole('ADMIN'), async (req, res) => {
   const role = ['ADMIN', 'TEACHER', 'STUDENT'].includes(req.query.role) ? req.query.role : null;
   const keyword = String(req.query.q || '').trim().slice(0, 120);
