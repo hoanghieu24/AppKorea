@@ -203,11 +203,13 @@ app.get('/api/teacher/students', requireAuth, requireRole('TEACHER', 'ADMIN'), a
   const whereSql = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const totalRows = await query(
-    `SELECT COUNT(DISTINCT u.id, cs.class_id) total
-     FROM users u
-     JOIN class_students cs ON cs.student_id = u.id
-     JOIN classes c ON c.id = cs.class_id
-     ${whereSql}`,
+    `SELECT COUNT(*) total FROM (
+       SELECT u.id, cs.class_id
+       FROM users u
+       JOIN class_students cs ON cs.student_id = u.id
+       JOIN classes c ON c.id = cs.class_id
+       ${whereSql}
+     ) t`,
     params
   );
 
@@ -216,8 +218,8 @@ app.get('/api/teacher/students', requireAuth, requireRole('TEACHER', 'ADMIN'), a
   const students = await query(
     `SELECT u.id, u.email, u.full_name fullName, u.active,
             c.id classId, c.name className, c.code classCode,
-            (SELECT COUNT(*) FROM submissions s WHERE s.student_id = u.id AND s.class_id = c.id) submissionCount,
-            (SELECT AVG(s.percentage) FROM submissions s WHERE s.student_id = u.id AND s.class_id = c.id) avgPercentage
+            (SELECT COUNT(*) FROM submissions s JOIN assignments a ON a.id = s.assignment_id WHERE s.student_id = u.id AND a.class_id = c.id) submissionCount,
+            (SELECT AVG(s.percentage) FROM submissions s JOIN assignments a ON a.id = s.assignment_id WHERE s.student_id = u.id AND a.class_id = c.id) avgPercentage
      FROM users u
      JOIN class_students cs ON cs.student_id = u.id
      JOIN classes c ON c.id = cs.class_id
