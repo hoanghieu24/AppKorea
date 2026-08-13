@@ -1,0 +1,1673 @@
+[
+  {
+    "id": 1,
+    "title": "안녕하세요",
+    "topic": "Chào hỏi & Giới thiệu bản thân",
+    "grammar": [
+      "N이에요/예요",
+      "N은/는 (chủ đề)",
+      "N이/가 아니에요",
+      "저는 ~이에요/예요"
+    ],
+    "vocab": [
+      {
+        "kr": "안녕하세요",
+        "rom": "annyeonghaseyo",
+        "vn": "Xin chào"
+      },
+      {
+        "kr": "저",
+        "rom": "jeo",
+        "vn": "Tôi (khiêm nhường)"
+      },
+      {
+        "kr": "이름",
+        "rom": "ireum",
+        "vn": "Tên"
+      },
+      {
+        "kr": "학생",
+        "rom": "haksaeng",
+        "vn": "Học sinh / Sinh viên"
+      },
+      {
+        "kr": "선생님",
+        "rom": "seonsaengnim",
+        "vn": "Giáo viên / Thầy/Cô"
+      },
+      {
+        "kr": "사람",
+        "rom": "saram",
+        "vn": "Người"
+      },
+      {
+        "kr": "한국",
+        "rom": "hanguk",
+        "vn": "Hàn Quốc"
+      },
+      {
+        "kr": "베트남",
+        "rom": "beteunam",
+        "vn": "Việt Nam"
+      },
+      {
+        "kr": "반갑습니다",
+        "rom": "bangapseumnida",
+        "vn": "Rất vui được gặp bạn"
+      },
+      {
+        "kr": "네",
+        "rom": "ne",
+        "vn": "Vâng / Đúng"
+      },
+      {
+        "kr": "아니요",
+        "rom": "aniyo",
+        "vn": "Không"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "저는 학생이에요.",
+        "vn": "Tôi là học sinh."
+      },
+      {
+        "kr": "저는 베트남 사람이에요.",
+        "vn": "Tôi là người Việt Nam."
+      },
+      {
+        "kr": "저는 선생님이 아니에요.",
+        "vn": "Tôi không phải là giáo viên."
+      },
+      {
+        "kr": "안녕하세요, 반갑습니다!",
+        "vn": "Xin chào, rất vui được gặp bạn!"
+      },
+      {
+        "kr": "이름이 뭐예요?",
+        "vn": "Tên bạn là gì?"
+      }
+    ]
+  },
+  {
+    "id": 2,
+    "title": "이것이 무엇입니까?",
+    "topic": "Đây là cái gì? — Đại từ chỉ định & Số đếm",
+    "grammar": [
+      "이/그/저 + N",
+      "N이 뭐예요?",
+      "하나, 둘... (số đếm thuần Hàn)",
+      "~개 (đếm đồ vật)"
+    ],
+    "vocab": [
+      {
+        "kr": "이것",
+        "rom": "igeot",
+        "vn": "Cái này"
+      },
+      {
+        "kr": "그것",
+        "rom": "geugeot",
+        "vn": "Cái đó"
+      },
+      {
+        "kr": "저것",
+        "rom": "jeogeot",
+        "vn": "Cái kia"
+      },
+      {
+        "kr": "책",
+        "rom": "chaek",
+        "vn": "Quyển sách"
+      },
+      {
+        "kr": "가방",
+        "rom": "gabang",
+        "vn": "Túi / Cặp"
+      },
+      {
+        "kr": "볼펜",
+        "rom": "bolpen",
+        "vn": "Bút bi"
+      },
+      {
+        "kr": "핸드폰",
+        "rom": "haendeupon",
+        "vn": "Điện thoại di động"
+      },
+      {
+        "kr": "컴퓨터",
+        "rom": "keompyuteo",
+        "vn": "Máy tính"
+      },
+      {
+        "kr": "뭐",
+        "rom": "mwo",
+        "vn": "Cái gì"
+      },
+      {
+        "kr": "하나",
+        "rom": "hana",
+        "vn": "Một (thuần Hàn)"
+      },
+      {
+        "kr": "둘",
+        "rom": "dul",
+        "vn": "Hai (thuần Hàn)"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "이것이 뭐예요?",
+        "vn": "Cái này là cái gì?"
+      },
+      {
+        "kr": "이것은 책이에요.",
+        "vn": "Cái này là quyển sách."
+      },
+      {
+        "kr": "저것은 제 가방이에요.",
+        "vn": "Cái kia là túi của tôi."
+      },
+      {
+        "kr": "볼펜이 두 개 있어요.",
+        "vn": "Có hai cái bút bi."
+      },
+      {
+        "kr": "그것은 핸드폰이 아니에요.",
+        "vn": "Cái đó không phải là điện thoại."
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "title": "어디에 있어요?",
+    "topic": "Ở đâu? — Vị trí và địa điểm",
+    "grammar": [
+      "N에 있어요/없어요",
+      "위치 명사 (위/아래/앞/뒤/옆)",
+      "N에 가요",
+      "N에서"
+    ],
+    "vocab": [
+      {
+        "kr": "어디",
+        "rom": "eodi",
+        "vn": "Ở đâu"
+      },
+      {
+        "kr": "학교",
+        "rom": "hakgyo",
+        "vn": "Trường học"
+      },
+      {
+        "kr": "집",
+        "rom": "jip",
+        "vn": "Nhà"
+      },
+      {
+        "kr": "병원",
+        "rom": "byeongwon",
+        "vn": "Bệnh viện"
+      },
+      {
+        "kr": "은행",
+        "rom": "eunhaeng",
+        "vn": "Ngân hàng"
+      },
+      {
+        "kr": "식당",
+        "rom": "sikdang",
+        "vn": "Nhà hàng / Quán ăn"
+      },
+      {
+        "kr": "위",
+        "rom": "wi",
+        "vn": "Trên / Phía trên"
+      },
+      {
+        "kr": "아래",
+        "rom": "arae",
+        "vn": "Dưới / Phía dưới"
+      },
+      {
+        "kr": "앞",
+        "rom": "ap",
+        "vn": "Trước / Phía trước"
+      },
+      {
+        "kr": "뒤",
+        "rom": "dwi",
+        "vn": "Sau / Phía sau"
+      },
+      {
+        "kr": "옆",
+        "rom": "yeop",
+        "vn": "Bên cạnh"
+      },
+      {
+        "kr": "있어요",
+        "rom": "isseoyo",
+        "vn": "Có / Ở (tồn tại)"
+      },
+      {
+        "kr": "없어요",
+        "rom": "eopsseoyo",
+        "vn": "Không có / Không ở"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "학교가 어디에 있어요?",
+        "vn": "Trường học ở đâu?"
+      },
+      {
+        "kr": "책이 책상 위에 있어요.",
+        "vn": "Quyển sách ở trên bàn."
+      },
+      {
+        "kr": "병원은 은행 옆에 있어요.",
+        "vn": "Bệnh viện ở bên cạnh ngân hàng."
+      },
+      {
+        "kr": "저는 집에 있어요.",
+        "vn": "Tôi đang ở nhà."
+      },
+      {
+        "kr": "고양이가 소파 아래에 있어요.",
+        "vn": "Con mèo ở dưới ghế sofa."
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "title": "몇 시예요?",
+    "topic": "Mấy giờ rồi? — Thời gian & Lịch hẹn",
+    "grammar": [
+      "N시 N분이에요",
+      "~에 가요/와요",
+      "오전/오후",
+      "고유어 수 + 시 / 한자어 수 + 분"
+    ],
+    "vocab": [
+      {
+        "kr": "몇",
+        "rom": "myeot",
+        "vn": "Mấy / Bao nhiêu"
+      },
+      {
+        "kr": "시",
+        "rom": "si",
+        "vn": "Giờ"
+      },
+      {
+        "kr": "분",
+        "rom": "bun",
+        "vn": "Phút"
+      },
+      {
+        "kr": "오전",
+        "rom": "ojeon",
+        "vn": "Buổi sáng (AM)"
+      },
+      {
+        "kr": "오후",
+        "rom": "ohu",
+        "vn": "Buổi chiều (PM)"
+      },
+      {
+        "kr": "지금",
+        "rom": "jigeum",
+        "vn": "Bây giờ"
+      },
+      {
+        "kr": "일어나요",
+        "rom": "ireonayo",
+        "vn": "Thức dậy"
+      },
+      {
+        "kr": "자요",
+        "rom": "jayo",
+        "vn": "Ngủ"
+      },
+      {
+        "kr": "먹어요",
+        "rom": "meogeoyo",
+        "vn": "Ăn"
+      },
+      {
+        "kr": "시작해요",
+        "rom": "sijakaeyo",
+        "vn": "Bắt đầu"
+      },
+      {
+        "kr": "끝나요",
+        "rom": "kkeunnayo",
+        "vn": "Kết thúc"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "지금 몇 시예요?",
+        "vn": "Bây giờ là mấy giờ?"
+      },
+      {
+        "kr": "오전 열 시예요.",
+        "vn": "Là 10 giờ sáng."
+      },
+      {
+        "kr": "저는 오전 일곱 시에 일어나요.",
+        "vn": "Tôi thức dậy lúc 7 giờ sáng."
+      },
+      {
+        "kr": "수업은 오후 두 시에 시작해요.",
+        "vn": "Lớp học bắt đầu lúc 2 giờ chiều."
+      },
+      {
+        "kr": "몇 시에 자요?",
+        "vn": "Mấy giờ bạn đi ngủ?"
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "title": "얼마예요?",
+    "topic": "Bao nhiêu tiền? — Mua sắm & Số đếm Hán-Hàn",
+    "grammar": [
+      "한자어 수 (일, 이, 삼...)",
+      "N이/가 얼마예요?",
+      "~하고 (và)",
+      "N을/를 주세요"
+    ],
+    "vocab": [
+      {
+        "kr": "얼마",
+        "rom": "eolma",
+        "vn": "Bao nhiêu (tiền)"
+      },
+      {
+        "kr": "원",
+        "rom": "won",
+        "vn": "Won (tiền Hàn)"
+      },
+      {
+        "kr": "주세요",
+        "rom": "juseyo",
+        "vn": "Cho tôi xin / Làm ơn cho"
+      },
+      {
+        "kr": "사과",
+        "rom": "sagwa",
+        "vn": "Quả táo"
+      },
+      {
+        "kr": "우유",
+        "rom": "uyu",
+        "vn": "Sữa"
+      },
+      {
+        "kr": "물",
+        "rom": "mul",
+        "vn": "Nước"
+      },
+      {
+        "kr": "빵",
+        "rom": "ppang",
+        "vn": "Bánh mì"
+      },
+      {
+        "kr": "천",
+        "rom": "cheon",
+        "vn": "Nghìn (1000)"
+      },
+      {
+        "kr": "만",
+        "rom": "man",
+        "vn": "Mười nghìn (10.000)"
+      },
+      {
+        "kr": "싸요",
+        "rom": "ssayo",
+        "vn": "Rẻ"
+      },
+      {
+        "kr": "비싸요",
+        "rom": "bissayo",
+        "vn": "Đắt"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "이 사과가 얼마예요?",
+        "vn": "Quả táo này bao nhiêu tiền?"
+      },
+      {
+        "kr": "오천 원이에요.",
+        "vn": "Là 5.000 won."
+      },
+      {
+        "kr": "물 하나 주세요.",
+        "vn": "Cho tôi một chai nước."
+      },
+      {
+        "kr": "너무 비싸요.",
+        "vn": "Đắt quá."
+      },
+      {
+        "kr": "사과하고 우유를 주세요.",
+        "vn": "Cho tôi táo và sữa."
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "title": "불고기 주세요",
+    "topic": "Gọi món ăn — Nhà hàng & Thức ăn",
+    "grammar": [
+      "N 주세요",
+      "N을/를 먹어요/마셔요",
+      "~하고 같이",
+      "N이/가 맛있어요"
+    ],
+    "vocab": [
+      {
+        "kr": "불고기",
+        "rom": "bulgogi",
+        "vn": "Thịt nướng Hàn Quốc"
+      },
+      {
+        "kr": "비빔밥",
+        "rom": "bibimbap",
+        "vn": "Cơm trộn"
+      },
+      {
+        "kr": "김치찌개",
+        "rom": "kimchijjigae",
+        "vn": "Canh kim chi"
+      },
+      {
+        "kr": "삼겹살",
+        "rom": "samgyeopsal",
+        "vn": "Ba chỉ nướng"
+      },
+      {
+        "kr": "맛있어요",
+        "rom": "massisseoyo",
+        "vn": "Ngon"
+      },
+      {
+        "kr": "맛없어요",
+        "rom": "maseopsseoyo",
+        "vn": "Không ngon"
+      },
+      {
+        "kr": "마셔요",
+        "rom": "masyeoyo",
+        "vn": "Uống"
+      },
+      {
+        "kr": "배고파요",
+        "rom": "baegopayo",
+        "vn": "Đói"
+      },
+      {
+        "kr": "배불러요",
+        "rom": "baebulleoyo",
+        "vn": "No"
+      },
+      {
+        "kr": "메뉴",
+        "rom": "menyu",
+        "vn": "Thực đơn"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "불고기 주세요.",
+        "vn": "Cho tôi thịt nướng."
+      },
+      {
+        "kr": "비빔밥이 맛있어요.",
+        "vn": "Cơm trộn ngon."
+      },
+      {
+        "kr": "저는 물을 마셔요.",
+        "vn": "Tôi uống nước."
+      },
+      {
+        "kr": "배고파요. 뭐 먹어요?",
+        "vn": "Đói rồi. Ăn gì vậy?"
+      },
+      {
+        "kr": "메뉴 주세요.",
+        "vn": "Cho tôi xem thực đơn."
+      }
+    ]
+  },
+  {
+    "id": 7,
+    "title": "한국어를 공부해요",
+    "topic": "Động từ và hoạt động hàng ngày",
+    "grammar": [
+      "동사 + 아/어요 (hiện tại lịch sự)",
+      "N을/를 (tân ngữ)",
+      "~고 (liên kết)"
+    ],
+    "vocab": [
+      {
+        "kr": "공부해요",
+        "rom": "gongbuhaeyo",
+        "vn": "Học tập"
+      },
+      {
+        "kr": "일해요",
+        "rom": "ilhaeyo",
+        "vn": "Làm việc"
+      },
+      {
+        "kr": "운동해요",
+        "rom": "undonghaeyo",
+        "vn": "Tập thể dục"
+      },
+      {
+        "kr": "쉬어요",
+        "rom": "swieyo",
+        "vn": "Nghỉ ngơi"
+      },
+      {
+        "kr": "만나요",
+        "rom": "mannayo",
+        "vn": "Gặp gỡ"
+      },
+      {
+        "kr": "전화해요",
+        "rom": "jeonhwahaeyo",
+        "vn": "Gọi điện"
+      },
+      {
+        "kr": "봐요",
+        "rom": "bwayo",
+        "vn": "Xem / Nhìn"
+      },
+      {
+        "kr": "들어요",
+        "rom": "deuroyo",
+        "vn": "Nghe"
+      },
+      {
+        "kr": "써요",
+        "rom": "sseoyo",
+        "vn": "Viết"
+      },
+      {
+        "kr": "읽어요",
+        "rom": "ilgeoyo",
+        "vn": "Đọc"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "저는 한국어를 공부해요.",
+        "vn": "Tôi học tiếng Hàn."
+      },
+      {
+        "kr": "친구를 만나요.",
+        "vn": "Tôi gặp bạn."
+      },
+      {
+        "kr": "음악을 들어요.",
+        "vn": "Tôi nghe nhạc."
+      },
+      {
+        "kr": "책을 읽고 공부해요.",
+        "vn": "Tôi đọc sách và học tập."
+      },
+      {
+        "kr": "운동하고 쉬어요.",
+        "vn": "Tôi tập thể dục rồi nghỉ ngơi."
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "title": "이번 주말에 뭐 해요?",
+    "topic": "Cuối tuần này làm gì? — Kế hoạch & Thời gian",
+    "grammar": [
+      "이번/다음 + 시간",
+      "~에 (thời gian)",
+      "~고 싶어요 (muốn làm gì)",
+      "N하고 같이"
+    ],
+    "vocab": [
+      {
+        "kr": "주말",
+        "rom": "jumal",
+        "vn": "Cuối tuần"
+      },
+      {
+        "kr": "이번",
+        "rom": "ibeon",
+        "vn": "Lần này / Tuần này"
+      },
+      {
+        "kr": "다음",
+        "rom": "daeum",
+        "vn": "Tiếp theo / Sau"
+      },
+      {
+        "kr": "영화",
+        "rom": "yeonghwa",
+        "vn": "Phim"
+      },
+      {
+        "kr": "여행",
+        "rom": "yeohaeng",
+        "vn": "Du lịch"
+      },
+      {
+        "kr": "쇼핑",
+        "rom": "syoping",
+        "vn": "Mua sắm"
+      },
+      {
+        "kr": "등산",
+        "rom": "deungsan",
+        "vn": "Leo núi"
+      },
+      {
+        "kr": "같이",
+        "rom": "gachi",
+        "vn": "Cùng nhau"
+      },
+      {
+        "kr": "고 싶어요",
+        "rom": "go sipeoyo",
+        "vn": "Muốn (làm gì)"
+      },
+      {
+        "kr": "재미있어요",
+        "rom": "jaemiisseoyo",
+        "vn": "Thú vị / Vui"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "이번 주말에 뭐 해요?",
+        "vn": "Cuối tuần này bạn làm gì?"
+      },
+      {
+        "kr": "영화를 보고 싶어요.",
+        "vn": "Tôi muốn xem phim."
+      },
+      {
+        "kr": "같이 쇼핑하고 싶어요.",
+        "vn": "Tôi muốn đi mua sắm cùng nhau."
+      },
+      {
+        "kr": "다음 주에 여행해요.",
+        "vn": "Tuần sau tôi đi du lịch."
+      },
+      {
+        "kr": "등산이 재미있어요.",
+        "vn": "Leo núi thú vị."
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "title": "날씨가 어때요?",
+    "topic": "Thời tiết & Mùa trong năm",
+    "grammar": [
+      "형용사 + 아/어요",
+      "N이/가 어때요?",
+      "~아서/어서 (vì... nên...)",
+      "봄/여름/가을/겨울"
+    ],
+    "vocab": [
+      {
+        "kr": "날씨",
+        "rom": "nalsi",
+        "vn": "Thời tiết"
+      },
+      {
+        "kr": "더워요",
+        "rom": "deowoyo",
+        "vn": "Nóng"
+      },
+      {
+        "kr": "추워요",
+        "rom": "chuwoyo",
+        "vn": "Lạnh"
+      },
+      {
+        "kr": "따뜻해요",
+        "rom": "ttatteutaeyo",
+        "vn": "Ấm áp"
+      },
+      {
+        "kr": "시원해요",
+        "rom": "siwonhaeyo",
+        "vn": "Mát mẻ"
+      },
+      {
+        "kr": "비가 와요",
+        "rom": "biga wayo",
+        "vn": "Trời mưa"
+      },
+      {
+        "kr": "눈이 와요",
+        "rom": "nuni wayo",
+        "vn": "Trời tuyết"
+      },
+      {
+        "kr": "맑아요",
+        "rom": "malgayo",
+        "vn": "Trời trong / Quang đãng"
+      },
+      {
+        "kr": "봄",
+        "rom": "bom",
+        "vn": "Mùa xuân"
+      },
+      {
+        "kr": "여름",
+        "rom": "yeoreum",
+        "vn": "Mùa hè"
+      },
+      {
+        "kr": "가을",
+        "rom": "gaeul",
+        "vn": "Mùa thu"
+      },
+      {
+        "kr": "겨울",
+        "rom": "gyeoul",
+        "vn": "Mùa đông"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "오늘 날씨가 어때요?",
+        "vn": "Hôm nay thời tiết thế nào?"
+      },
+      {
+        "kr": "너무 더워요.",
+        "vn": "Nóng quá."
+      },
+      {
+        "kr": "봄에는 따뜻해요.",
+        "vn": "Mùa xuân thì ấm áp."
+      },
+      {
+        "kr": "비가 와서 우산을 써요.",
+        "vn": "Trời mưa nên tôi dùng ô."
+      },
+      {
+        "kr": "겨울에 눈이 와요.",
+        "vn": "Mùa đông có tuyết."
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "title": "가족을 소개해요",
+    "topic": "Giới thiệu gia đình — Từ xưng hô gia đình",
+    "grammar": [
+      "저의/제 + N (của tôi)",
+      "N이/가 있어요/없어요",
+      "~는/은 (chủ đề)",
+      "몇 명이에요?"
+    ],
+    "vocab": [
+      {
+        "kr": "가족",
+        "rom": "gajok",
+        "vn": "Gia đình"
+      },
+      {
+        "kr": "아버지",
+        "rom": "abeoji",
+        "vn": "Bố / Cha"
+      },
+      {
+        "kr": "어머니",
+        "rom": "eomeoni",
+        "vn": "Mẹ"
+      },
+      {
+        "kr": "오빠",
+        "rom": "oppa",
+        "vn": "Anh trai (nữ gọi)"
+      },
+      {
+        "kr": "언니",
+        "rom": "eonni",
+        "vn": "Chị gái (nữ gọi)"
+      },
+      {
+        "kr": "형",
+        "rom": "hyeong",
+        "vn": "Anh trai (nam gọi)"
+      },
+      {
+        "kr": "누나",
+        "rom": "nuna",
+        "vn": "Chị gái (nam gọi)"
+      },
+      {
+        "kr": "남동생",
+        "rom": "namdongsaeng",
+        "vn": "Em trai"
+      },
+      {
+        "kr": "여동생",
+        "rom": "yeodongsaeng",
+        "vn": "Em gái"
+      },
+      {
+        "kr": "할아버지",
+        "rom": "harabeoji",
+        "vn": "Ông"
+      },
+      {
+        "kr": "할머니",
+        "rom": "halmeoni",
+        "vn": "Bà"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "우리 가족은 네 명이에요.",
+        "vn": "Gia đình tôi có bốn người."
+      },
+      {
+        "kr": "제 아버지는 선생님이에요.",
+        "vn": "Bố tôi là giáo viên."
+      },
+      {
+        "kr": "여동생이 있어요.",
+        "vn": "Tôi có em gái."
+      },
+      {
+        "kr": "오빠는 회사원이에요.",
+        "vn": "Anh trai là nhân viên công ty."
+      },
+      {
+        "kr": "할머니는 집에 계세요.",
+        "vn": "Bà đang ở nhà."
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "title": "무엇을 배워요?",
+    "topic": "Học gì? — Trường học & Môn học",
+    "grammar": [
+      "~을/를 배워요",
+      "~에서 (nơi thực hiện)",
+      "N이/가 어려워요/쉬워요"
+    ],
+    "vocab": [
+      {
+        "kr": "배워요",
+        "rom": "baeweoyo",
+        "vn": "Học / Học được"
+      },
+      {
+        "kr": "가르쳐요",
+        "rom": "gareucheoyo",
+        "vn": "Dạy"
+      },
+      {
+        "kr": "수업",
+        "rom": "sueop",
+        "vn": "Lớp học"
+      },
+      {
+        "kr": "숙제",
+        "rom": "sukje",
+        "vn": "Bài tập về nhà"
+      },
+      {
+        "kr": "시험",
+        "rom": "siheom",
+        "vn": "Kỳ thi"
+      },
+      {
+        "kr": "어려워요",
+        "rom": "eoryeowoyo",
+        "vn": "Khó"
+      },
+      {
+        "kr": "쉬워요",
+        "rom": "swiwoyo",
+        "vn": "Dễ"
+      },
+      {
+        "kr": "도서관",
+        "rom": "doseogwan",
+        "vn": "Thư viện"
+      },
+      {
+        "kr": "교실",
+        "rom": "gyosil",
+        "vn": "Phòng học"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "저는 한국어를 배워요.",
+        "vn": "Tôi học tiếng Hàn."
+      },
+      {
+        "kr": "도서관에서 공부해요.",
+        "vn": "Tôi học ở thư viện."
+      },
+      {
+        "kr": "한국어 시험이 어려워요.",
+        "vn": "Bài thi tiếng Hàn khó."
+      },
+      {
+        "kr": "숙제를 해요.",
+        "vn": "Tôi làm bài tập về nhà."
+      },
+      {
+        "kr": "한국어가 재미있어요.",
+        "vn": "Tiếng Hàn thú vị."
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "title": "지하철을 타요",
+    "topic": "Đi lại bằng phương tiện giao thông",
+    "grammar": [
+      "N을/를 타요",
+      "~에서 ~까지",
+      "N으로/로 가요",
+      "얼마나 걸려요?"
+    ],
+    "vocab": [
+      {
+        "kr": "지하철",
+        "rom": "jihacheol",
+        "vn": "Tàu điện ngầm"
+      },
+      {
+        "kr": "버스",
+        "rom": "beoseu",
+        "vn": "Xe buýt"
+      },
+      {
+        "kr": "택시",
+        "rom": "taeksi",
+        "vn": "Taxi"
+      },
+      {
+        "kr": "비행기",
+        "rom": "bihaenggi",
+        "vn": "Máy bay"
+      },
+      {
+        "kr": "기차",
+        "rom": "gicha",
+        "vn": "Tàu hỏa"
+      },
+      {
+        "kr": "타요",
+        "rom": "tayo",
+        "vn": "Lên / Đi (phương tiện)"
+      },
+      {
+        "kr": "내려요",
+        "rom": "naeryeoyo",
+        "vn": "Xuống (phương tiện)"
+      },
+      {
+        "kr": "걸려요",
+        "rom": "geollyeoyo",
+        "vn": "Mất (thời gian)"
+      },
+      {
+        "kr": "까지",
+        "rom": "kkaji",
+        "vn": "Đến (điểm cuối)"
+      },
+      {
+        "kr": "역",
+        "rom": "yeok",
+        "vn": "Ga"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "지하철을 타요.",
+        "vn": "Tôi đi tàu điện ngầm."
+      },
+      {
+        "kr": "집에서 학교까지 버스를 타요.",
+        "vn": "Từ nhà đến trường tôi đi xe buýt."
+      },
+      {
+        "kr": "얼마나 걸려요?",
+        "vn": "Mất bao lâu?"
+      },
+      {
+        "kr": "삼십 분 걸려요.",
+        "vn": "Mất 30 phút."
+      },
+      {
+        "kr": "다음 역에서 내려요.",
+        "vn": "Tôi xuống ở ga tiếp theo."
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "title": "어제 뭐 했어요?",
+    "topic": "Hôm qua làm gì? — Thì quá khứ",
+    "grammar": [
+      "동사 + 았/었어요 (quá khứ)",
+      "어제/그저께",
+      "~에 갔어요"
+    ],
+    "vocab": [
+      {
+        "kr": "어제",
+        "rom": "eoje",
+        "vn": "Hôm qua"
+      },
+      {
+        "kr": "그저께",
+        "rom": "geujeokkae",
+        "vn": "Hôm kia"
+      },
+      {
+        "kr": "지난주",
+        "rom": "jinannju",
+        "vn": "Tuần trước"
+      },
+      {
+        "kr": "갔어요",
+        "rom": "gasseoyo",
+        "vn": "Đã đi"
+      },
+      {
+        "kr": "봤어요",
+        "rom": "bwasseoyo",
+        "vn": "Đã xem"
+      },
+      {
+        "kr": "먹었어요",
+        "rom": "meogeosseoyo",
+        "vn": "Đã ăn"
+      },
+      {
+        "kr": "만났어요",
+        "rom": "mannasseoyo",
+        "vn": "Đã gặp"
+      },
+      {
+        "kr": "공부했어요",
+        "rom": "gongbuhaesseoyo",
+        "vn": "Đã học"
+      },
+      {
+        "kr": "재미있었어요",
+        "rom": "jaemiisseosseoyo",
+        "vn": "Đã thú vị"
+      },
+      {
+        "kr": "피곤했어요",
+        "rom": "pigonhaesseoyo",
+        "vn": "Đã mệt"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "어제 뭐 했어요?",
+        "vn": "Hôm qua bạn làm gì?"
+      },
+      {
+        "kr": "친구를 만났어요.",
+        "vn": "Tôi đã gặp bạn."
+      },
+      {
+        "kr": "영화를 봤어요.",
+        "vn": "Tôi đã xem phim."
+      },
+      {
+        "kr": "어제 공부를 많이 했어요.",
+        "vn": "Hôm qua tôi đã học nhiều."
+      },
+      {
+        "kr": "재미있었어요.",
+        "vn": "Đã rất vui."
+      }
+    ]
+  },
+  {
+    "id": 14,
+    "title": "전화번호가 뭐예요?",
+    "topic": "Số điện thoại & Liên lạc",
+    "grammar": [
+      "N이/가 뭐예요?",
+      "한자어 숫자 đọc số",
+      "N 좀 알려 주세요"
+    ],
+    "vocab": [
+      {
+        "kr": "전화번호",
+        "rom": "jeonhwabeonho",
+        "vn": "Số điện thoại"
+      },
+      {
+        "kr": "이메일",
+        "rom": "imeil",
+        "vn": "Email"
+      },
+      {
+        "kr": "주소",
+        "rom": "juso",
+        "vn": "Địa chỉ"
+      },
+      {
+        "kr": "알려 주세요",
+        "rom": "allyeo juseyo",
+        "vn": "Làm ơn cho tôi biết"
+      },
+      {
+        "kr": "문자",
+        "rom": "munja",
+        "vn": "Tin nhắn SMS"
+      },
+      {
+        "kr": "연락해요",
+        "rom": "yeollakaeyo",
+        "vn": "Liên lạc"
+      },
+      {
+        "kr": "받아요",
+        "rom": "badayo",
+        "vn": "Nhận"
+      },
+      {
+        "kr": "보내요",
+        "rom": "bonaeyo",
+        "vn": "Gửi"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "전화번호가 뭐예요?",
+        "vn": "Số điện thoại của bạn là gì?"
+      },
+      {
+        "kr": "이메일 주소 좀 알려 주세요.",
+        "vn": "Làm ơn cho tôi biết địa chỉ email."
+      },
+      {
+        "kr": "문자 보내요.",
+        "vn": "Tôi gửi tin nhắn."
+      },
+      {
+        "kr": "나중에 연락해요.",
+        "vn": "Sau này liên lạc nhé."
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "title": "취미가 뭐예요?",
+    "topic": "Sở thích & Thời gian rảnh",
+    "grammar": [
+      "취미가 뭐예요?",
+      "~을/를 좋아해요",
+      "~도 (cũng)"
+    ],
+    "vocab": [
+      {
+        "kr": "취미",
+        "rom": "chwimi",
+        "vn": "Sở thích"
+      },
+      {
+        "kr": "독서",
+        "rom": "dokseo",
+        "vn": "Đọc sách"
+      },
+      {
+        "kr": "요리",
+        "rom": "yori",
+        "vn": "Nấu ăn"
+      },
+      {
+        "kr": "게임",
+        "rom": "geim",
+        "vn": "Chơi game"
+      },
+      {
+        "kr": "그림",
+        "rom": "geurim",
+        "vn": "Vẽ tranh"
+      },
+      {
+        "kr": "음악",
+        "rom": "eumak",
+        "vn": "Âm nhạc"
+      },
+      {
+        "kr": "좋아해요",
+        "rom": "joahaeyo",
+        "vn": "Thích"
+      },
+      {
+        "kr": "싫어해요",
+        "rom": "sireohaeyo",
+        "vn": "Không thích"
+      },
+      {
+        "kr": "자주",
+        "rom": "jaju",
+        "vn": "Thường xuyên"
+      },
+      {
+        "kr": "가끔",
+        "rom": "gakkeum",
+        "vn": "Đôi khi"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "취미가 뭐예요?",
+        "vn": "Sở thích của bạn là gì?"
+      },
+      {
+        "kr": "저는 독서를 좋아해요.",
+        "vn": "Tôi thích đọc sách."
+      },
+      {
+        "kr": "음악 듣는 것을 좋아해요.",
+        "vn": "Tôi thích nghe nhạc."
+      },
+      {
+        "kr": "저도 요리를 좋아해요.",
+        "vn": "Tôi cũng thích nấu ăn."
+      },
+      {
+        "kr": "가끔 게임해요.",
+        "vn": "Đôi khi tôi chơi game."
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "title": "몸이 아파요",
+    "topic": "Sức khỏe & Bệnh tật",
+    "grammar": [
+      "N이/가 아파요",
+      "어디가 아파요?",
+      "~아야/어야 돼요 (phải...)"
+    ],
+    "vocab": [
+      {
+        "kr": "아파요",
+        "rom": "apayo",
+        "vn": "Đau / Bệnh"
+      },
+      {
+        "kr": "머리",
+        "rom": "meori",
+        "vn": "Đầu"
+      },
+      {
+        "kr": "배",
+        "rom": "bae",
+        "vn": "Bụng"
+      },
+      {
+        "kr": "목",
+        "rom": "mok",
+        "vn": "Cổ họng"
+      },
+      {
+        "kr": "열이 나요",
+        "rom": "yeori nayo",
+        "vn": "Bị sốt"
+      },
+      {
+        "kr": "기침해요",
+        "rom": "gichimhaeyo",
+        "vn": "Ho"
+      },
+      {
+        "kr": "약",
+        "rom": "yak",
+        "vn": "Thuốc"
+      },
+      {
+        "kr": "병원에 가요",
+        "rom": "byeongwone gayo",
+        "vn": "Đi bệnh viện"
+      },
+      {
+        "kr": "괜찮아요",
+        "rom": "gwaenchanhayo",
+        "vn": "Ổn / Không sao"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "어디가 아파요?",
+        "vn": "Bạn đau ở đâu?"
+      },
+      {
+        "kr": "머리가 아파요.",
+        "vn": "Tôi bị đau đầu."
+      },
+      {
+        "kr": "열이 나요.",
+        "vn": "Tôi bị sốt."
+      },
+      {
+        "kr": "병원에 가야 돼요.",
+        "vn": "Bạn phải đi bệnh viện."
+      },
+      {
+        "kr": "약을 먹고 쉬어야 돼요.",
+        "vn": "Bạn cần uống thuốc và nghỉ ngơi."
+      }
+    ]
+  },
+  {
+    "id": 17,
+    "title": "옷이 마음에 들어요?",
+    "topic": "Quần áo & Mua sắm",
+    "grammar": [
+      "마음에 들어요/안 들어요",
+      "N이/가 어때요?",
+      "더 + 형용사"
+    ],
+    "vocab": [
+      {
+        "kr": "옷",
+        "rom": "ot",
+        "vn": "Quần áo"
+      },
+      {
+        "kr": "티셔츠",
+        "rom": "tisyeocheu",
+        "vn": "Áo phông"
+      },
+      {
+        "kr": "바지",
+        "rom": "baji",
+        "vn": "Quần"
+      },
+      {
+        "kr": "치마",
+        "rom": "chima",
+        "vn": "Váy"
+      },
+      {
+        "kr": "신발",
+        "rom": "sinbal",
+        "vn": "Giày"
+      },
+      {
+        "kr": "마음에 들어요",
+        "rom": "maeume deureoyo",
+        "vn": "Thích / Vừa ý"
+      },
+      {
+        "kr": "크다",
+        "rom": "keuda",
+        "vn": "To / Rộng"
+      },
+      {
+        "kr": "작다",
+        "rom": "jakda",
+        "vn": "Nhỏ / Chật"
+      },
+      {
+        "kr": "다른",
+        "rom": "dareun",
+        "vn": "Khác"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "이 옷이 마음에 들어요?",
+        "vn": "Bạn có thích bộ quần áo này không?"
+      },
+      {
+        "kr": "네, 마음에 들어요.",
+        "vn": "Vâng, tôi thích."
+      },
+      {
+        "kr": "조금 커요. 작은 거 있어요?",
+        "vn": "Hơi rộng. Có cái nhỏ hơn không?"
+      },
+      {
+        "kr": "다른 색 있어요?",
+        "vn": "Có màu khác không?"
+      },
+      {
+        "kr": "이 신발이 예뻐요.",
+        "vn": "Đôi giày này đẹp."
+      }
+    ]
+  },
+  {
+    "id": 18,
+    "title": "음식을 만들어요",
+    "topic": "Nấu ăn & Công thức",
+    "grammar": [
+      "먼저 ~ 다음에 ~",
+      "~고 나서 (sau khi...)",
+      "~(으)세요 (mệnh lệnh lịch sự)"
+    ],
+    "vocab": [
+      {
+        "kr": "만들어요",
+        "rom": "mandureoyo",
+        "vn": "Làm / Chế biến"
+      },
+      {
+        "kr": "넣어요",
+        "rom": "neoheoyo",
+        "vn": "Cho vào"
+      },
+      {
+        "kr": "끓여요",
+        "rom": "kkeulyeoyo",
+        "vn": "Đun sôi"
+      },
+      {
+        "kr": "볶아요",
+        "rom": "bokkayo",
+        "vn": "Xào"
+      },
+      {
+        "kr": "썰어요",
+        "rom": "sseoreoyo",
+        "vn": "Thái / Cắt"
+      },
+      {
+        "kr": "먼저",
+        "rom": "meonjeo",
+        "vn": "Đầu tiên"
+      },
+      {
+        "kr": "다음에",
+        "rom": "daeume",
+        "vn": "Sau đó"
+      },
+      {
+        "kr": "간장",
+        "rom": "ganjang",
+        "vn": "Nước tương"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "불고기를 만들어요.",
+        "vn": "Tôi làm thịt nướng."
+      },
+      {
+        "kr": "먼저 고기를 썰어요.",
+        "vn": "Đầu tiên thái thịt."
+      },
+      {
+        "kr": "간장을 조금 넣어요.",
+        "vn": "Cho một ít nước tương vào."
+      },
+      {
+        "kr": "볶고 나서 먹어요.",
+        "vn": "Sau khi xào xong thì ăn."
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "title": "여행을 가고 싶어요",
+    "topic": "Du lịch & Đặt phòng",
+    "grammar": [
+      "~고 싶어요/싶지 않아요",
+      "~(으)ㄹ 수 있어요/없어요"
+    ],
+    "vocab": [
+      {
+        "kr": "여행",
+        "rom": "yeohaeng",
+        "vn": "Du lịch"
+      },
+      {
+        "kr": "호텔",
+        "rom": "hotel",
+        "vn": "Khách sạn"
+      },
+      {
+        "kr": "예약",
+        "rom": "yeyak",
+        "vn": "Đặt trước"
+      },
+      {
+        "kr": "관광",
+        "rom": "gwangwang",
+        "vn": "Tham quan"
+      },
+      {
+        "kr": "사진을 찍어요",
+        "rom": "sajineul jjigeoyo",
+        "vn": "Chụp ảnh"
+      },
+      {
+        "kr": "지도",
+        "rom": "jido",
+        "vn": "Bản đồ"
+      },
+      {
+        "kr": "추천해요",
+        "rom": "ucheonhaeyo",
+        "vn": "Giới thiệu / Khuyên"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "한국에 여행을 가고 싶어요.",
+        "vn": "Tôi muốn đi du lịch Hàn Quốc."
+      },
+      {
+        "kr": "호텔을 예약할 수 있어요?",
+        "vn": "Tôi có thể đặt phòng không?"
+      },
+      {
+        "kr": "사진을 찍어도 돼요?",
+        "vn": "Tôi có thể chụp ảnh không?"
+      },
+      {
+        "kr": "길을 잃었어요. 도와주세요.",
+        "vn": "Tôi bị lạc đường. Làm ơn giúp tôi."
+      },
+      {
+        "kr": "어디를 추천해요?",
+        "vn": "Bạn giới thiệu đi đâu?"
+      }
+    ]
+  },
+  {
+    "id": 20,
+    "title": "한국 생활이 어때요?",
+    "topic": "Cuộc sống ở Hàn Quốc — Trải nghiệm",
+    "grammar": [
+      "~(으)ㄴ 것 같아요",
+      "~지만 (nhưng)",
+      "~아/어 보이다"
+    ],
+    "vocab": [
+      {
+        "kr": "생활",
+        "rom": "saenghwal",
+        "vn": "Cuộc sống"
+      },
+      {
+        "kr": "적응해요",
+        "rom": "jeogeunghaeyo",
+        "vn": "Thích nghi"
+      },
+      {
+        "kr": "힘들어요",
+        "rom": "himdureoyo",
+        "vn": "Vất vả / Khó khăn"
+      },
+      {
+        "kr": "그렇지만",
+        "rom": "geureochiman",
+        "vn": "Nhưng mà"
+      },
+      {
+        "kr": "점점",
+        "rom": "jeomjeom",
+        "vn": "Dần dần"
+      },
+      {
+        "kr": "익숙해요",
+        "rom": "iksukaeyo",
+        "vn": "Quen rồi"
+      },
+      {
+        "kr": "그리워요",
+        "rom": "geuriwoyo",
+        "vn": "Nhớ / Nhớ nhà"
+      },
+      {
+        "kr": "행복해요",
+        "rom": "haengbokaeyo",
+        "vn": "Hạnh phúc"
+      }
+    ],
+    "sampleSentences": [
+      {
+        "kr": "한국 생활이 어때요?",
+        "vn": "Cuộc sống ở Hàn Quốc thế nào?"
+      },
+      {
+        "kr": "처음에는 힘들었지만 지금은 익숙해요.",
+        "vn": "Lúc đầu vất vả nhưng bây giờ quen rồi."
+      },
+      {
+        "kr": "음식이 좀 달라요.",
+        "vn": "Thức ăn hơi khác một chút."
+      },
+      {
+        "kr": "베트남이 그리워요.",
+        "vn": "Tôi nhớ Việt Nam."
+      },
+      {
+        "kr": "점점 행복해져요.",
+        "vn": "Dần dần trở nên hạnh phúc hơn."
+      }
+    ]
+  }
+]
