@@ -1,10 +1,61 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, Clock3, FilePlus2, Plus, School, Send, Trash2 } from 'lucide-react';
+import {
+  CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, Clock3, FilePlus2,
+  FileSpreadsheet, ImagePlus, ListPlus, LoaderCircle, Plus, School, Send, Trash2, Type,
+} from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatDate } from '../api.js';
 import { Empty, PageHeader, Pagination } from '../components/Shell.jsx';
 
-const freshQuestion = () => ({ type: 'MULTIPLE_CHOICE', prompt: '', optionsText: '', correctAnswer: '', explanation: '', topic: 'Từ vựng', points: 1 });
+const freshQuestion = (patch = {}) => ({
+  type: 'MULTIPLE_CHOICE', prompt: '', optionsText: '', correctAnswer: '', explanation: '', topic: 'Từ vựng', points: 1,
+  ...patch,
+});
+
+const headerKey = (value) => String(value || '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+const splitOptions = (value) => String(value || '').split(/\r?\n|\||;/).map((item) => item.trim()).filter(Boolean);
+const normalizeType = (value, hasOptions, hasAnswer) => {
+  const key = headerKey(value);
+  if (['multiplechoice', 'tracnghiem', 'mcq'].includes(key)) return 'MULTIPLE_CHOICE';
+  if (['shorttext', 'traloinho', 'dientu', 'short'].includes(key)) return 'SHORT_TEXT';
+  if (['essay', 'tuluan'].includes(key)) return 'ESSAY';
+  if (hasOptions) return 'MULTIPLE_CHOICE';
+  if (hasAnswer) return 'SHORT_TEXT';
+  return 'ESSAY';
+};
+
+function extractJson(text) {
+  const raw = String(text || '').trim();
+  const candidates = [raw];
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) candidates.push(fenced[1].trim());
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start >= 0 && end > start) candidates.push(raw.slice(start, end + 1));
+  for (const candidate of candidates) {
+    try { return JSON.parse(candidate.replace(/,\s*([}\]])/g, '$1')); } catch { /* thử tiếp */ }
+  }
+  throw new Error('AI trả về dữ liệu chưa đúng định dạng. Hãy thử ảnh rõ hơn.');
+}
+
+function importedQuestion(raw = {}) {
+  const options = Array.isArray(raw.options) ? raw.options.map(String).filter(Boolean) : splitOptions(raw.optionsText ?? raw.options ?? raw.luaChon ?? raw.luachon);
+  const answer = String(raw.correctAnswer ?? raw.answer ?? raw.dapAn ?? raw.dapan ?? '').trim();
+  const prompt = String(raw.prompt ?? raw.question ?? raw.cauHoi ?? raw.cauhoi ?? raw.noiDung ?? raw.noidung ?? '').trim();
+  const type = normalizeType(raw.type ?? raw.loai, options.length > 0, Boolean(answer));
+  return freshQuestion({
+    type,
+    prompt,
+    optionsText: options.join('\n'),
+    correctAnswer: answer,
+    explanation: String(raw.explanation ?? raw.giaiThich ?? raw.giaithich ?? '').trim(),
+    topic: String(raw.topic ?? raw.chuDe ?? raw.chude ?? 'Tổng hợp').trim() || 'Tổng hợp',
+    points: Number(raw.points ?? raw.diem ?? 1) || 1,
+  });
+}
 
 export default function AssignmentsPage({ user }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -17,6 +68,10 @@ export default function AssignmentsPage({ user }) {
   const [classes, setClasses] = useState([]);
   const [creating, setCreating] = useState(false);
   const [message, setMessage] = useState('');
+  const [inputMode, setInputMode] = useState('single');
+  const [bulkText, setBulkText] = useState('');
+  const [importing, setImporting] = useState('');
+  const [ocrProgress, setOcrProgress] = useState(0);
   const [form, setForm] = useState({ classId: '', type: 'HOMEWORK', title: '', instructions: '', dueAt: '', timeLimitMinutes: '', questions: [freshQuestion()], publishNow: true });
 
   const load = async () => {
@@ -34,6 +89,114 @@ export default function AssignmentsPage({ user }) {
 
   const updateQuestion = (index, patch) => setForm((old) => ({ ...old, questions: old.questions.map((question, i) => i === index ? { ...question, ...patch } : question) }));
   const removeQuestion = (index) => setForm((old) => ({ ...old, questions: old.questions.filter((_, i) => i !== index) }));
+  const appendQuestions = (items, label) => {
+    const valid = items.map(importedQuestion).filter((item) => item.prompt.length >= 2);
+    if (!valid.length) throw new Error('Không tìm thấy câu hỏi hợp lệ để thêm.');
+    setForm((old) => {
+      const current = old.questions.length === 1 && !old.questions[0].prompt.trim() ? [] : old.questions;
+      const room = Math.max(0, 100 - current.length);
+      return { ...old, questions: [...current, ...valid.slice(0, room)] };
+    });
+    setMessage(`Đã thêm ${Math.min(valid.length, 100)} câu từ ${label}. Bạn có thể sửa lại từng câu trước khi giao.`);
+  };
+
+  const addBulkQuestions = () => {
+    try {
+      const lines = bulkText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      appendQuestions(lines.map((prompt) => ({ prompt, type: 'ESSAY', topic: 'Tổng hợp', points: 1 })), 'ô nhập nhiều câu');
+      setBulkText('');
+    } catch (err) { setMessage(err.message); }
+  };
+
+  const importExcel = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setImporting('excel'); setMessage('');
+    try {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (!rows.length) throw new Error('File Excel không có dữ liệu.');
+
+      const known = new Set(['cauhoi', 'question', 'prompt', 'noidung', 'loai', 'type', 'luachon', 'options', 'dapan', 'answer', 'giaithich', 'explanation', 'chude', 'topic', 'diem', 'points']);
+      const firstKeys = rows[0].map(headerKey);
+      const hasHeader = firstKeys.some((key) => known.has(key));
+      let questions;
+      if (hasHeader) {
+        const indexOf = (...aliases) => firstKeys.findIndex((key) => aliases.includes(key));
+        const idx = {
+          prompt: indexOf('cauhoi', 'question', 'prompt', 'noidung'), type: indexOf('loai', 'type'),
+          options: indexOf('luachon', 'options'), answer: indexOf('dapan', 'answer'), explanation: indexOf('giaithich', 'explanation'),
+          topic: indexOf('chude', 'topic'), points: indexOf('diem', 'points'),
+        };
+        questions = rows.slice(1).map((row) => ({
+          prompt: idx.prompt >= 0 ? row[idx.prompt] : row[0], type: idx.type >= 0 ? row[idx.type] : '',
+          options: idx.options >= 0 ? row[idx.options] : '', answer: idx.answer >= 0 ? row[idx.answer] : '',
+          explanation: idx.explanation >= 0 ? row[idx.explanation] : '', topic: idx.topic >= 0 ? row[idx.topic] : 'Tổng hợp',
+          points: idx.points >= 0 ? row[idx.points] : 1,
+        }));
+      } else {
+        questions = rows.map((row) => ({ prompt: row[0], answer: row[1] || '', options: row[2] || '', topic: row[3] || 'Tổng hợp' }));
+      }
+      appendQuestions(questions, `Excel “${file.name}”`);
+    } catch (err) { setMessage(err.message || 'Không đọc được file Excel.'); }
+    finally { setImporting(''); }
+  };
+
+  const downloadExcelTemplate = async () => {
+    const XLSX = await import('xlsx');
+    const rows = [
+      { 'Câu hỏi': '저는 학생___ 입니다. Chọn đáp án đúng.', 'Loại': 'MULTIPLE_CHOICE', 'Lựa chọn': '은|는|이|가', 'Đáp án': '은', 'Giải thích': 'Dùng 은 sau phụ âm.', 'Chủ đề': 'Trợ từ', 'Điểm': 1 },
+      { 'Câu hỏi': 'Dịch sang tiếng Hàn: Tôi là học sinh.', 'Loại': 'SHORT_TEXT', 'Lựa chọn': '', 'Đáp án': '저는 학생입니다.', 'Giải thích': '', 'Chủ đề': 'Bài 1', 'Điểm': 1 },
+      { 'Câu hỏi': 'Viết 3 câu giới thiệu bản thân bằng tiếng Hàn.', 'Loại': 'ESSAY', 'Lựa chọn': '', 'Đáp án': '', 'Giải thích': '', 'Chủ đề': 'Viết', 'Điểm': 2 },
+    ];
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'CauHoi');
+    XLSX.writeFile(wb, 'mau-giao-bai-hanquoc.xlsx');
+  };
+
+  const importImagesWithAI = async (event) => {
+    const files = [...(event.target.files || [])];
+    event.target.value = '';
+    if (!files.length) return;
+    setImporting('image'); setOcrProgress(0); setMessage('Đang đọc chữ trong ảnh...');
+    try {
+      const Tesseract = await import('tesseract.js');
+      let currentFileIndex = 0;
+      const worker = await Tesseract.createWorker(['kor', 'eng'], 1, {
+        logger: (info) => {
+          if (info.status === 'recognizing text') setOcrProgress(Math.round(((currentFileIndex + info.progress) / files.length) * 100));
+        },
+      });
+      const ocrTexts = [];
+      try {
+        for (let i = 0; i < files.length; i += 1) {
+          currentFileIndex = i;
+          const result = await worker.recognize(files[i]);
+          ocrTexts.push(result.data.text || '');
+        }
+      } finally {
+        await worker.terminate();
+      }
+      const ocrText = ocrTexts.join('\n\n--- ẢNH TIẾP THEO ---\n\n').trim();
+      if (ocrText.length < 5) throw new Error('Không đọc được chữ trong ảnh. Hãy dùng ảnh rõ, thẳng và đủ sáng.');
+      setMessage('Đã OCR xong. AI đang tách câu hỏi...');
+      const aiResult = await api('/learning/ai', {
+        method: 'POST', toast: false,
+        body: JSON.stringify({
+          systemPrompt: 'Bạn là trợ lý nhập đề tiếng Hàn cho giáo viên. Chỉ trả JSON hợp lệ, không markdown.',
+          prompt: `Từ nội dung OCR dưới đây, hãy tách thành các câu hỏi bài tập. Không tự bịa câu không có trong ảnh.\n\nOCR:\n${ocrText}\n\nTrả đúng JSON dạng:\n{"questions":[{"type":"MULTIPLE_CHOICE|SHORT_TEXT|ESSAY","prompt":"nội dung câu hỏi","options":["A","B"],"correctAnswer":"đáp án nếu suy ra rõ, nếu không để rỗng","explanation":"","topic":"Tổng hợp","points":1}]}\nQuy tắc: nếu không thấy đáp án rõ ràng trong ảnh thì dùng type ESSAY để giáo viên sửa sau; trắc nghiệm phải có ít nhất 2 options.`,
+          temperature: 0.15, maxOutputTokens: 4096, jsonMode: true,
+        }),
+      });
+      const parsed = extractJson(aiResult.text);
+      if (!Array.isArray(parsed.questions)) throw new Error('AI chưa tách được danh sách câu hỏi.');
+      appendQuestions(parsed.questions, `${files.length} ảnh AI quét`);
+    } catch (err) { setMessage(err.message || 'Không quét được ảnh.'); }
+    finally { setImporting(''); setOcrProgress(0); }
+  };
 
   const createAssignment = async (event) => {
     event.preventDefault(); setMessage('');
@@ -53,15 +216,19 @@ export default function AssignmentsPage({ user }) {
       await load();
     } catch (err) { setMessage(err.message); }
   };
-
   const publish = async (id) => {
     try { const data = await api(`/assignments/${id}/publish`, { method: 'POST' }); setMessage(data.message); await load(); }
     catch (err) { setMessage(err.message); }
   };
 
   if (user.role === 'STUDENT') return <StudentAssignments assignments={assignments} message={message} filter={studentFilter} setFilter={(value) => { setStudentFilter(value); setPage(1); }} pagination={pagination} page={page} setPage={setPage} loading={listLoading} />;
-
   const selectedClass = classes.find((item) => String(item.id) === selectedClassId);
+  const modes = [
+    ['single', Plus, 'Thêm từng câu', 'Soạn và chỉnh từng câu như hiện tại'],
+    ['excel', FileSpreadsheet, 'Thêm từ Excel', 'Đọc .xlsx/.xls và đưa vào danh sách'],
+    ['image', ImagePlus, 'Ảnh → AI quét', 'OCR ảnh rồi AI tự tách thành câu'],
+    ['bulk', ListPlus, 'Nhiều câu một ô', 'Mỗi dòng là một câu hỏi'],
+  ];
 
   return <>
     <PageHeader eyebrow="GIÁO VIÊN" title="Bài tập & bài kiểm tra" subtitle={selectedClass ? `Đang xem riêng lớp ${selectedClass.name}. Bài của lớp khác không hiển thị trong danh sách này.` : 'Đang xem tất cả lớp. Mỗi bài vẫn chỉ thuộc đúng một lớp.'} action={<button className="btn primary" onClick={() => { setCreating((v) => !v); if (selectedClassId) setForm((old) => ({ ...old, classId: selectedClassId })); }}><FilePlus2 size={18} /> Tạo bài mới</button>} />
@@ -77,7 +244,19 @@ export default function AssignmentsPage({ user }) {
         <label>Thời gian (phút)<input type="number" min="1" max="360" value={form.timeLimitMinutes} onChange={(e) => setForm({ ...form, timeLimitMinutes: e.target.value })} placeholder="Tùy chọn" /></label>
         <label className="span-3">Hướng dẫn<textarea rows="2" value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} placeholder="Làm cẩn thận, kiểm tra lại trước khi nộp..." /></label>
       </div>
-      <div className="question-builder-head"><div><strong>Câu hỏi</strong><span>{form.questions.length} câu</span></div><button type="button" className="btn secondary small" onClick={() => setForm({ ...form, questions: [...form.questions, freshQuestion()] })}><Plus size={16} /> Thêm câu</button></div>
+
+      <div className="question-source-block">
+        <div className="question-source-title"><div><Type size={18} /><strong>Chọn cách thêm câu hỏi</strong></div><span>Tối đa 100 câu / bài</span></div>
+        <div className="question-source-grid">
+          {modes.map(([id, Icon, title, note]) => <button key={id} type="button" className={`question-source-card ${inputMode === id ? 'active' : ''}`} onClick={() => setInputMode(id)}><Icon size={19} /><span><strong>{title}</strong><small>{note}</small></span></button>)}
+        </div>
+        {inputMode === 'single' && <div className="question-source-action single"><span>Thêm một câu trống rồi nhập nội dung ở danh sách bên dưới.</span><button type="button" className="btn secondary small" onClick={() => setForm((old) => ({ ...old, questions: [...old.questions, freshQuestion()] }))}><Plus size={16} /> Thêm từng câu</button></div>}
+        {inputMode === 'excel' && <div className="question-source-action"><div><strong>Nhập từ Excel</strong><p>Hỗ trợ cột: Câu hỏi, Loại, Lựa chọn, Đáp án, Giải thích, Chủ đề, Điểm. Nếu file chỉ có một cột thì mỗi dòng sẽ thành một câu tự luận.</p></div><div className="source-buttons"><button type="button" className="btn ghost small" onClick={downloadExcelTemplate}><FileSpreadsheet size={16} /> Tải file mẫu</button><label className={`btn secondary small file-button ${importing === 'excel' ? 'disabled' : ''}`}>{importing === 'excel' ? <LoaderCircle className="spin" size={16} /> : <FileSpreadsheet size={16} />} Chọn Excel<input type="file" accept=".xlsx,.xls" onChange={importExcel} disabled={Boolean(importing)} /></label></div></div>}
+        {inputMode === 'image' && <div className="question-source-action"><div><strong>Ảnh → OCR → AI tách câu</strong><p>Chụp thẳng, đủ sáng. Ảnh được OCR trên trình duyệt; phần chữ sau đó gửi tới AI hệ thống để tách câu. Không cần nhập API key ở máy giáo viên.</p>{importing === 'image' && <div className="ocr-progress"><i style={{ width: `${ocrProgress}%` }} /><span>{ocrProgress ? `${ocrProgress}%` : 'AI đang xử lý...'}</span></div>}</div><label className={`btn secondary small file-button ${importing ? 'disabled' : ''}`}>{importing === 'image' ? <LoaderCircle className="spin" size={16} /> : <ImagePlus size={16} />} Chọn ảnh<input type="file" accept="image/*" multiple onChange={importImagesWithAI} disabled={Boolean(importing)} /></label></div>}
+        {inputMode === 'bulk' && <div className="question-source-action bulk"><div><strong>Dán nhiều câu vào một ô</strong><p>Mỗi câu chỉ cần xuống dòng. Hệ thống thêm thành câu tự luận; sau đó có thể đổi từng câu sang trắc nghiệm/điền từ và thêm đáp án.</p></div><textarea rows="7" value={bulkText} onChange={(e) => setBulkText(e.target.value)} placeholder={'Câu 1: Dịch câu sau sang tiếng Hàn...\nCâu 2: Viết 3 câu về cuối tuần...\nCâu 3: Hãy đặt câu với -고 싶다...'} /><button type="button" className="btn secondary small" onClick={addBulkQuestions} disabled={!bulkText.trim()}><ListPlus size={16} /> Thêm các dòng</button></div>}
+      </div>
+
+      <div className="question-builder-head"><div><strong>Câu hỏi đã thêm</strong><span>{form.questions.length} câu</span></div><button type="button" className="btn secondary small" onClick={() => setForm({ ...form, questions: [...form.questions, freshQuestion()] })}><Plus size={16} /> Thêm câu</button></div>
       <div className="question-builder-list">
         {form.questions.map((question, index) => <div className="question-edit" key={index}>
           <div className="question-number">{index + 1}</div>
