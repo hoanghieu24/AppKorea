@@ -2,15 +2,10 @@ import { useState } from 'react';
 import { ArrowRight, BookOpenCheck, BrainCircuit, GraduationCap, Users } from 'lucide-react';
 import { api, saveSession } from '../api.js';
 
-const demos = [
-  ['Admin', 'admin@hanquoc.local', 'Admin@123'],
-  ['Giáo viên', 'teacher@hanquoc.local', 'Teacher@123'],
-  ['Học sinh', 'student@hanquoc.local', 'Student@123'],
-];
 
 export default function LoginPage({ onLogin }) {
-  const [email, setEmail] = useState('student@hanquoc.local');
-  const [password, setPassword] = useState('Student@123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -49,16 +44,10 @@ export default function LoginPage({ onLogin }) {
           <span className="eyebrow">CHÀO MỪNG TRỞ LẠI</span>
           <h2>Đăng nhập</h2>
           <p>Dùng tài khoản được quản trị viên cấp.</p>
-          <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required /></label>
-          <label>Mật khẩu<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /></label>
+          <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" placeholder="Nhập email của bạn..." required /></label>
+          <label>Mật khẩu<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" placeholder="Nhập mật khẩu..." required /></label>
           {error && <div className="form-error">{error}</div>}
           <button className="btn primary full" disabled={loading}>{loading ? 'Đang vào lớp...' : <>Vào lớp <ArrowRight size={18} /></>}</button>
-          <div className="demo-box">
-            <strong>Tài khoản demo</strong>
-            <div className="demo-users">
-              {demos.map(([label, demoEmail, demoPassword]) => <button type="button" key={label} onClick={() => { setEmail(demoEmail); setPassword(demoPassword); }}>{label}</button>)}
-            </div>
-          </div>
         </form>
       </section>
     </div>
