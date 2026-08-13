@@ -103,9 +103,33 @@ function parseAIJson(raw) {
   throw new Error('AI trả dữ liệu chưa đúng định dạng JSON');
 }
 
+function requestClassroomAI(payload) {
+  return new Promise((resolve, reject) => {
+    const requestId = 'req_' + Math.random().toString(36).slice(2) + Date.now();
+    const timeout = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      reject(new Error('TIMEOUT'));
+    }, 25000);
+
+    function handler(e) {
+      if (e.data?.type === 'CLASSROOM_AI_RESPONSE' && e.data?.requestId === requestId) {
+        clearTimeout(timeout);
+        window.removeEventListener('message', handler);
+        if (e.data.ok) resolve(e.data.text);
+        else reject(new Error(e.data.message || 'Lỗi AI'));
+      }
+    }
+    window.addEventListener('message', handler);
+    const target = (window.parent && window.parent !== window) ? window.parent : window;
+    target.postMessage({ type: 'CLASSROOM_AI_REQUEST', requestId, payload }, '*');
+  });
+}
+
 // ============ GEMINI API ============
 const GEMINI = {
-  getKey: () => classroomSession()?.token || localStorage.getItem('hq_api_key') || '',
+  getKey: () => {
+    return localStorage.getItem('hq_gemini_key') || '';
+  },
   getModel: () => {
     const model = localStorage.getItem('hq_model') || 'gemini-3.5-flash';
     return model;
@@ -116,20 +140,21 @@ const GEMINI = {
     const { jsonMode = false, ...generationOpts } = opts;
     const classroom = classroomSession();
     if (classroom?.token) {
-      const res = await fetch('/api/learning/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...classroomAuthHeaders() },
-        body: JSON.stringify({
+      try {
+        const text = await requestClassroomAI({
           prompt,
           systemPrompt,
           temperature: generationOpts.temperature ?? 0.7,
           maxOutputTokens: generationOpts.maxOutputTokens ?? 1024,
           jsonMode,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
-      return data.text || '';
+        });
+        if (text) return text;
+      } catch (err) {
+        if (!GEMINI.getKey()) {
+          if (err.message === 'TIMEOUT') throw new Error('Yêu cầu AI quá thời gian phản hồi.');
+          throw err;
+        }
+      }
     }
     const key = GEMINI.getKey();
     if (!key) throw new Error('NO_API_KEY');
@@ -183,14 +208,15 @@ const GEMINI = {
   async callChat(history, systemPrompt = '') {
     const classroom = classroomSession();
     if (classroom?.token) {
-      const res = await fetch('/api/learning/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...classroomAuthHeaders() },
-        body: JSON.stringify({ history, systemPrompt, temperature: 0.85, maxOutputTokens: 1200 }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
-      return data.text || '';
+      try {
+        const text = await requestClassroomAI({ history, systemPrompt, temperature: 0.85, maxOutputTokens: 1200 });
+        if (text) return text;
+      } catch (err) {
+        if (!GEMINI.getKey()) {
+          if (err.message === 'TIMEOUT') throw new Error('Yêu cầu AI quá thời gian phản hồi.');
+          throw err;
+        }
+      }
     }
     const key = GEMINI.getKey();
     if (!key) throw new Error('NO_API_KEY');
@@ -2589,7 +2615,10 @@ async function sendChatMessage() {
     saveState();
   } catch(e) {
     removeTypingIndicator(typingId);
-    appendChatMessage('ai', `❌ Lỗi: ${e.message}. Kiểm tra API key!`, p.avatar);
+    const errMsg = e.message === 'NO_API_KEY'
+      ? 'Vui lòng vào phần Cài đặt (⚙️) nhập Gemini API Key riêng để dùng AI Chat.'
+      : (e.message || 'Lỗi kết nối AI');
+    appendChatMessage('ai', `❌ ${errMsg}`, p.avatar);
   }
 }
 
