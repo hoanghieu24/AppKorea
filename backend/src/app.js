@@ -819,10 +819,10 @@ async function gradeAssignmentAnswers(questions, answers) {
     try {
       const compact = results.map((item) => ({ topic: item.topic, correct: item.isCorrect, score: item.awarded, max: item.points, feedback: item.feedback }));
       const aiSummary = await generateTextWithAI({
-        systemPrompt: 'Bạn là giáo viên tiếng Hàn. Nhận xét bài làm bằng tiếng Việt, tích cực nhưng chính xác. Chỉ 2-3 câu: điểm mạnh, lỗi chính, phần cần ôn. Không dùng markdown.',
+        systemPrompt: 'Bạn là giáo viên tiếng Hàn ân cần và giàu kinh nghiệm. Nhận xét bài làm tổng thể bằng tiếng Việt mang tính động viên, cởi mở, không quá khắt khe. Với các câu học sinh làm sai, giải thích kỹ tại sao sai và cách khắc phục. Khích lệ điểm mạnh của học sinh. Viết 3-4 câu ngắn gọn, rõ ràng. Không dùng markdown.',
         prompt: `Kết quả bài làm: ${JSON.stringify(compact)}`,
         temperature: 0.25,
-        maxOutputTokens: 350,
+        maxOutputTokens: 400,
       });
       if (aiSummary.trim()) { summary = aiSummary.trim(); aiSummaryUsed = true; }
     } catch { /* giữ nhận xét dự phòng */ }

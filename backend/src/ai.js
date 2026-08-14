@@ -68,15 +68,26 @@ async function callGemini(prompt) {
 }
 
 export async function gradeEssayWithAI({ prompt, referenceAnswer, answer, maxPoints }) {
-  const request = `Bạn là giáo viên tiếng Hàn. Chấm câu trả lời học sinh công bằng, ngắn gọn.
-Câu hỏi: ${prompt}
-Đáp án tham khảo: ${referenceAnswer || '(không có đáp án cố định)'}
-Bài làm: ${answer || '(bỏ trống)'}
-Điểm tối đa: ${maxPoints}
+  const request = `Bạn là giáo viên tiếng Hàn ân cần và linh hoạt đang chấm bài tự luận cho học sinh Việt Nam.
 
-Trả đúng JSON, không thêm markdown:
-{"scoreRatio":0.0,"isCorrect":false,"feedback":"nhận xét tiếng Việt ngắn, chỉ rõ lỗi tiếng Hàn nếu có"}
-scoreRatio phải từ 0 đến 1.`;
+QUY TẮC CHẤM VÀ ĐÁNH GIÁ:
+1. CHẤM CỞI MỞ, KHÔNG QUÁ GẮT/SÁT TỪNG CHỮ: Không phạt nặng các lỗi lặt vặt về khoảng trắng, dấu câu hay viết hoa. Nếu bài làm của học sinh diễn đạt đúng ý cốt lõi, người Hàn có thể hiểu được và đúng ngữ cảnh thì hãy tính là ĐÚNG (isCorrect = true) và cho điểm tối đa hoặc gần tối đa (scoreRatio từ 0.8 đến 1.0).
+2. GIẢI THÍCH KỸ KHI SAI: Với bất kỳ câu nào sai hoặc bị trừ điểm (isCorrect = false hoặc scoreRatio < 0.8), bạn PHẢI GIẢI THÍCH KỸ TẠI SAO SAI bằng tiếng Việt (chỉ rõ sai ở điểm ngữ pháp nào, dùng sai từ vựng gì, hoặc nhầm lẫn cấu trúc ra sao), đồng thời hướng dẫn lại đáp án đúng chuẩn.
+3. VỚI CÂU ĐÚNG: Đưa ra lời khen ngắn gọn khích lệ.
+
+Thông tin bài làm:
+- Câu hỏi: ${prompt}
+- Đáp án tham khảo: ${referenceAnswer || '(không có đáp án cố định)'}
+- Bài làm của học sinh: ${answer || '(bỏ trống)'}
+- Điểm tối đa: ${maxPoints}
+
+Trả về duy nhất một chuỗi JSON hợp lệ (không dùng markdown code fence, không thêm văn bản bên ngoài):
+{
+  "scoreRatio": 1.0,
+  "isCorrect": true,
+  "feedback": "Nhận xét tiếng Việt chi tiết. Nếu sai phải giải thích kỹ tại sao sai và hướng dẫn lại câu đúng."
+}
+Lưu ý: scoreRatio là số thực từ 0.0 đến 1.0.`;
 
   const parsed = extractJson(await callGemini(request));
   const ratio = Math.max(0, Math.min(1, Number(parsed.scoreRatio) || 0));

@@ -5903,7 +5903,19 @@ async function spCheckAnswer() {
 async function spAIGrade(q, userAnswer) {
   const lesson = SP_BOOK_DATA[spState.lessonIdx];
   const dir = q.direction==='vn2kr'?'Tiếng Việt → Tiếng Hàn':'Tiếng Hàn → Tiếng Việt';
-  const prompt = `Chấm bài dịch tiếng Hàn cho học sinh Việt Nam.\nBài ${lesson.id}: ${lesson.title}\nChiều dịch: ${dir}\nCâu gốc: "${q.questionText}"\nĐáp án chuẩn: "${q.answerText}"\nCâu học sinh: "${userAnswer}"\n${q.grammarNote?`Ngữ pháp: ${q.grammarNote}`:''}\n\nJSON: {"score":<0-100>,"verdict":"<correct|partial|wrong>","note":"nhận xét 1-2 câu tiếng Việt","corrected":"câu đúng","explanation":"giải thích ngữ pháp tiếng Việt"}`;
+  const prompt = `Bạn là giáo viên tiếng Hàn chấm bài dịch cho học sinh Việt Nam.
+NGUYÊN TẮC CHẤM:
+1. Chấm cởi mở, KHÔNG chấm quá gắt hay quá sát từng chữ. Nếu học sinh dịch đúng ý cốt lõi, diễn đạt tự nhiên và người Hàn có thể hiểu được thì cho ĐÚNG (score 80-100, verdict "correct").
+2. Nếu câu sai hoặc đúng một phần, phải GIẢI THÍCH KỸ TẠI SAO SAI bằng tiếng Việt (chỉ rõ sai ở điểm ngữ pháp nào, từ vựng nào hoặc tiểu từ nào) và cung cấp câu chuẩn.
+
+Bài học ${lesson.id}: ${lesson.title}
+Chiều dịch: ${dir}
+Câu gốc: "${q.questionText}"
+Đáp án chuẩn: "${q.answerText}"
+Bài của học sinh: "${userAnswer}"
+${q.grammarNote ? `Ngữ pháp bài: ${q.grammarNote}` : ''}
+
+Trả duy nhất JSON: {"score":<0-100>,"verdict":"<correct|partial|wrong>","note":"nhận xét động viên","corrected":"câu đúng chuẩn","explanation":"giải thích kỹ tại sao sai và cấu trúc đúng bằng tiếng Việt"}`;
   return GEMINI.callJSON(prompt,'',{temperature:0.3,maxOutputTokens:800});
 }
 

@@ -18,12 +18,19 @@ export function gradeObjective(question, answer) {
   const expected = acceptedAnswers(question.correct_answer);
   const actual = normalizeAnswer(answer);
   const isCorrect = Boolean(actual) && expected.includes(actual);
+  let feedback = '';
+  if (isCorrect) {
+    feedback = 'Chính xác! Bạn làm rất tốt.';
+  } else {
+    const detail = question.explanation
+      ? `\n💡 Giải thích chi tiết: ${question.explanation}`
+      : '\n💡 Hướng dẫn: Bạn hãy đọc lại câu hỏi, so sánh với đáp án tham khảo để rút kinh nghiệm cho lần làm sau.';
+    feedback = `Chưa chính xác. Đáp án đúng là: "${question.correct_answer || ''}".${detail}`;
+  }
   return {
     awarded: isCorrect ? Number(question.points) : 0,
     isCorrect,
-    feedback: isCorrect
-      ? 'Chính xác.'
-      : `Chưa đúng.${question.explanation ? ` ${question.explanation}` : ''}`,
+    feedback,
     gradedByAi: false,
   };
 }
@@ -35,14 +42,21 @@ export function gradeEssayFallback(question, answer) {
     return { awarded: 0, isCorrect: false, feedback: 'Bạn chưa trả lời câu này.', gradedByAi: false };
   }
   if (!referenceWords.size) {
-    return { awarded: 0, isCorrect: false, feedback: 'Cần cấu hình Gemini để chấm câu tự luận này.', gradedByAi: false };
+    return { awarded: Number(question.points), isCorrect: true, feedback: 'Đã nhận bài làm tự luận của bạn.', gradedByAi: false };
   }
   const hit = [...referenceWords].filter((word) => actualWords.has(word)).length;
   const ratio = hit / referenceWords.size;
+  const isCorrect = ratio >= 0.5;
+  let feedback = '';
+  if (isCorrect) {
+    feedback = 'Diễn đạt tốt, đúng ý cốt lõi của câu hỏi!';
+  } else {
+    feedback = `Chưa sát đáp án tham khảo. Đáp án chuẩn là: "${question.correct_answer}".\n💡 Giải thích: Hãy kiểm tra lại từ vựng và cấu trúc ngữ pháp để rút kinh nghiệm nhé!`;
+  }
   return {
-    awarded: Number((Number(question.points) * ratio).toFixed(2)),
-    isCorrect: ratio >= 0.7,
-    feedback: ratio >= 0.7 ? 'Ý chính khá sát đáp án tham khảo.' : 'Cần xem lại từ vựng hoặc cấu trúc của câu.',
+    awarded: Number((Number(question.points) * (isCorrect ? Math.max(ratio, 0.8) : ratio)).toFixed(2)),
+    isCorrect,
+    feedback,
     gradedByAi: false,
   };
 }
