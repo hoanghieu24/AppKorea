@@ -1074,59 +1074,156 @@ app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), as
   if (!input.success) return res.status(400).json({ message: 'Câu hỏi không hợp lệ.' });
 
   const { question, assignmentId, studentId } = input.data;
+  const teacherId = req.user.id;
+  const teacherName = req.user.full_name || req.user.email;
 
-  // Build context about the class/students
-  let context = '';
+  // Build rich context directly from DB
+  let contextLines = [`Giáo viên: ${teacherName}`];
   try {
     if (assignmentId) {
-      const [asgn] = await query(`SELECT a.title, a.type, c.name className,
-        COUNT(s.id) submitted,
-        ROUND(AVG(s.percentage),1) avgPct,
-        (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = a.class_id) total
-        FROM assignments a JOIN classes c ON c.id = a.class_id
-        LEFT JOIN submissions s ON s.assignment_id = a.id
-        WHERE a.id = ? LIMIT 1`, [assignmentId]);
+      // --- Context cho 1 bài tập cụ thể ---
+      const [asgn] = await query(
+        `SELECT a.id, a.title, a.type, a.status, a.due_at, c.name className, c.id classId,
+          (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = a.class_id) totalStudents
+         FROM assignments a JOIN classes c ON c.id = a.class_id
+         WHERE a.id = ?`, [assignmentId]
+      );
       if (asgn) {
-        context += `\nBài tập: "${asgn.title}" (${asgn.type}), Lớp: ${asgn.className}\nĐã nộp: ${asgn.submitted}/${asgn.total}, Điểm TB: ${asgn.avgPct ?? 'chưa có'}%`;
+        contextLines.push(`\n=== BÀI TẬP ===`);
+        contextLines.push(`Tên: "${asgn.title}" | Loại: ${asgn.type} | Lớp: ${asgn.className} | Hạn nộp: ${asgn.due_at ? new Date(asgn.due_at).toLocaleDateString('vi-VN') : 'không giới hạn'}`);
+        contextLines.push(`Sĩ số lớp: ${asgn.totalStudents} học sinh`);
       }
+
+      // Danh sách học sinh và kết quả
+      const students = await query(
+        `SELECT u.id, u.full_name,
+          s.id subId, s.score, s.max_score, s.percentage, s.ai_summary, s.created_at submittedAt,
+          (SELECT COUNT(*) FROM attempts WHERE assignment_id = a.id AND student_id = u.id) attemptCount
+         FROM class_students cs
+         JOIN users u ON u.id = cs.student_id
+         JOIN assignments a ON a.id = ?
+         LEFT JOIN submissions s ON s.assignment_id = a.id AND s.student_id = u.id
+         WHERE cs.class_id = a.class_id
+         ORDER BY s.percentage DESC NULLS LAST`, [assignmentId]
+      );
+
+      if (students.length) {
+        const submitted = students.filter(s => s.subId);
+        const notSubmitted = students.filter(s => !s.subId);
+        const avg = submitted.length ? Math.round(submitted.reduce((a, s) => a + Number(s.percentage || 0), 0) / submitted.length) : null;
+
+        contextLines.push(`\n=== KẾT QUẢ TỔNG QUAN ===`);
+        contextLines.push(`Đã nộp: ${submitted.length}/${students.length} | Điểm trung bình: ${avg ?? 'chưa có'}%`);
+
+        if (submitted.length) {
+          contextLines.push(`\n--- Danh sách học sinh đã nộp (sắp xếp theo điểm giảm dần) ---`);
+          submitted.forEach((s, i) => {
+            contextLines.push(`${i+1}. ${s.full_name}: ${Math.round(s.percentage || 0)}% (${s.score}/${s.max_score} điểm)${s.ai_summary ? ' | Nhận xét: ' + s.ai_summary : ''}`);
+          });
+        }
+        if (notSubmitted.length) {
+          contextLines.push(`\n--- Chưa nộp bài ---`);
+          contextLines.push(notSubmitted.map(s => s.full_name + (s.attemptCount > 0 ? ` (đã check AI ${s.attemptCount} lần)` : '')).join(', '));
+        }
+      }
+
+      // Câu hỏi và thống kê đúng/sai
+      const qStats = await query(
+        `SELECT q.prompt, q.correct_answer, q.type,
+          COUNT(aa.id) total,
+          SUM(aa.is_correct) correct,
+          ROUND(100 * SUM(aa.is_correct) / NULLIF(COUNT(aa.id),0), 0) pctCorrect
+         FROM questions q
+         LEFT JOIN submission_answers aa ON aa.question_id = q.id
+         JOIN submissions s ON s.id = aa.submission_id AND s.assignment_id = ?
+         WHERE q.assignment_id = ?
+         GROUP BY q.id ORDER BY pctCorrect ASC`, [assignmentId, assignmentId]
+      );
+      if (qStats.length) {
+        contextLines.push(`\n=== THỐNG KÊ TỪNG CÂU HỎI ===`);
+        qStats.forEach((q, i) => {
+          const rate = q.pctCorrect ?? '—';
+          contextLines.push(`Câu ${i+1}: "${q.prompt}" → Tỷ lệ đúng: ${rate}%${q.correct_answer ? ' | Đáp án: ' + q.correct_answer : ''}`);
+        });
+      }
+
+      // Nếu hỏi về 1 học sinh cụ thể
       if (studentId) {
-        const [stu] = await query(`SELECT u.full_name, s.percentage, s.score, s.max_score, s.ai_summary
-          FROM submissions s JOIN users u ON u.id = s.student_id
-          WHERE s.assignment_id = ? AND s.student_id = ? LIMIT 1`, [assignmentId, studentId]);
-        if (stu) context += `\nHọc sinh: ${stu.full_name}, Điểm: ${stu.score}/${stu.max_score} (${stu.percentage}%)\nNhận xét AI: ${stu.ai_summary || 'chưa có'}`;
+        const [stu] = await query(
+          `SELECT u.full_name, s.score, s.max_score, s.percentage, s.ai_summary
+           FROM submissions s JOIN users u ON u.id = s.student_id
+           WHERE s.assignment_id = ? AND s.student_id = ?`, [assignmentId, studentId]
+        );
+        if (stu) {
+          contextLines.push(`\n=== HỌC SINH ĐANG XEM ===`);
+          contextLines.push(`${stu.full_name}: ${Math.round(stu.percentage || 0)}% | Nhận xét AI: ${stu.ai_summary || 'chưa có'}`);
+        }
+        const wrongAns = await query(
+          `SELECT q.prompt, aa.answer, q.correct_answer, aa.feedback
+           FROM submission_answers aa JOIN questions q ON q.id = aa.question_id
+           JOIN submissions s ON s.id = aa.submission_id
+           WHERE s.assignment_id = ? AND s.student_id = ? AND aa.is_correct = 0`, [assignmentId, studentId]
+        );
+        if (wrongAns.length) {
+          contextLines.push(`Các câu sai của học sinh này:`);
+          wrongAns.forEach((w, i) => contextLines.push(`  ${i+1}. Câu: "${w.prompt}" → HS trả lời: "${w.answer || '(bỏ trống)'}" | Đúng: "${w.correct_answer || 'tự luận'}" | Nhận xét: ${w.feedback || '—'}`));
+        }
       }
-      const wrongAnswers = await query(`SELECT q.prompt qPrompt, aa.answer userAnswer, q.correct_answer correctAnswer, aa.feedback
-        FROM submission_answers aa JOIN questions q ON q.id = aa.question_id
-        JOIN submissions s ON s.id = aa.submission_id
-        WHERE s.assignment_id = ? ${studentId ? 'AND s.student_id = ?' : ''} AND aa.is_correct = 0
-        ORDER BY aa.awarded ASC LIMIT 10`, studentId ? [assignmentId, studentId] : [assignmentId]);
-      if (wrongAnswers.length) {
-        context += `\nCác câu làm sai phổ biến:\n` + wrongAnswers.map((w, i) => `${i+1}. "${w.qPrompt}" – HS trả lời: "${w.userAnswer || '(bỏ trống)'}" (đúng: "${w.correctAnswer || 'tự luận'}")`).join('\n');
-      }
+
     } else {
-      const classStats = await query(`SELECT c.name, COUNT(DISTINCT cs.student_id) studentCount,
-        COUNT(DISTINCT a.id) assignmentCount, ROUND(AVG(s.percentage),1) avgPct
-        FROM class_teachers ct
-        JOIN classes c ON c.id = ct.class_id
-        LEFT JOIN class_students cs ON cs.class_id = c.id
-        LEFT JOIN assignments a ON a.class_id = c.id AND a.teacher_id = ?
-        LEFT JOIN submissions s ON s.assignment_id = a.id
-        WHERE ct.teacher_id = ? GROUP BY c.id LIMIT 5`, [req.user.id, req.user.id]);
-      if (classStats.length) {
-        context += `\nThống kê các lớp phụ trách:\n` + classStats.map(c => `- Lớp ${c.name}: ${c.studentCount} HS, ${c.assignmentCount} bài, TB: ${c.avgPct ?? 'chưa có'}%`).join('\n');
+      // --- Không có assignmentId: lấy tổng quan tất cả lớp của GV ---
+      contextLines.push(`\n=== TỔNG QUAN LỚP HỌC ===`);
+
+      // Lấy các lớp GV phụ trách (qua assignments hoặc class_teachers)
+      const classes = await query(
+        `SELECT DISTINCT c.id, c.name,
+          (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id) studentCount
+         FROM classes c
+         WHERE c.id IN (
+           SELECT DISTINCT class_id FROM assignments WHERE teacher_id = ?
+           UNION
+           SELECT class_id FROM class_teachers WHERE teacher_id = ?
+         ) LIMIT 10`, [teacherId, teacherId]
+      );
+
+      if (!classes.length) {
+        contextLines.push('Giáo viên chưa phụ trách lớp nào hoặc chưa có bài tập nào.');
+      } else {
+        for (const cls of classes) {
+          const [stats] = await query(
+            `SELECT COUNT(DISTINCT a.id) aCount, ROUND(AVG(s.percentage),1) avgPct,
+              (SELECT COUNT(*) FROM submissions s2 JOIN assignments a2 ON a2.id = s2.assignment_id WHERE a2.class_id = ? AND a2.teacher_id = ?) subCount
+             FROM assignments a LEFT JOIN submissions s ON s.assignment_id = a.id
+             WHERE a.class_id = ? AND a.teacher_id = ?`, [cls.id, teacherId, cls.id, teacherId]
+          );
+          contextLines.push(`Lớp "${cls.name}": ${cls.studentCount} HS | ${stats.aCount} bài tập | ${stats.subCount} bài đã nộp | Điểm TB: ${stats.avgPct ?? 'chưa có'}%`);
+
+          // Top 3 HS yếu nhất
+          const weak = await query(
+            `SELECT u.full_name, ROUND(AVG(s.percentage),0) avgPct
+             FROM submissions s JOIN users u ON u.id = s.student_id
+             JOIN assignments a ON a.id = s.assignment_id
+             WHERE a.class_id = ? AND a.teacher_id = ?
+             GROUP BY u.id ORDER BY avgPct ASC LIMIT 3`, [cls.id, teacherId]
+          );
+          if (weak.length) contextLines.push(`  → HS cần chú ý: ${weak.map(w => `${w.full_name} (${w.avgPct}%)`).join(', ')}`);
+        }
       }
     }
-  } catch (e) { console.warn('AI-ask context error:', e.message); }
+  } catch (e) {
+    console.warn('AI-ask context error:', e.message);
+    contextLines.push(`[Lỗi khi đọc DB: ${e.message}]`);
+  }
 
-  const systemPrompt = `Bạn là trợ lý AI hỗ trợ giáo viên tiếng Hàn. Trả lời bằng tiếng Việt, ngắn gọn, thực tế và có ích. Dựa trên dữ liệu học sinh được cung cấp, đưa ra nhận xét và gợi ý cụ thể về tình hình học tập, điểm yếu cần cải thiện, và cách hỗ trợ học sinh hiệu quả hơn.${context ? '\n\nDữ liệu lớp học:' + context : ''}`;
+  const fullContext = contextLines.join('\n');
+  const systemPrompt = `Bạn là trợ lý AI thông minh hỗ trợ giáo viên tiếng Hàn. Bạn đã được cung cấp đầy đủ dữ liệu lớp học từ hệ thống, hãy dựa vào đó để trả lời trực tiếp, cụ thể, không hỏi lại giáo viên "vui lòng cung cấp thêm thông tin". Nếu không có đủ dữ liệu một phần nào đó, hãy nói rõ phần đó chưa có dữ liệu. Trả lời bằng tiếng Việt, ngắn gọn, thực tế và có ích.\n\nDỮ LIỆU HIỆN TẠI TỪ HỆ THỐNG:\n${fullContext}`;
 
   try {
-    const answer = await generateTextWithAI({ prompt: question, systemPrompt, temperature: 0.4, maxOutputTokens: 700 });
+    const answer = await generateTextWithAI({ prompt: question, systemPrompt, temperature: 0.35, maxOutputTokens: 800 });
     res.json({ answer: answer.trim() });
   } catch (err) {
     res.status(502).json({ message: 'AI tạm thời không phản hồi: ' + err.message });
   }
-});
 
 // Auto-cleanup: delete assignments & data older than 1 week (runs on each server start, safe to call repeatedly)
 async function cleanupOldAssignments() {
