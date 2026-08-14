@@ -119,35 +119,157 @@ function splitOcrIntoChunks(text, maxChars = 10500) {
   return chunks.length ? chunks : [String(text || '').trim()];
 }
 
-function imageQuestionPrompt(ocrText, retry = false) {
-  return `${retry ? 'LƯU Ý: LẦN TRƯỚC BẠN TRẢ SAI FORMAT. LẦN NÀY CHỈ ĐƯỢC TRẢ JSON THUẦN.\\n\\n' : ''}
-Bạn đang nhập đề bài tiếng Hàn từ ảnh cho giáo viên.
+function preprocessImageForOcr(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
 
-NHIỆM VỤ:
-- Đọc phần OCR bên dưới và tách TẤT CẢ câu hỏi/bài tập có thật trong nội dung.
-- Giữ nguyên tiếng Hàn, tiếng Việt, số câu và ý nghĩa gốc tối đa có thể.
-- KHÔNG tự bịa thêm câu hỏi.
-- Nếu có các lựa chọn ①②③④, A/B/C/D hoặc danh sách đáp án thì đưa vào options.
-- Nếu đáp án xuất hiện rõ trong ảnh thì điền correctAnswer; nếu không chắc thì để "".
-- Nếu không chắc loại câu, dùng ESSAY để giáo viên sửa lại.
-- Mỗi câu phải có prompt không rỗng.
-- Tối đa 25 câu trong một lần trả lời.
+    img.onload = () => {
+      try {
+        const maxWidth = 2600;
+        const scale = Math.min(2.2, Math.max(1.35, maxWidth / Math.max(1, img.naturalWidth)));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
 
-CHỈ TRẢ JSON, KHÔNG markdown, KHÔNG giải thích ngoài JSON:
-{"questions":[
-  {
-    "type":"MULTIPLE_CHOICE|SHORT_TEXT|ESSAY",
-    "prompt":"nội dung câu hỏi",
-    "options":["lựa chọn 1","lựa chọn 2"],
-    "correctAnswer":"",
-    "explanation":"",
-    "topic":"Tổng hợp",
-    "points":1
-  }
-]}
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-OCR:
-${ocrText}`;
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+
+        // Grayscale + tăng tương phản nhẹ. Không threshold trắng/đen quá gắt
+        // vì chữ Hàn nét mảnh rất dễ mất nét.
+        for (let i = 0; i < data.length; i += 4) {
+          const gray = Math.round(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+          const boosted = Math.max(0, Math.min(255, Math.round((gray - 128) * 1.42 + 128)));
+          const clean = boosted > 238 ? 255 : boosted;
+          data[i] = clean;
+          data[i + 1] = clean;
+          data[i + 2] = clean;
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+        URL.revokeObjectURL(url);
+        resolve(canvas);
+      } catch (error) {
+        URL.revokeObjectURL(url);
+        reject(error);
+      }
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Không mở được ảnh để xử lý OCR.'));
+    };
+
+    img.src = url;
+  });
+}
+
+function looksLikeBrokenOcr(text) {
+  const value = String(text || '').trim();
+  if (!value) return true;
+
+  const compact = value.replace(/\s+/g, '');
+  const letters = (compact.match(/[A-Za-zÀ-ỹ가-힣]/g) || []).length;
+  const digits = (compact.match(/\d/g) || []).length;
+
+  const digitInsideWord = /[A-Za-zÀ-ỹ가-힣]\d|\d[A-Za-zÀ-ỹ가-힣]/.test(value);
+  const suspiciousLongNumber = (value.match(/\d{4,}/g) || []).length >= 1;
+  const repeatedZeros = /0{3,}/.test(value);
+  const digitRatio = digits / Math.max(1, letters + digits);
+
+  return digitInsideWord || repeatedZeros || (suspiciousLongNumber && digitRatio > 0.08) || digitRatio > 0.18;
+}
+
+function imageQuestionPrompt({ rawOcr, enhancedOcr, retry = false, previousQuestions = [] }) {
+  const previous = previousQuestions.length
+    ? `\nKẾT QUẢ LẦN TRƯỚC CÓ THỂ ĐANG SAI OCR:\n${JSON.stringify(previousQuestions)}\n`
+    : '';
+
+  return `${retry ? 'LẦN TRƯỚC VẪN CÒN CHỮ OCR RÁC. HÃY PHỤC DỰNG LẠI CẨN THẬN HƠN.\n\n' : ''}
+Bạn là giáo viên tiếng Hàn người Việt đang nhập bài tập từ ảnh.
+
+QUAN TRỌNG:
+Hai khối bên dưới là OCR của CÙNG MỘT ẢNH. OCR có thể sai RẤT NẶNG:
+- mất dấu tiếng Việt,
+- chữ bị biến thành số,
+- ký tự Hàn bị đọc sai,
+- dính/tách từ sai.
+
+Ví dụ kiểu OCR sai:
+"Cubi tudn 0000, 16103 di leo 10008 vèi Lan..."
+KHÔNG ĐƯỢC chép nguyên chuỗi rác này vào câu hỏi.
+Phải phục dựng thành câu tiếng Việt tự nhiên nếu ngữ cảnh đủ chắc chắn.
+Nếu không đủ chắc chắn, ghi "[không đọc rõ]" ở đúng đoạn đó, KHÔNG tự bịa.
+
+QUY TẮC PHỤC DỰNG:
+1. Nếu nội dung gốc là tiếng Việt → giữ tiếng Việt, sửa lại dấu và chữ OCR sai.
+2. Nếu nội dung gốc là tiếng Hàn → giữ nguyên Hangul, KHÔNG phiên âm sang Latin.
+3. Không dịch sang ngôn ngữ khác nếu ảnh không yêu cầu dịch.
+4. Giữ nguyên ý, số câu, tên riêng, số liệu thật trong ảnh.
+5. Nếu 2 OCR mâu thuẫn, ưu tiên phương án tạo thành câu có nghĩa trong ngữ cảnh giáo trình tiếng Hàn sơ cấp.
+6. KHÔNG biến số OCR rác thành số thật nếu không chắc chắn.
+7. Sau khi phục dựng văn bản, mới tách câu hỏi.
+
+ĐẦU RA:
+CHỈ trả JSON thuần, không markdown, không giải thích ngoài JSON:
+{
+  "questions": [
+    {
+      "type": "MULTIPLE_CHOICE|SHORT_TEXT|ESSAY",
+      "prompt": "câu hỏi đã phục dựng sạch, không còn OCR rác",
+      "options": [],
+      "correctAnswer": "",
+      "explanation": "",
+      "topic": "Tổng hợp",
+      "points": 1
+    }
+  ]
+}
+
+Nếu có lựa chọn A/B/C/D hoặc ①②③④ thì đưa vào options.
+Nếu đáp án không hiện rõ trong ảnh thì correctAnswer = "".
+Nếu không chắc loại câu thì dùng ESSAY.
+Tối đa 25 câu/lần.
+${previous}
+OCR LẦN 1 (ảnh gốc):
+${rawOcr}
+
+OCR LẦN 2 (ảnh đã tăng nét):
+${enhancedOcr}`;
+}
+
+async function repairBrokenQuestionsWithAI(api, ocrPair, questions) {
+  const broken = questions.filter((q) => looksLikeBrokenOcr(q?.prompt));
+  if (!broken.length) return questions;
+
+  const aiResult = await api('/learning/ai', {
+    method: 'POST',
+    toast: false,
+    body: JSON.stringify({
+      systemPrompt: 'Bạn chuyên sửa lỗi OCR Việt-Hàn. Không được để số/ký tự rác lọt vào câu hỏi nếu chúng rõ ràng là lỗi OCR. Chỉ trả JSON hợp lệ.',
+      prompt: imageQuestionPrompt({
+        rawOcr: ocrPair.raw,
+        enhancedOcr: ocrPair.enhanced,
+        retry: true,
+        previousQuestions: questions,
+      }),
+      temperature: 0,
+      maxOutputTokens: 4096,
+      jsonMode: true,
+    }),
+  });
+
+  const parsed = extractJson(aiResult?.text ?? aiResult ?? '');
+  const repaired = aiQuestionList(parsed)
+    .map((q) => typeof q === 'string' ? { prompt: q, type: 'ESSAY' } : q)
+    .filter((q) => String(q?.prompt ?? '').trim().length >= 2);
+
+  return repaired.length ? repaired : questions;
 }
 
 function importedQuestion(raw = {}) {
@@ -273,29 +395,62 @@ export default function AssignmentsPage({ user }) {
 
     setImporting('image');
     setOcrProgress(1);
-    setMessage(`Đang soi ${files.length} ảnh... AI đeo kính vào rồi 🤓`);
+    setMessage(`Đang soi ${files.length} ảnh... lần này không cho OCR nói tiếng người ngoài hành tinh nữa 👽`);
 
     try {
       const Tesseract = await import('tesseract.js');
-      let currentFileIndex = 0;
+      let activeStep = 0;
+      const totalOcrSteps = Math.max(1, files.length * 2);
 
-      // Có cả tiếng Việt để OCR phần đề Việt + tiếng Hàn chính xác hơn.
-      const worker = await Tesseract.createWorker(['kor', 'vie', 'eng'], 1, {
+      const worker = await Tesseract.createWorker(['vie', 'kor', 'eng'], 1, {
         logger: (info) => {
           if (info.status === 'recognizing text') {
-            const overall = (currentFileIndex + Number(info.progress || 0)) / files.length;
-            setOcrProgress(Math.max(1, Math.min(65, Math.round(overall * 65))));
+            const overall = (activeStep + Number(info.progress || 0)) / totalOcrSteps;
+            setOcrProgress(Math.max(1, Math.min(64, Math.round(overall * 64))));
           }
         },
       });
 
+      try {
+        if (typeof worker.setParameters === 'function') {
+          await worker.setParameters({
+            preserve_interword_spaces: '1',
+            user_defined_dpi: '300',
+          });
+        }
+      } catch {
+        // Tesseract version cũ có thể không nhận tất cả parameter; bỏ qua an toàn.
+      }
+
       const ocrPages = [];
+
       try {
         for (let i = 0; i < files.length; i += 1) {
-          currentFileIndex = i;
-          const result = await worker.recognize(files[i]);
-          const text = String(result?.data?.text || '').trim();
-          if (text.length >= 4) ocrPages.push({ fileName: files[i].name, text });
+          const file = files[i];
+
+          setMessage(`OCR ảnh ${i + 1}/${files.length} · đọc bản gốc 👀`);
+          activeStep = i * 2;
+          const rawResult = await worker.recognize(file);
+          const raw = String(rawResult?.data?.text || '').trim();
+
+          setMessage(`OCR ảnh ${i + 1}/${files.length} · tăng nét rồi đọc lại 🔍`);
+          activeStep = i * 2 + 1;
+          let enhanced = '';
+          try {
+            const canvas = await preprocessImageForOcr(file);
+            const enhancedResult = await worker.recognize(canvas);
+            enhanced = String(enhancedResult?.data?.text || '').trim();
+          } catch (error) {
+            console.warn('Preprocess OCR fallback:', error);
+          }
+
+          if (raw.length >= 4 || enhanced.length >= 4) {
+            ocrPages.push({
+              fileName: file.name,
+              raw: raw || enhanced,
+              enhanced: enhanced || raw,
+            });
+          }
         }
       } finally {
         await worker.terminate();
@@ -305,95 +460,106 @@ export default function AssignmentsPage({ user }) {
         throw new Error('Không đọc được chữ trong ảnh. Hãy dùng ảnh rõ, thẳng và đủ sáng.');
       }
 
-      setMessage('OCR xong ✅ Gemini đang tách từng câu, đừng F5 nha 😆');
+      setMessage('OCR xong ✅ Gemini đang phục dựng lại chữ bị đọc sai trước khi tách câu...');
 
       const allQuestions = [];
       const failures = [];
-      const workItems = [];
 
-      // Không nhồi toàn bộ nhiều trang vào 1 request nữa:
-      // mỗi ảnh/chunk xử lý riêng để tránh Gemini trả JSON bị cắt.
       for (let pageIndex = 0; pageIndex < ocrPages.length; pageIndex += 1) {
         const page = ocrPages[pageIndex];
-        const chunks = splitOcrIntoChunks(page.text);
-        chunks.forEach((chunk, chunkIndex) => {
-          workItems.push({
-            label: `${page.fileName}${chunks.length > 1 ? ` · phần ${chunkIndex + 1}` : ''}`,
-            text: chunk,
-          });
-        });
-      }
 
-      for (let index = 0; index < workItems.length; index += 1) {
-        const item = workItems[index];
-        const progress = 65 + Math.round((index / Math.max(1, workItems.length)) * 33);
-        setOcrProgress(Math.min(98, progress));
-        setMessage(`Gemini đang đọc ${index + 1}/${workItems.length}: ${item.label} 🤖`);
+        // Chunk theo bản OCR dài hơn để tránh cắt output.
+        const baseText = page.enhanced.length >= page.raw.length ? page.enhanced : page.raw;
+        const rawChunks = splitOcrIntoChunks(page.raw);
+        const enhancedChunks = splitOcrIntoChunks(page.enhanced);
+        const chunkCount = Math.max(rawChunks.length, enhancedChunks.length, 1);
 
-        let questions = [];
-        let lastRaw = '';
+        for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+          const label = `${page.fileName}${chunkCount > 1 ? ` · phần ${chunkIndex + 1}` : ''}`;
+          const rawChunk = rawChunks[chunkIndex] || rawChunks.at(-1) || '';
+          const enhancedChunk = enhancedChunks[chunkIndex] || enhancedChunks.at(-1) || '';
 
-        for (let attempt = 0; attempt < 2 && !questions.length; attempt += 1) {
-          try {
-            const aiResult = await api('/learning/ai', {
-              method: 'POST',
-              toast: false,
-              body: JSON.stringify({
-                systemPrompt: 'Bạn là hệ thống trích xuất đề bài tiếng Hàn. Chỉ trả JSON hợp lệ đúng schema được yêu cầu.',
-                prompt: imageQuestionPrompt(item.text, attempt > 0),
-                temperature: 0,
-                maxOutputTokens: 4096,
-                // Lần 2 tắt jsonMode để xử lý trường hợp model/provider
-                // trả cấu trúc lạ khi ép responseMimeType.
-                jsonMode: attempt === 0,
-              }),
-            });
+          const itemProgress = pageIndex + (chunkIndex + 1) / chunkCount;
+          setOcrProgress(Math.min(96, 65 + Math.round((itemProgress / ocrPages.length) * 31)));
+          setMessage(`Gemini đang sửa OCR + tách câu: ${label} 🧠`);
 
-            lastRaw = aiResult?.text ?? aiResult ?? '';
-            const parsed = extractJson(lastRaw);
-            questions = aiQuestionList(parsed)
-              .map((question) => typeof question === 'string' ? { prompt: question, type: 'ESSAY' } : question)
-              .filter((question) => String(
-                question?.prompt ??
-                question?.question ??
-                question?.cauHoi ??
-                question?.cauhoi ??
-                question?.noiDung ??
-                question?.noidung ??
-                ''
-              ).trim().length >= 2);
-          } catch (error) {
-            console.warn(`Ảnh AI attempt ${attempt + 1} lỗi:`, error, lastRaw);
+          let questions = [];
+
+          for (let attempt = 0; attempt < 2 && !questions.length; attempt += 1) {
+            try {
+              const aiResult = await api('/learning/ai', {
+                method: 'POST',
+                toast: false,
+                body: JSON.stringify({
+                  systemPrompt: 'Bạn là giáo viên tiếng Hàn người Việt và chuyên phục dựng OCR. Không được chép nguyên chuỗi OCR vô nghĩa. Chỉ trả JSON hợp lệ.',
+                  prompt: imageQuestionPrompt({
+                    rawOcr: rawChunk,
+                    enhancedOcr: enhancedChunk,
+                    retry: attempt > 0,
+                  }),
+                  temperature: 0,
+                  maxOutputTokens: 4096,
+                  jsonMode: attempt === 0,
+                }),
+              });
+
+              const parsed = extractJson(aiResult?.text ?? aiResult ?? '');
+              questions = aiQuestionList(parsed)
+                .map((q) => typeof q === 'string' ? { prompt: q, type: 'ESSAY' } : q)
+                .filter((q) => String(
+                  q?.prompt ??
+                  q?.question ??
+                  q?.cauHoi ??
+                  q?.cauhoi ??
+                  q?.noiDung ??
+                  q?.noidung ??
+                  ''
+                ).trim().length >= 2);
+
+              if (questions.length && questions.some((q) => looksLikeBrokenOcr(q?.prompt))) {
+                questions = await repairBrokenQuestionsWithAI(
+                  api,
+                  { raw: rawChunk, enhanced: enhancedChunk },
+                  questions,
+                );
+              }
+
+              // Nếu sau vòng repair vẫn toàn rác thì không tự thêm vào form.
+              const usable = questions.filter((q) => !looksLikeBrokenOcr(q?.prompt));
+              if (usable.length) {
+                questions = usable;
+              } else if (questions.length && attempt === 0) {
+                questions = [];
+              }
+            } catch (error) {
+              console.warn(`Image OCR/AI attempt ${attempt + 1} lỗi:`, error);
+              questions = [];
+            }
           }
-        }
 
-        if (questions.length) {
-          allQuestions.push(...questions);
-        } else {
-          failures.push(item.label);
+          if (questions.length) allQuestions.push(...questions);
+          else failures.push(label);
         }
       }
 
       if (!allQuestions.length) {
-        throw new Error(
-          'Gemini vẫn chưa tách được câu hỏi. OCR đã chạy xong nhưng AI trả sai định dạng; thử lại 1 ảnh/lần hoặc kiểm tra model Gemini trong Admin.'
-        );
+        throw new Error('Ảnh đọc chưa đủ chắc để tạo câu. Hệ thống đã chặn OCR rác thay vì tự nhét chữ sai vào bài. Thử ảnh rõ hơn hoặc cắt sát vùng đề.');
       }
 
       appendQuestions(allQuestions, `${files.length} ảnh AI quét`);
       setOcrProgress(100);
 
       if (failures.length) {
-        setMessage(`Đã thêm ${allQuestions.length} câu ✅ Có ${failures.length} phần ảnh AI chưa đọc chắc nên đã bỏ qua: ${failures.join(', ')}.`);
+        setMessage(`Đã thêm ${allQuestions.length} câu sạch ✅ Bỏ qua ${failures.length} phần chưa đọc chắc để tránh nhét OCR rác vào bài.`);
       } else {
-        setMessage(`Đã quét xong ${files.length} ảnh và thêm ${allQuestions.length} câu ✅ AI hôm nay làm việc được việc phết 😎`);
+        setMessage(`Đã phục dựng và thêm ${allQuestions.length} câu ✅ Không còn vụ "0000 16103" giả làm tiếng Việt nữa 😭`);
       }
     } catch (err) {
       console.error('Import ảnh bài tập lỗi:', err);
       setMessage(err?.message || 'Không quét được ảnh.');
     } finally {
       setImporting('');
-      window.setTimeout(() => setOcrProgress(0), 700);
+      window.setTimeout(() => setOcrProgress(0), 900);
     }
   };
 
