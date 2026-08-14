@@ -781,6 +781,131 @@ app.get('/api/assignments/:id', requireAuth, async (req, res) => {
 
 const answerInput = z.record(z.string(), z.union([z.string(), z.number(), z.null()]));
 
+
+function normalizeStrictAnswer(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .trim()
+    .toLowerCase()
+    .replace(/[“”"'`´’‘.,!?;:()[\]{}<>~…·ㆍ\-_/\\|+=*#@%^&]/g, '')
+    .replace(/\s+/g, '');
+}
+
+function levenshteinDistance(a, b) {
+  const left = [...String(a || '')];
+  const right = [...String(b || '')];
+  if (!left.length) return right.length;
+  if (!right.length) return left.length;
+
+  const prev = Array.from({ length: right.length + 1 }, (_, i) => i);
+  const curr = new Array(right.length + 1);
+
+  for (let i = 1; i <= left.length; i += 1) {
+    curr[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        curr[j - 1] + 1,
+        prev[j] + 1,
+        prev[j - 1] + cost,
+      );
+    }
+    for (let j = 0; j <= right.length; j += 1) prev[j] = curr[j];
+  }
+  return prev[right.length];
+}
+
+function splitAcceptedAnswers(referenceAnswer) {
+  const raw = String(referenceAnswer || '').trim();
+  if (!raw) return [];
+  return raw
+    .split(/\s*\|\|\s*|\r?\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function gradeShortTextStrict(question, answer) {
+  const maxPoints = Number(question.points || 0);
+  const rawAnswer = String(answer || '').trim();
+  const accepted = splitAcceptedAnswers(question.correct_answer);
+
+  if (!rawAnswer) {
+    return {
+      awarded: 0,
+      isCorrect: false,
+      gradedByAi: false,
+      feedback: 'Bạn chưa nhập câu trả lời.',
+    };
+  }
+
+  if (!accepted.length) return gradeObjective(question, rawAnswer);
+
+  const normalizedAnswer = normalizeStrictAnswer(rawAnswer);
+  const normalizedRefs = accepted.map(normalizeStrictAnswer).filter(Boolean);
+
+  if (normalizedRefs.includes(normalizedAnswer)) {
+    return {
+      awarded: maxPoints,
+      isCorrect: true,
+      gradedByAi: false,
+      feedback: 'Chính xác.',
+    };
+  }
+
+  const referenceHasHangul = normalizedRefs.some((item) => /[가-힣]/.test(item));
+  if (referenceHasHangul && !/[가-힣]/.test(normalizedAnswer)) {
+    return {
+      awarded: 0,
+      isCorrect: false,
+      gradedByAi: false,
+      feedback: `Câu này cần trả lời bằng tiếng Hàn. Đáp án tham khảo: ${accepted[0]}.`,
+    };
+  }
+
+  let bestRef = normalizedRefs[0] || '';
+  let bestSimilarity = 0;
+  for (const ref of normalizedRefs) {
+    const distance = levenshteinDistance(normalizedAnswer, ref);
+    const similarity = Math.max(0, 1 - distance / Math.max(normalizedAnswer.length, ref.length, 1));
+    if (similarity > bestSimilarity) {
+      bestSimilarity = similarity;
+      bestRef = ref;
+    }
+  }
+
+  // Nếu câu đúng bị chèn thêm chữ rác ở đầu/cuối (VD: 하아다안녕하세요)
+  // thì tuyệt đối không được 100 điểm dù vẫn "chứa" đáp án đúng.
+  const containsCorrectWithExtra =
+    bestRef &&
+    normalizedAnswer !== bestRef &&
+    normalizedAnswer.includes(bestRef);
+
+  let ratio = 0;
+  let feedback = `Chưa chính xác. Đáp án tham khảo: ${accepted[0]}.`;
+
+  if (containsCorrectWithExtra) {
+    ratio = 0.5;
+    feedback = `Bạn có phần đáp án đúng nhưng đang thừa ký tự/từ không hợp lệ. Hãy viết đúng câu: ${accepted[0]}.`;
+  } else if (bestSimilarity >= 0.92) {
+    ratio = 0.8;
+    feedback = `Gần đúng nhưng vẫn có lỗi chính tả/ký tự. Hãy đối chiếu lại với: ${accepted[0]}.`;
+  } else if (bestSimilarity >= 0.82) {
+    ratio = 0.6;
+    feedback = `Ý gần đúng nhưng còn lỗi khá rõ. Đáp án tham khảo: ${accepted[0]}.`;
+  } else if (bestSimilarity >= 0.70) {
+    ratio = 0.4;
+    feedback = `Bạn mới đúng một phần. Hãy kiểm tra lại từ vựng và cách viết. Đáp án tham khảo: ${accepted[0]}.`;
+  }
+
+  const awarded = Number((maxPoints * ratio).toFixed(2));
+  return {
+    awarded,
+    isCorrect: false,
+    gradedByAi: false,
+    feedback,
+  };
+}
+
 async function gradeAssignmentAnswers(questions, answers) {
   const useAi = await aiEnabled();
   const results = [];
@@ -796,7 +921,11 @@ async function gradeAssignmentAnswers(questions, answers) {
           result.feedback += ' AI tạm thời không phản hồi nên hệ thống dùng chấm dự phòng.';
         }
       } else result = gradeEssayFallback(question, answer);
-    } else result = gradeObjective(question, answer);
+    } else if (question.type === 'SHORT_TEXT') {
+      result = gradeShortTextStrict(question, answer);
+    } else {
+      result = gradeObjective(question, answer);
+    }
     results.push({
       questionId: Number(question.id), topic: question.topic, points: Number(question.points), answer,
       referenceAnswer: question.correct_answer || '', awarded: Number(result.awarded), isCorrect: Boolean(result.isCorrect),
@@ -819,7 +948,7 @@ async function gradeAssignmentAnswers(questions, answers) {
     try {
       const compact = results.map((item) => ({ topic: item.topic, correct: item.isCorrect, score: item.awarded, max: item.points, feedback: item.feedback }));
       const aiSummary = await generateTextWithAI({
-        systemPrompt: 'Bạn là giáo viên tiếng Hàn ân cần và giàu kinh nghiệm. Nhận xét bài làm tổng thể bằng tiếng Việt mang tính động viên, cởi mở, không quá khắt khe. Với các câu học sinh làm sai, giải thích kỹ tại sao sai và cách khắc phục. Khích lệ điểm mạnh của học sinh. Viết 3-4 câu ngắn gọn, rõ ràng. Không dùng markdown.',
+        systemPrompt: 'Bạn là giáo viên tiếng Hàn ân cần nhưng chấm bài nghiêm túc. Điểm số và trạng thái đúng/sai trong dữ liệu là kết quả chính thức, tuyệt đối không được nâng điểm hoặc gọi một câu sai là hoàn hảo. Với lỗi chính tả, thừa ký tự, sai trợ từ, sai đuôi câu hoặc sai chia động từ, phải chỉ rõ lỗi và cách sửa. Chỉ khen 100% khi mọi câu thực sự đúng. Nhận xét bằng tiếng Việt, 3-4 câu ngắn gọn, rõ ràng, không dùng markdown.',
         prompt: `Kết quả bài làm: ${JSON.stringify(compact)}`,
         temperature: 0.25,
         maxOutputTokens: 400,
