@@ -343,13 +343,44 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .stats-inline > div { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 12px 14px; display: flex; align-items: center; gap: 9px; color: var(--purple); }
 .stats-inline span { color: var(--muted); font-size: .73rem; }
 .stats-inline strong { color: #333142; }
-.teacher-detail-grid { grid-template-columns: .45fr .55fr; }
+.teacher-detail-grid { grid-template-columns: .45fr .55fr; transition: grid-template-columns .3s ease; }
+.teacher-detail-grid.content-hidden { grid-template-columns: 64px 1fr; }
+.teacher-content-panel { transition: all .3s ease; overflow: hidden; }
+.teacher-content-panel.collapsed { min-width: 56px; max-width: 64px; padding: 12px 8px; }
+.teacher-content-panel.collapsed .panel-title { flex-direction: column; align-items: center; gap: 4px; }
+.teacher-content-panel.collapsed .panel-title > div { display: none; }
+.collapse-btn { color: var(--purple); flex-shrink: 0; }
+.collapsed-hint { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; padding: 12px 0; color: var(--purple); opacity: .7; transition: opacity .2s; }
+.collapsed-hint:hover { opacity: 1; }
+.collapsed-hint span { writing-mode: vertical-lr; font-size: .7rem; font-weight: 700; letter-spacing: .08em; color: var(--muted); }
 .teacher-questions { display: grid; gap: 12px; }
 .teacher-questions > div { display: grid; gap: 5px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
 .teacher-questions > div:last-child { border: 0; }
 .teacher-questions span { color: var(--purple); font-size: .78rem; font-weight: 800; }
 .teacher-questions strong { font-size: .95rem; line-height: 1.5; color: #2d2b38; }
 .teacher-questions small { color: #646174; font-size: .84rem; line-height: 1.45; }
+/* Teacher AI ask */
+.ai-ask-toggle-btn { color: var(--purple); }
+.ai-ask-toggle-btn.active { background: var(--purple-soft); color: var(--purple); border-radius: 8px; }
+.teacher-ai-ask-panel { border: 1px solid #dcd8ff; border-radius: 14px; background: linear-gradient(135deg, #faf9ff, #fff); margin-bottom: 14px; overflow: hidden; }
+.teacher-ai-ask-header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #ece9ff; background: #f3f0ff; }
+.teacher-ai-ask-header strong { flex: 1; font-size: .84rem; color: #3730a3; }
+.teacher-ai-ask-header svg { color: var(--purple); }
+.teacher-ai-quick-qs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; border-bottom: 1px solid #ece9ff; }
+.teacher-ai-quick-q { background: #fff; border: 1px solid #dcd8ff; border-radius: 20px; padding: 5px 12px; font-size: .78rem; color: #4338ca; cursor: pointer; transition: background .15s; }
+.teacher-ai-quick-q:hover { background: #eeebff; }
+.teacher-ai-messages { max-height: 260px; overflow-y: auto; display: grid; gap: 8px; padding: 12px 14px; }
+.teacher-ai-msg { display: flex; align-items: flex-start; gap: 7px; }
+.teacher-ai-msg.user { flex-direction: row-reverse; }
+.teacher-ai-msg.user p { background: #4338ca; color: #fff; border-radius: 14px 14px 4px 14px; }
+.teacher-ai-msg.ai p { background: #f3f0ff; color: #2d2b38; border-radius: 14px 14px 14px 4px; }
+.teacher-ai-msg svg { margin-top: 5px; color: var(--purple); flex-shrink: 0; }
+.teacher-ai-msg p { margin: 0; font-size: .84rem; line-height: 1.55; padding: 8px 12px; max-width: 90%; white-space: pre-wrap; }
+.ai-typing { opacity: .7; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:.5} 50%{opacity:1} }
+.teacher-ai-input-row { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #ece9ff; background: #faf9ff; }
+.teacher-ai-input-row input { flex: 1; border: 1px solid #dcd8ff; border-radius: 10px; padding: 8px 12px; font-size: .84rem; background: #fff; }
+.teacher-ai-input-row input:focus { outline: none; border-color: var(--purple); }
 .report-list { display: grid; }
 .report-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); padding: 10px 0; }
 .report-row:last-child { border-bottom: 0; }

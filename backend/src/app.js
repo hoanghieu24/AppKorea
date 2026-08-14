@@ -1063,6 +1063,90 @@ app.post('/api/notifications/announce', requireAuth, requireRole('TEACHER', 'ADM
 });
 
 
+// Teacher AI ask about students
+app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+  if (!(await aiEnabled())) return res.status(503).json({ message: 'Gemini chưa được Admin cấu hình.' });
+  const input = z.object({
+    question: z.string().min(2).max(2000),
+    assignmentId: z.coerce.number().int().positive().optional(),
+    studentId: z.coerce.number().int().positive().optional(),
+  }).safeParse(req.body);
+  if (!input.success) return res.status(400).json({ message: 'Câu hỏi không hợp lệ.' });
+
+  const { question, assignmentId, studentId } = input.data;
+
+  // Build context about the class/students
+  let context = '';
+  try {
+    if (assignmentId) {
+      const [asgn] = await query(`SELECT a.title, a.type, c.name className,
+        COUNT(s.id) submitted,
+        ROUND(AVG(s.percentage),1) avgPct,
+        (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = a.class_id) total
+        FROM assignments a JOIN classes c ON c.id = a.class_id
+        LEFT JOIN submissions s ON s.assignment_id = a.id
+        WHERE a.id = ? LIMIT 1`, [assignmentId]);
+      if (asgn) {
+        context += `\nBài tập: "${asgn.title}" (${asgn.type}), Lớp: ${asgn.className}\nĐã nộp: ${asgn.submitted}/${asgn.total}, Điểm TB: ${asgn.avgPct ?? 'chưa có'}%`;
+      }
+      if (studentId) {
+        const [stu] = await query(`SELECT u.full_name, s.percentage, s.score, s.max_score, s.ai_summary
+          FROM submissions s JOIN users u ON u.id = s.student_id
+          WHERE s.assignment_id = ? AND s.student_id = ? LIMIT 1`, [assignmentId, studentId]);
+        if (stu) context += `\nHọc sinh: ${stu.full_name}, Điểm: ${stu.score}/${stu.max_score} (${stu.percentage}%)\nNhận xét AI: ${stu.ai_summary || 'chưa có'}`;
+      }
+      const wrongAnswers = await query(`SELECT q.prompt qPrompt, aa.answer userAnswer, q.correct_answer correctAnswer, aa.feedback
+        FROM submission_answers aa JOIN questions q ON q.id = aa.question_id
+        JOIN submissions s ON s.id = aa.submission_id
+        WHERE s.assignment_id = ? ${studentId ? 'AND s.student_id = ?' : ''} AND aa.is_correct = 0
+        ORDER BY aa.awarded ASC LIMIT 10`, studentId ? [assignmentId, studentId] : [assignmentId]);
+      if (wrongAnswers.length) {
+        context += `\nCác câu làm sai phổ biến:\n` + wrongAnswers.map((w, i) => `${i+1}. "${w.qPrompt}" – HS trả lời: "${w.userAnswer || '(bỏ trống)'}" (đúng: "${w.correctAnswer || 'tự luận'}")`).join('\n');
+      }
+    } else {
+      const classStats = await query(`SELECT c.name, COUNT(DISTINCT cs.student_id) studentCount,
+        COUNT(DISTINCT a.id) assignmentCount, ROUND(AVG(s.percentage),1) avgPct
+        FROM class_teachers ct
+        JOIN classes c ON c.id = ct.class_id
+        LEFT JOIN class_students cs ON cs.class_id = c.id
+        LEFT JOIN assignments a ON a.class_id = c.id AND a.teacher_id = ?
+        LEFT JOIN submissions s ON s.assignment_id = a.id
+        WHERE ct.teacher_id = ? GROUP BY c.id LIMIT 5`, [req.user.id, req.user.id]);
+      if (classStats.length) {
+        context += `\nThống kê các lớp phụ trách:\n` + classStats.map(c => `- Lớp ${c.name}: ${c.studentCount} HS, ${c.assignmentCount} bài, TB: ${c.avgPct ?? 'chưa có'}%`).join('\n');
+      }
+    }
+  } catch (e) { console.warn('AI-ask context error:', e.message); }
+
+  const systemPrompt = `Bạn là trợ lý AI hỗ trợ giáo viên tiếng Hàn. Trả lời bằng tiếng Việt, ngắn gọn, thực tế và có ích. Dựa trên dữ liệu học sinh được cung cấp, đưa ra nhận xét và gợi ý cụ thể về tình hình học tập, điểm yếu cần cải thiện, và cách hỗ trợ học sinh hiệu quả hơn.${context ? '\n\nDữ liệu lớp học:' + context : ''}`;
+
+  try {
+    const answer = await generateTextWithAI({ prompt: question, systemPrompt, temperature: 0.4, maxOutputTokens: 700 });
+    res.json({ answer: answer.trim() });
+  } catch (err) {
+    res.status(502).json({ message: 'AI tạm thời không phản hồi: ' + err.message });
+  }
+});
+
+// Auto-cleanup: delete assignments & data older than 1 week (runs on each server start, safe to call repeatedly)
+async function cleanupOldAssignments() {
+  try {
+    const result = await query(
+      `DELETE FROM assignments WHERE created_at < DATE_SUB(NOW(), INTERVAL 7 DAY) AND status = 'DRAFT'`
+    );
+    if (result.affectedRows > 0) console.log(`[cleanup] Deleted ${result.affectedRows} stale DRAFT assignments older than 7 days.`);
+    // Also close (not delete) published assignments older than 7 days that have 0 submissions
+    const closed = await query(
+      `UPDATE assignments SET status = 'CLOSED' WHERE status = 'PUBLISHED'
+       AND created_at < DATE_SUB(NOW(), INTERVAL 7 DAY)
+       AND (SELECT COUNT(*) FROM submissions WHERE assignment_id = assignments.id) = 0`
+    );
+    if (closed.affectedRows > 0) console.log(`[cleanup] Closed ${closed.affectedRows} old empty PUBLISHED assignments.`);
+  } catch (e) { console.warn('[cleanup] Error during assignment cleanup:', e.message); }
+}
+setTimeout(cleanupOldAssignments, 5000);
+setInterval(cleanupOldAssignments, 24 * 60 * 60 * 1000); // Run daily
+
 app.use((req, res) => res.status(404).json({ message: `Không có API ${req.method} ${req.path}` }));
 
 app.use((error, _req, res, _next) => {

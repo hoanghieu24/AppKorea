@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bot, CheckCircle2, CircleAlert, Clock3, Send, Sparkles, UserCheck, Users, XCircle } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Bot, CheckCircle2, CircleAlert, Clock3, ChevronLeft, ChevronRight, Maximize2, MessageSquare, Send, Sparkles, UserCheck, Users, X, XCircle } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { api, formatDate } from '../api.js';
 import { Empty, Pagination } from '../components/Shell.jsx';
@@ -17,36 +17,39 @@ export default function AssignmentDetailPage({ user }) {
   const [reportLoading, setReportLoading] = useState(false);
 
   const load = async () => {
-    const detail = await api(`/assignments/${id}`); setData(detail);
-    if (user.role === 'STUDENT' && !detail.submission && detail.latestAttempt) {
-      setPreview(detail.latestAttempt); setAnswers(detail.latestAttempt.answers || {});
-    }
+    try {
+      const result = await api(`/assignments/${id}`);
+      setData(result);
+      if (result?.assignment && !result.assignment.submissionId) setAnswers({});
+    } catch (err) { setMessage(err.message); }
   };
-  useEffect(() => { load().catch((err) => setMessage(err.message)); }, [id]);
-  const loadReport = async () => {
+  useEffect(() => { load(); }, [id]);
+
+  useEffect(() => {
+    if (!data?.assignment || data?.assignment?.type === undefined) return;
     if (user.role !== 'TEACHER') return;
     setReportLoading(true);
-    try { setReport(await api(`/assignments/${id}/report?page=${reportPage}&pageSize=8`)); }
-    catch (err) { setMessage(err.message); }
-    finally { setReportLoading(false); }
-  };
-  useEffect(() => { loadReport(); }, [id, reportPage, user.role]);
+    api(`/assignments/${id}/report?page=${reportPage}&pageSize=8`)
+      .then(setReport).catch(() => {}).finally(() => setReportLoading(false));
+  }, [id, user.role, reportPage, data?.assignment?.id]);
 
-  const publish = async () => {
-    try { const result = await api(`/assignments/${id}/publish`, { method: 'POST' }); setMessage(result.message); await load(); await loadReport(); }
-    catch (err) { setMessage(err.message); }
-  };
-  const setAnswer = (questionId, value) => { setAnswers((old) => ({ ...old, [String(questionId)]: value })); setPreview(null); };
+  const setAnswer = (qId, val) => setAnswers((prev) => ({ ...prev, [String(qId)]: val }));
+
   const checkWithAi = async () => {
-    setChecking(true); setMessage('');
+    setChecking(true);
     try {
-      const result = await api(`/assignments/${id}/check`, { method: 'POST', body: JSON.stringify({ answers }) });
-      setPreview(result); setMessage(`AI đã check lần ${result.attemptNo}: ${Math.round(result.percentage)}%.`);
+      const result = await api(`/assignments/${id}/attempt`, { method: 'POST', toast: false, body: JSON.stringify({ answers }) });
+      setPreview(result);
     } catch (err) { setMessage(err.message); }
     finally { setChecking(false); }
   };
-  const submit = async (event) => {
-    event.preventDefault(); setSubmitting(true); setMessage('');
+
+  const publish = async () => {
+    try { await api(`/assignments/${id}/publish`, { method: 'POST' }); await load(); } catch (err) { setMessage(err.message); }
+  };
+
+  const submit = async (e) => {
+    e?.preventDefault(); setSubmitting(true);
     try {
       const body = data.assignment.type === 'HOMEWORK' ? { attemptId: preview?.attemptId } : { answers };
       const result = await api(`/assignments/${id}/submit`, { method: 'POST', body: JSON.stringify(body) });
@@ -78,7 +81,7 @@ export default function AssignmentDetailPage({ user }) {
     </section>
     {message && <div className="notice">{message}</div>}
     {assignment.instructions && <div className="instruction-box"><strong>Hướng dẫn</strong><p>{assignment.instructions}</p></div>}
-    {user.role === 'STUDENT' ? <StudentWork assignment={assignment} questions={questions} submission={submission} answers={answers} setAnswer={setAnswer} preview={preview} checkWithAi={checkWithAi} checking={checking} submit={submit} submitting={submitting} aiEnabled={data.aiEnabled} /> : <TeacherView assignment={assignment} questions={questions} report={report} reportLoading={reportLoading} setReportPage={setReportPage} publish={publish} />}
+    {user.role === 'STUDENT' ? <StudentWork assignment={assignment} questions={questions} submission={submission} answers={answers} setAnswer={setAnswer} preview={preview} checkWithAi={checkWithAi} checking={checking} submit={submit} submitting={submitting} aiEnabled={data.aiEnabled} /> : <TeacherView assignment={assignment} questions={questions} report={report} reportLoading={reportLoading} setReportPage={setReportPage} publish={publish} assignmentId={Number(id)} />}
   </>;
 }
 
@@ -103,15 +106,189 @@ function StudentWork({ assignment, questions, submission, answers, setAnswer, pr
   </form>;
 }
 
-function TeacherView({ assignment, questions, report, reportLoading, setReportPage, publish }) {
-  const submitted = report?.submittedCount ?? report?.students?.filter((student) => student.submitted).length ?? 0;
+function TeacherView({ assignment, questions, report, reportLoading, setReportPage, publish, assignmentId }) {
+  const submitted = report?.submittedCount ?? report?.students?.filter((s) => s.submitted).length ?? 0;
   const total = report?.total ?? report?.students?.length ?? 0;
+  const [contentCollapsed, setContentCollapsed] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiHistory, setAiHistory] = useState([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiBottomRef = useRef(null);
+
+  const sendAiQuestion = async () => {
+    const q = aiQuestion.trim();
+    if (!q || aiLoading) return;
+    setAiHistory((h) => [...h, { role: 'user', text: q }]);
+    setAiQuestion('');
+    setAiLoading(true);
+    try {
+      const { answer } = await api('/teacher/ai-ask', {
+        method: 'POST',
+        toast: false,
+        body: JSON.stringify({ question: q, assignmentId }),
+      });
+      setAiHistory((h) => [...h, { role: 'ai', text: answer }]);
+    } catch (err) {
+      setAiHistory((h) => [...h, { role: 'ai', text: `❌ ${err.message}` }]);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    aiBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [aiHistory, aiLoading]);
+
+  const quickQuestions = [
+    'Học sinh nào có điểm thấp nhất?',
+    'Câu nào học sinh hay làm sai nhất?',
+    'Tôi cần ôn lại kiến thức gì cho lớp?',
+    'Nhận xét tổng quát về bài làm của lớp?',
+  ];
+
   return <div className="teacher-detail">
     {assignment.status === 'DRAFT' && <div className="draft-callout"><div><Send /><span><strong>Bài đang là bản nháp</strong><small>Học sinh chưa nhìn thấy bài này.</small></span></div><button className="btn primary" onClick={publish}>Giao cho cả lớp</button></div>}
     <div className="stats-inline"><div><Users /><span><strong>{total}</strong> học sinh</span></div><div><UserCheck /><span><strong>{submitted}</strong> đã nộp</span></div><div><Clock3 /><span><strong>{Math.max(0, total - submitted)}</strong> chưa nộp</span></div></div>
-    <div className="two-col teacher-detail-grid">
-      <section className="panel"><div className="panel-title"><div><span>NỘI DUNG</span><h3>{questions.length} câu hỏi</h3></div></div><div className="teacher-questions">{questions.map((q, index) => <div key={q.id}><span>Câu {index + 1} · {q.topic}</span><strong>{q.prompt}</strong><small>Đáp án: {q.correctAnswer || 'AI đánh giá theo đáp án tham khảo'} · {q.points} điểm</small></div>)}</div></section>
-      <section className="panel"><div className="panel-title"><div><span>THEO DÕI</span><h3>Kết quả & lịch sử AI</h3></div></div>{reportLoading ? <Empty>Đang tải trang học sinh...</Empty> : report?.students?.length ? <div className="report-list">{report.students.map((student) => <div className="report-row report-row-attempts" key={student.id}><div className="avatar small">{student.fullName.slice(0, 1)}</div><div className="grow"><strong>{student.fullName}</strong><span>{student.submitted ? `Đã nộp · ${Math.round(student.percentage)}%` : student.attemptCount ? `Đang làm · đã check AI ${student.attemptCount} lần` : 'Chưa làm bài'}</span>{student.summary && <small className="student-ai-summary">AI: {student.summary}</small>}{student.weakTopics?.length ? <small>Cần ôn: {student.weakTopics.map((topic) => `${topic.topic} (${topic.mastery}%)`).join(', ')}</small> : null}{student.attemptCount > 0 && <details className="attempt-history"><summary>Xem {student.attemptCount} lần check AI</summary><div>{student.attempts.map((attempt) => <article key={attempt.id}><div><strong>Lần {attempt.attemptNo} · {Math.round(attempt.percentage)}%</strong>{attempt.submitted && <b>ĐÃ NỘP</b>}</div><span>{new Date(attempt.createdAt).toLocaleString('vi-VN')}</span><p>{attempt.summary}</p>{attempt.results?.length ? <ul className="attempt-feedback">{attempt.results.map((result, index) => <li key={result.questionId}><strong>Câu {index + 1}: {result.awarded}/{result.points} điểm</strong><div className="attempt-ans-box"><div className="student-ans-text"><b>Bài làm:</b> <span>{result.answer || '—'}</span></div><div className="ai-fb-text"><b>AI nhận xét:</b> <span>{result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</span></div></div></li>)}</ul> : null}</article>)}</div></details>}</div><span className={`submit-state ${student.submitted ? 'done' : ''}`}>{student.submitted ? 'Đã nộp' : 'Chưa nộp'}</span></div>)}</div> : <Empty>Lớp chưa có học sinh.</Empty>}<Pagination pagination={report?.pagination} loading={reportLoading} onPageChange={setReportPage} label="học sinh" /></section>
+
+    <div className={`two-col teacher-detail-grid${contentCollapsed ? ' content-hidden' : ''}`}>
+      {/* Cột Nội dung */}
+      <section className={`panel teacher-content-panel${contentCollapsed ? ' collapsed' : ''}`}>
+        <div className="panel-title">
+          <div><span>NỘI DUNG</span><h3>{questions.length} câu hỏi</h3></div>
+          <button
+            className="icon-button collapse-btn"
+            title={contentCollapsed ? 'Mở rộng nội dung' : 'Thu gọn nội dung'}
+            onClick={() => setContentCollapsed((v) => !v)}
+          >
+            {contentCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          </button>
+        </div>
+        {!contentCollapsed && (
+          <div className="teacher-questions">
+            {questions.map((q, index) => (
+              <div key={q.id}>
+                <span>Câu {index + 1} · {q.topic}</span>
+                <strong>{q.prompt}</strong>
+                <small>Đáp án: {q.correctAnswer || 'AI đánh giá theo đáp án tham khảo'} · {q.points} điểm</small>
+              </div>
+            ))}
+          </div>
+        )}
+        {contentCollapsed && (
+          <div className="collapsed-hint" onClick={() => setContentCollapsed(false)}>
+            <Maximize2 size={16} />
+            <span>{questions.length} câu</span>
+          </div>
+        )}
+      </section>
+
+      {/* Cột Theo dõi */}
+      <section className="panel">
+        <div className="panel-title">
+          <div><span>THEO DÕI</span><h3>Kết quả &amp; lịch sử AI</h3></div>
+          <button
+            className={`icon-button ai-ask-toggle-btn${aiOpen ? ' active' : ''}`}
+            title="Hỏi AI về học sinh"
+            onClick={() => setAiOpen((v) => !v)}
+          >
+            <MessageSquare size={18} />
+          </button>
+        </div>
+
+        {/* AI Ask Panel */}
+        {aiOpen && (
+          <div className="teacher-ai-ask-panel">
+            <div className="teacher-ai-ask-header">
+              <Bot size={16} />
+              <strong>Hỏi AI về học sinh &amp; bài tập này</strong>
+              <button className="icon-button" onClick={() => setAiOpen(false)}><X size={16} /></button>
+            </div>
+            {aiHistory.length === 0 && (
+              <div className="teacher-ai-quick-qs">
+                {quickQuestions.map((q) => (
+                  <button key={q} className="teacher-ai-quick-q" onClick={() => { setAiQuestion(q); }}>
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="teacher-ai-messages">
+              {aiHistory.map((msg, i) => (
+                <div key={i} className={`teacher-ai-msg ${msg.role}`}>
+                  {msg.role === 'ai' && <Bot size={15} />}
+                  <p>{msg.text}</p>
+                </div>
+              ))}
+              {aiLoading && (
+                <div className="teacher-ai-msg ai">
+                  <Bot size={15} />
+                  <p className="ai-typing">AI đang phân tích...</p>
+                </div>
+              )}
+              <div ref={aiBottomRef} />
+            </div>
+            <div className="teacher-ai-input-row">
+              <input
+                value={aiQuestion}
+                onChange={(e) => setAiQuestion(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendAiQuestion()}
+                placeholder="Ví dụ: Học sinh nào yếu nhất? Câu nào cần ôn lại?"
+              />
+              <button className="btn primary small" onClick={sendAiQuestion} disabled={aiLoading || !aiQuestion.trim()}>
+                <Send size={15} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Student list */}
+        {reportLoading ? <Empty>Đang tải trang học sinh...</Empty> : report?.students?.length ? (
+          <div className="report-list">
+            {report.students.map((student) => (
+              <div className="report-row report-row-attempts" key={student.id}>
+                <div className="avatar small">{student.fullName.slice(0, 1)}</div>
+                <div className="grow">
+                  <strong>{student.fullName}</strong>
+                  <span>{student.submitted ? `Đã nộp · ${Math.round(student.percentage)}%` : student.attemptCount ? `Đang làm · đã check AI ${student.attemptCount} lần` : 'Chưa làm bài'}</span>
+                  {student.summary && <small className="student-ai-summary">AI: {student.summary}</small>}
+                  {student.weakTopics?.length ? <small>Cần ôn: {student.weakTopics.map((t) => `${t.topic} (${t.mastery}%)`).join(', ')}</small> : null}
+                  {student.attemptCount > 0 && (
+                    <details className="attempt-history">
+                      <summary>Xem {student.attemptCount} lần check AI</summary>
+                      <div>{student.attempts.map((attempt) => (
+                        <article key={attempt.id}>
+                          <div>
+                            <strong>Lần {attempt.attemptNo} · {Math.round(attempt.percentage)}%</strong>
+                            {attempt.submitted && <b>ĐÃ NỘP</b>}
+                          </div>
+                          <span>{new Date(attempt.createdAt).toLocaleString('vi-VN')}</span>
+                          <p>{attempt.summary}</p>
+                          {attempt.results?.length ? (
+                            <ul className="attempt-feedback">
+                              {attempt.results.map((result, index) => (
+                                <li key={result.questionId}>
+                                  <strong>Câu {index + 1}: {result.awarded}/{result.points} điểm</strong>
+                                  <div className="attempt-ans-box">
+                                    <div className="student-ans-text"><b>Bài làm:</b> <span>{result.answer || '—'}</span></div>
+                                    <div className="ai-fb-text"><b>AI nhận xét:</b> <span>{result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</span></div>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </article>
+                      ))}</div>
+                    </details>
+                  )}
+                </div>
+                <span className={`submit-state ${student.submitted ? 'done' : ''}`}>{student.submitted ? 'Đã nộp' : 'Chưa nộp'}</span>
+              </div>
+            ))}
+          </div>
+        ) : <Empty>Lớp chưa có học sinh.</Empty>}
+        <Pagination pagination={report?.pagination} loading={reportLoading} onPageChange={setReportPage} label="học sinh" />
+      </section>
     </div>
   </div>;
 }
