@@ -28,17 +28,126 @@ const normalizeType = (value, hasOptions, hasAnswer) => {
 };
 
 function extractJson(text) {
-  const raw = String(text || '').trim();
-  const candidates = [raw];
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) candidates.push(fenced[1].trim());
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start >= 0 && end > start) candidates.push(raw.slice(start, end + 1));
-  for (const candidate of candidates) {
-    try { return JSON.parse(candidate.replace(/,\s*([}\]])/g, '$1')); } catch { /* thử tiếp */ }
+  if (text && typeof text === 'object') {
+    if (Array.isArray(text)) return { questions: text };
+    return text;
   }
-  throw new Error('AI trả về dữ liệu chưa đúng định dạng. Hãy thử ảnh rõ hơn.');
+
+  const raw = String(text || '').trim();
+  if (!raw) throw new Error('AI trả về nội dung rỗng.');
+
+  const candidates = [raw];
+
+  for (const match of raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    if (match?.[1]) candidates.push(match[1].trim());
+  }
+
+  const objectStart = raw.indexOf('{');
+  const objectEnd = raw.lastIndexOf('}');
+  if (objectStart >= 0 && objectEnd > objectStart) {
+    candidates.push(raw.slice(objectStart, objectEnd + 1));
+  }
+
+  const arrayStart = raw.indexOf('[');
+  const arrayEnd = raw.lastIndexOf(']');
+  if (arrayStart >= 0 && arrayEnd > arrayStart) {
+    candidates.push(raw.slice(arrayStart, arrayEnd + 1));
+  }
+
+  for (const candidate of [...new Set(candidates)]) {
+    const cleaned = candidate
+      .replace(/^\uFEFF/, '')
+      .replace(/,\s*([}\]])/g, '$1')
+      .trim();
+
+    try {
+      const parsed = JSON.parse(cleaned);
+
+      if (Array.isArray(parsed)) return { questions: parsed };
+      if (Array.isArray(parsed?.questions)) return parsed;
+
+      const nested = [
+        parsed?.data,
+        parsed?.result,
+        parsed?.output,
+        parsed?.items,
+        parsed?.questionList,
+        parsed?.cauHoi,
+        parsed?.cau_hoi,
+      ];
+
+      for (const value of nested) {
+        if (Array.isArray(value)) return { questions: value };
+        if (Array.isArray(value?.questions)) return { ...parsed, questions: value.questions };
+      }
+
+      return parsed;
+    } catch {
+      // thử candidate tiếp theo
+    }
+  }
+
+  throw new Error('AI trả về JSON lỗi định dạng.');
+}
+
+function aiQuestionList(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.questions)) return payload.questions;
+  if (Array.isArray(payload.items)) return payload.items;
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.result)) return payload.result;
+  return [];
+}
+
+function splitOcrIntoChunks(text, maxChars = 10500) {
+  const lines = String(text || '').split(/\r?\n/);
+  const chunks = [];
+  let current = '';
+
+  for (const line of lines) {
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length > maxChars && current.trim()) {
+      chunks.push(current.trim());
+      current = line;
+    } else {
+      current = next;
+    }
+  }
+
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.length ? chunks : [String(text || '').trim()];
+}
+
+function imageQuestionPrompt(ocrText, retry = false) {
+  return `${retry ? 'LƯU Ý: LẦN TRƯỚC BẠN TRẢ SAI FORMAT. LẦN NÀY CHỈ ĐƯỢC TRẢ JSON THUẦN.\\n\\n' : ''}
+Bạn đang nhập đề bài tiếng Hàn từ ảnh cho giáo viên.
+
+NHIỆM VỤ:
+- Đọc phần OCR bên dưới và tách TẤT CẢ câu hỏi/bài tập có thật trong nội dung.
+- Giữ nguyên tiếng Hàn, tiếng Việt, số câu và ý nghĩa gốc tối đa có thể.
+- KHÔNG tự bịa thêm câu hỏi.
+- Nếu có các lựa chọn ①②③④, A/B/C/D hoặc danh sách đáp án thì đưa vào options.
+- Nếu đáp án xuất hiện rõ trong ảnh thì điền correctAnswer; nếu không chắc thì để "".
+- Nếu không chắc loại câu, dùng ESSAY để giáo viên sửa lại.
+- Mỗi câu phải có prompt không rỗng.
+- Tối đa 25 câu trong một lần trả lời.
+
+CHỈ TRẢ JSON, KHÔNG markdown, KHÔNG giải thích ngoài JSON:
+{"questions":[
+  {
+    "type":"MULTIPLE_CHOICE|SHORT_TEXT|ESSAY",
+    "prompt":"nội dung câu hỏi",
+    "options":["lựa chọn 1","lựa chọn 2"],
+    "correctAnswer":"",
+    "explanation":"",
+    "topic":"Tổng hợp",
+    "points":1
+  }
+]}
+
+OCR:
+${ocrText}`;
 }
 
 function importedQuestion(raw = {}) {
@@ -161,41 +270,131 @@ export default function AssignmentsPage({ user }) {
     const files = [...(event.target.files || [])];
     event.target.value = '';
     if (!files.length) return;
-    setImporting('image'); setOcrProgress(0); setMessage('Đang đọc chữ trong ảnh...');
+
+    setImporting('image');
+    setOcrProgress(1);
+    setMessage(`Đang soi ${files.length} ảnh... AI đeo kính vào rồi 🤓`);
+
     try {
       const Tesseract = await import('tesseract.js');
       let currentFileIndex = 0;
-      const worker = await Tesseract.createWorker(['kor', 'eng'], 1, {
+
+      // Có cả tiếng Việt để OCR phần đề Việt + tiếng Hàn chính xác hơn.
+      const worker = await Tesseract.createWorker(['kor', 'vie', 'eng'], 1, {
         logger: (info) => {
-          if (info.status === 'recognizing text') setOcrProgress(Math.round(((currentFileIndex + info.progress) / files.length) * 100));
+          if (info.status === 'recognizing text') {
+            const overall = (currentFileIndex + Number(info.progress || 0)) / files.length;
+            setOcrProgress(Math.max(1, Math.min(65, Math.round(overall * 65))));
+          }
         },
       });
-      const ocrTexts = [];
+
+      const ocrPages = [];
       try {
         for (let i = 0; i < files.length; i += 1) {
           currentFileIndex = i;
           const result = await worker.recognize(files[i]);
-          ocrTexts.push(result.data.text || '');
+          const text = String(result?.data?.text || '').trim();
+          if (text.length >= 4) ocrPages.push({ fileName: files[i].name, text });
         }
       } finally {
         await worker.terminate();
       }
-      const ocrText = ocrTexts.join('\n\n--- ẢNH TIẾP THEO ---\n\n').trim();
-      if (ocrText.length < 5) throw new Error('Không đọc được chữ trong ảnh. Hãy dùng ảnh rõ, thẳng và đủ sáng.');
-      setMessage('Đã OCR xong. AI đang tách câu hỏi...');
-      const aiResult = await api('/learning/ai', {
-        method: 'POST', toast: false,
-        body: JSON.stringify({
-          systemPrompt: 'Bạn là trợ lý nhập đề tiếng Hàn cho giáo viên. Chỉ trả JSON hợp lệ, không markdown.',
-          prompt: `Từ nội dung OCR dưới đây, hãy tách thành các câu hỏi bài tập. Không tự bịa câu không có trong ảnh.\n\nOCR:\n${ocrText}\n\nTrả đúng JSON dạng:\n{"questions":[{"type":"MULTIPLE_CHOICE|SHORT_TEXT|ESSAY","prompt":"nội dung câu hỏi","options":["A","B"],"correctAnswer":"đáp án nếu suy ra rõ, nếu không để rỗng","explanation":"","topic":"Tổng hợp","points":1}]}\nQuy tắc: nếu không thấy đáp án rõ ràng trong ảnh thì dùng type ESSAY để giáo viên sửa sau; trắc nghiệm phải có ít nhất 2 options.`,
-          temperature: 0.15, maxOutputTokens: 4096, jsonMode: true,
-        }),
-      });
-      const parsed = extractJson(aiResult.text);
-      if (!Array.isArray(parsed.questions)) throw new Error('AI chưa tách được danh sách câu hỏi.');
-      appendQuestions(parsed.questions, `${files.length} ảnh AI quét`);
-    } catch (err) { setMessage(err.message || 'Không quét được ảnh.'); }
-    finally { setImporting(''); setOcrProgress(0); }
+
+      if (!ocrPages.length) {
+        throw new Error('Không đọc được chữ trong ảnh. Hãy dùng ảnh rõ, thẳng và đủ sáng.');
+      }
+
+      setMessage('OCR xong ✅ Gemini đang tách từng câu, đừng F5 nha 😆');
+
+      const allQuestions = [];
+      const failures = [];
+      const workItems = [];
+
+      // Không nhồi toàn bộ nhiều trang vào 1 request nữa:
+      // mỗi ảnh/chunk xử lý riêng để tránh Gemini trả JSON bị cắt.
+      for (let pageIndex = 0; pageIndex < ocrPages.length; pageIndex += 1) {
+        const page = ocrPages[pageIndex];
+        const chunks = splitOcrIntoChunks(page.text);
+        chunks.forEach((chunk, chunkIndex) => {
+          workItems.push({
+            label: `${page.fileName}${chunks.length > 1 ? ` · phần ${chunkIndex + 1}` : ''}`,
+            text: chunk,
+          });
+        });
+      }
+
+      for (let index = 0; index < workItems.length; index += 1) {
+        const item = workItems[index];
+        const progress = 65 + Math.round((index / Math.max(1, workItems.length)) * 33);
+        setOcrProgress(Math.min(98, progress));
+        setMessage(`Gemini đang đọc ${index + 1}/${workItems.length}: ${item.label} 🤖`);
+
+        let questions = [];
+        let lastRaw = '';
+
+        for (let attempt = 0; attempt < 2 && !questions.length; attempt += 1) {
+          try {
+            const aiResult = await api('/learning/ai', {
+              method: 'POST',
+              toast: false,
+              body: JSON.stringify({
+                systemPrompt: 'Bạn là hệ thống trích xuất đề bài tiếng Hàn. Chỉ trả JSON hợp lệ đúng schema được yêu cầu.',
+                prompt: imageQuestionPrompt(item.text, attempt > 0),
+                temperature: 0,
+                maxOutputTokens: 4096,
+                // Lần 2 tắt jsonMode để xử lý trường hợp model/provider
+                // trả cấu trúc lạ khi ép responseMimeType.
+                jsonMode: attempt === 0,
+              }),
+            });
+
+            lastRaw = aiResult?.text ?? aiResult ?? '';
+            const parsed = extractJson(lastRaw);
+            questions = aiQuestionList(parsed)
+              .map((question) => typeof question === 'string' ? { prompt: question, type: 'ESSAY' } : question)
+              .filter((question) => String(
+                question?.prompt ??
+                question?.question ??
+                question?.cauHoi ??
+                question?.cauhoi ??
+                question?.noiDung ??
+                question?.noidung ??
+                ''
+              ).trim().length >= 2);
+          } catch (error) {
+            console.warn(`Ảnh AI attempt ${attempt + 1} lỗi:`, error, lastRaw);
+          }
+        }
+
+        if (questions.length) {
+          allQuestions.push(...questions);
+        } else {
+          failures.push(item.label);
+        }
+      }
+
+      if (!allQuestions.length) {
+        throw new Error(
+          'Gemini vẫn chưa tách được câu hỏi. OCR đã chạy xong nhưng AI trả sai định dạng; thử lại 1 ảnh/lần hoặc kiểm tra model Gemini trong Admin.'
+        );
+      }
+
+      appendQuestions(allQuestions, `${files.length} ảnh AI quét`);
+      setOcrProgress(100);
+
+      if (failures.length) {
+        setMessage(`Đã thêm ${allQuestions.length} câu ✅ Có ${failures.length} phần ảnh AI chưa đọc chắc nên đã bỏ qua: ${failures.join(', ')}.`);
+      } else {
+        setMessage(`Đã quét xong ${files.length} ảnh và thêm ${allQuestions.length} câu ✅ AI hôm nay làm việc được việc phết 😎`);
+      }
+    } catch (err) {
+      console.error('Import ảnh bài tập lỗi:', err);
+      setMessage(err?.message || 'Không quét được ảnh.');
+    } finally {
+      setImporting('');
+      window.setTimeout(() => setOcrProgress(0), 700);
+    }
   };
 
   const createAssignment = async (event) => {
