@@ -253,20 +253,18 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
                   <span>{student.submitted ? `Đã nộp · ${Math.round(student.percentage)}%` : student.attemptCount ? `Đang làm · đã check AI ${student.attemptCount} lần` : 'Chưa làm bài'}</span>
                   {student.summary && <small className="student-ai-summary">AI: {student.summary}</small>}
                   {student.weakTopics?.length ? <small>Cần ôn: {student.weakTopics.map((t) => `${t.topic} (${t.mastery}%)`).join(', ')}</small> : null}
-                  {student.attemptCount > 0 && (
-                    <details className="attempt-history">
-                      <summary>Xem {student.attemptCount} lần check AI</summary>
-                      <div>{student.attempts.map((attempt) => (
-                        <article key={attempt.id}>
-                          <div>
-                            <strong>Lần {attempt.attemptNo} · {Math.round(attempt.percentage)}%</strong>
-                            {attempt.submitted && <b>ĐÃ NỘP</b>}
-                          </div>
-                          <span>{new Date(attempt.createdAt).toLocaleString('vi-VN')}</span>
-                          <p>{attempt.summary}</p>
-                          {attempt.results?.length ? (
+                  {student.attemptCount > 0 && (() => {
+                    const last = student.attempts?.[student.attempts.length - 1];
+                    if (!last) return null;
+                    return (
+                      <details className="attempt-history">
+                        <summary>Lần check AI gần nhất ({student.attemptCount} lần) · {Math.round(last.percentage)}%</summary>
+                        <article>
+                          <span>{new Date(last.createdAt).toLocaleString('vi-VN')}</span>
+                          <p>{last.summary}</p>
+                          {last.results?.length ? (
                             <ul className="attempt-feedback">
-                              {attempt.results.map((result, index) => (
+                              {last.results.map((result, index) => (
                                 <li key={result.questionId}>
                                   <strong>Câu {index + 1}: {result.awarded}/{result.points} điểm</strong>
                                   <div className="attempt-ans-box">
@@ -278,9 +276,9 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
                             </ul>
                           ) : null}
                         </article>
-                      ))}</div>
-                    </details>
-                  )}
+                      </details>
+                    );
+                  })()}
                 </div>
                 <span className={`submit-state ${student.submitted ? 'done' : ''}`}>{student.submitted ? 'Đã nộp' : 'Chưa nộp'}</span>
               </div>
