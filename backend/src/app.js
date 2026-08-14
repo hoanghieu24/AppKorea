@@ -862,7 +862,7 @@ async function createFinalSubmission({ assignment, studentId, grade, attemptId =
   });
 }
 
-app.post('/api/assignments/:id/check', requireAuth, requireRole('STUDENT'), async (req, res) => {
+app.post(['/api/assignments/:id/check', '/api/assignments/:id/attempt'], requireAuth, requireRole('STUDENT'), async (req, res) => {
   const assignmentId = idSchema.parse(req.params.id);
   const input = z.object({ answers: answerInput }).safeParse(req.body);
   if (!input.success) return badRequest(res, 'Dữ liệu bài làm chưa hợp lệ.');
@@ -1098,13 +1098,13 @@ app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), as
       const students = await query(
         `SELECT u.id, u.full_name,
           s.id subId, s.score, s.max_score, s.percentage, s.ai_summary, s.created_at submittedAt,
-          (SELECT COUNT(*) FROM attempts WHERE assignment_id = a.id AND student_id = u.id) attemptCount
+          (SELECT COUNT(*) FROM assignment_attempts WHERE assignment_id = a.id AND student_id = u.id) attemptCount
          FROM class_students cs
          JOIN users u ON u.id = cs.student_id
          JOIN assignments a ON a.id = ?
          LEFT JOIN submissions s ON s.assignment_id = a.id AND s.student_id = u.id
          WHERE cs.class_id = a.class_id
-         ORDER BY s.percentage DESC NULLS LAST`, [assignmentId]
+         ORDER BY (s.percentage IS NULL), s.percentage DESC`, [assignmentId]
       );
 
       if (students.length) {
@@ -1159,7 +1159,7 @@ app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), as
           contextLines.push(`${stu.full_name}: ${Math.round(stu.percentage || 0)}% | Nhận xét AI: ${stu.ai_summary || 'chưa có'}`);
         }
         const wrongAns = await query(
-          `SELECT q.prompt, aa.answer, q.correct_answer, aa.feedback
+          `SELECT q.prompt, aa.answer_text answer, q.correct_answer, aa.feedback
            FROM submission_answers aa JOIN questions q ON q.id = aa.question_id
            JOIN submissions s ON s.id = aa.submission_id
            WHERE s.assignment_id = ? AND s.student_id = ? AND aa.is_correct = 0`, [assignmentId, studentId]
@@ -1224,6 +1224,7 @@ app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), as
   } catch (err) {
     res.status(502).json({ message: 'AI tạm thời không phản hồi: ' + err.message });
   }
+});
 
 // Auto-cleanup: delete assignments & data older than 1 week (runs on each server start, safe to call repeatedly)
 async function cleanupOldAssignments() {
