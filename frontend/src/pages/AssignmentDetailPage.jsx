@@ -258,7 +258,7 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
                     if (!last) return null;
                     return (
                       <details className="attempt-history">
-                        <summary>Lần check AI gần nhất ({student.attemptCount} lần) · {Math.round(last.percentage)}%</summary>
+                        <summary>Lần {last.attemptNo ?? student.attemptCount} / {student.attemptCount} lần check AI · {Math.round(last.percentage)}%</summary>
                         <article>
                           <span>{new Date(last.createdAt).toLocaleString('vi-VN')}</span>
                           <p>{last.summary}</p>
