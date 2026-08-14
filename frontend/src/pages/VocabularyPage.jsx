@@ -92,6 +92,26 @@ export default function VocabularyPage({ user }) {
   </>;
 }
 
+const VOCAB_LOADING_LINES = [
+  'Đang lục từ vựng trong giáo trình... 📚',
+  'Khoan, có mấy từ đang trốn sau trang sách 😭',
+  'Đang gọi từ vựng từ Seoul về... 🇰🇷',
+  'Gần xong rồi, đừng F5 nha bro 😆'
+];
+
+function VocabularyLoader({ compact = false, hint = 'Đang đồng bộ dữ liệu học liệu...' }) {
+  const [line, setLine] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setLine((current) => (current + 1) % VOCAB_LOADING_LINES.length), 950);
+    return () => window.clearInterval(timer);
+  }, []);
+  return <div className={`vocab-funny-loader ${compact ? 'compact' : ''}`} role="status" aria-live="polite">
+    <div className="vocab-loader-bubbles" aria-hidden="true"><span>한</span><span>국</span><span>어</span></div>
+    <strong>{VOCAB_LOADING_LINES[line]}</strong>
+    <small>{hint}</small>
+  </div>;
+}
+
 function TeacherCatalog({ lessons, lessonsLoading, catalogLoading, classWordsLoading, selectingAll, lessonId, setLessonId, activeLesson, activeClass, catalog, catalogPagination, setCatalogPage, selected, setSelected, imported, toggle, selectAll, importWords, classWords, classPagination, setClassPage, classId }) {
   const assignedGrammar = useMemo(() => {
     const map = new Map();
@@ -108,7 +128,7 @@ function TeacherCatalog({ lessons, lessonsLoading, catalogLoading, classWordsLoa
   return <div className="two-col vocab-teacher-grid">
     <section className="panel catalog-panel">
       {!classId && <div className="notice warning">Chọn lớp nhận học liệu ở phía trên trước khi giao.</div>}
-      <div className="catalog-controls"><label>Chọn bài trong sách<select value={lessonId} disabled={lessonsLoading || !lessons.length} onChange={(e) => setLessonId(e.target.value)}>{lessonsLoading && <option>Đang tải danh sách bài...</option>}{!lessonsLoading && !lessons.length && <option>Chưa có bài học</option>}{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>Bài {lesson.lessonNumber || lesson.id} · {lesson.title} — {lesson.topic}</option>)}</select></label><div className="catalog-bulk-actions"><button className="btn secondary small" disabled={catalogLoading || selectingAll || !activeLesson} onClick={selectAll}><Check size={15} /> {selectingAll ? 'Đang chọn...' : 'Chọn tất cả'}</button><button className="btn ghost small" disabled={!selected.size} onClick={() => setSelected(new Set())}>Bỏ chọn</button></div></div>
+      <div className="catalog-controls"><label>Chọn bài trong sách<select value={lessonId} disabled={lessonsLoading || !lessons.length} onChange={(e) => setLessonId(e.target.value)}>{lessonsLoading && <option>Đang tải danh sách bài...</option>}{!lessonsLoading && !lessons.length && <option>Chưa có bài học</option>}{lessons.map((lesson) => <option key={lesson.id} value={lesson.id}>Bài {lesson.lessonNumber || lesson.id} · {lesson.title} — {lesson.topic}</option>)}</select></label><div className="catalog-bulk-actions"><button className="btn secondary small" disabled={catalogLoading || selectingAll || !activeLesson} onClick={selectAll}><Check size={15} /> {selectingAll ? 'Đang gom hết từ... 😤' : `Chọn tất cả ${activeLesson?.vocabularyCount || ''} từ`}</button><button className="btn ghost small" disabled={!selected.size} onClick={() => setSelected(new Set())}>Bỏ chọn</button></div></div>
       {activeLesson && <div className="lesson-info">
         <span>BÀI {activeLesson.lessonNumber || activeLesson.id} · {activeLesson.vocabularyCount} TỪ VỰNG</span>
         <h3>{activeLesson.title} · {activeLesson.topic}</h3>
@@ -117,7 +137,7 @@ function TeacherCatalog({ lessons, lessonsLoading, catalogLoading, classWordsLoa
           <div className="grammar-chips">{activeLesson.grammar.map((grammar) => <b key={grammar} className="grammar-chip"><BookOpen size={13} /> {grammar}</b>)}</div>
         </div>}
       </div>}
-      <div className="catalog-list">{catalogLoading ? <Empty>Đang tải học liệu của bài...</Empty> : catalog.length ? catalog.map((word) => { const isImported = imported.has(Number(word.id)); return <label className={`catalog-word ${isImported ? 'imported' : ''}`} key={word.id}><input type="checkbox" disabled={isImported} checked={isImported || selected.has(Number(word.id))} onChange={() => toggle(Number(word.id))} /><span className="fake-check">{isImported ? <Check size={14} /> : null}</span><div className="catalog-korean"><strong>{word.korean}</strong>{word.romanization && <small>{word.romanization}</small>}</div><p>{word.meaningVi}</p>{isImported && <em>Đã có</em>}</label>; }) : <Empty>Chưa có từ vựng cho bài này.</Empty>}</div>
+      <div className="catalog-list">{catalogLoading ? <VocabularyLoader hint="Đang mở kho từ vựng của bài này..." /> : catalog.length ? catalog.map((word) => { const isImported = imported.has(Number(word.id)); return <label className={`catalog-word ${isImported ? 'imported' : ''}`} key={word.id}><input type="checkbox" disabled={isImported} checked={isImported || selected.has(Number(word.id))} onChange={() => toggle(Number(word.id))} /><span className="fake-check">{isImported ? <Check size={14} /> : null}</span><div className="catalog-korean"><strong>{word.korean}</strong>{word.romanization && <small>{word.romanization}</small>}</div><p>{word.meaningVi}</p>{isImported && <em>Đã có</em>}</label>; }) : <Empty>Chưa có từ vựng cho bài này.</Empty>}</div>
       <Pagination pagination={catalogPagination} loading={catalogLoading} onPageChange={setCatalogPage} label="từ trong bài" />
       <div className="catalog-action"><span>Đã chọn <strong>{selected.size}</strong> mục{activeClass ? <> · giao cho <strong>{activeClass.name}</strong></> : ''}</span><button className="btn primary" disabled={!classId || !selected.size} onClick={importWords}><Layers3 size={17} /> {activeClass ? `Giao Từ vựng & Ngữ pháp vào ${activeClass.name}` : 'Chọn lớp trước'}</button></div>
     </section>
@@ -127,7 +147,7 @@ function TeacherCatalog({ lessons, lessonsLoading, catalogLoading, classWordsLoa
         <div className="class-grammar-title"><Sparkles size={15} /> <strong>Ngữ pháp đã giao ({assignedGrammar.length})</strong></div>
         <div className="grammar-chips-list">{assignedGrammar.map((g) => <span key={g.name} className="grammar-badge"><BookOpen size={12} /> <strong>{g.name}</strong> <small>(Bài {g.lessonId})</small></span>)}</div>
       </div>}
-      {classWordsLoading ? <Empty>Đang tải trang học liệu...</Empty> : classWords.length ? <div className="mini-vocab-list">{classWords.map((word) => <div key={word.id}><strong>{word.korean}</strong><span>{word.meaningVi}</span><small>Bài {word.lessonId}</small></div>)}</div> : <Empty>{activeClass ? 'Chưa có bài nào. Chọn bài học bên trái rồi giao cho lớp.' : 'Chọn lớp ở phía trên để xem và giao học liệu.'}</Empty>}<Pagination pagination={classPagination} loading={classWordsLoading} onPageChange={setClassPage} label="từ đã giao" />
+      {classWordsLoading ? <VocabularyLoader compact hint="Đang kiểm tra học liệu đã giao cho lớp..." /> : classWords.length ? <div className="mini-vocab-list">{classWords.map((word) => <div key={word.id}><strong>{word.korean}</strong><span>{word.meaningVi}</span><small>Bài {word.lessonId}</small></div>)}</div> : <Empty>{activeClass ? 'Chưa có bài nào. Chọn bài học bên trái rồi giao cho lớp.' : 'Chọn lớp ở phía trên để xem và giao học liệu.'}</Empty>}<Pagination pagination={classPagination} loading={classWordsLoading} onPageChange={setClassPage} label="từ đã giao" />
     </section>
   </div>;
 }
@@ -150,7 +170,7 @@ function StudentVocabulary({ words, query, setQuery, pagination, loading, setPag
         <button className={tab === 'grammar' ? 'active' : ''} onClick={() => setTab('grammar')}>Ngữ pháp</button>
       </div>
     </div>
-    {loading ? <Empty>Đang tải học liệu...</Empty> : words.length ? Object.entries(grouped).map(([lessonKey, group]) => {
+    {loading ? <VocabularyLoader hint="Đang kéo từ vựng và ngữ pháp của lớp về..." /> : words.length ? Object.entries(grouped).map(([lessonKey, group]) => {
       const showGrammar = (tab === 'all' || tab === 'grammar') && group.grammar && group.grammar.length > 0;
       const showWords = (tab === 'all' || tab === 'vocab') && group.words.length > 0;
       if (!showGrammar && !showWords) return null;

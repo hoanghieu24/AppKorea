@@ -1,0 +1,12 @@
+/* Playful vocabulary loading */
+.vocab-funny-loader { min-height: 150px; display: grid; place-items: center; align-content: center; gap: 9px; padding: 22px 14px; text-align: center; border-radius: 14px; background: linear-gradient(135deg, #faf9ff, #f4f1ff); border: 1px dashed #d8d2ff; overflow: hidden; }
+.vocab-funny-loader.compact { min-height: 118px; }
+.vocab-funny-loader strong { font-size: .82rem; color: #514990; animation: vocabLoaderText .28s ease; }
+.vocab-funny-loader small { color: #918da8; font-size: .67rem; }
+.vocab-loader-bubbles { display: flex; align-items: end; justify-content: center; gap: 7px; min-height: 42px; }
+.vocab-loader-bubbles span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; color: #fff; font-family: "Noto Sans KR", sans-serif; font-weight: 900; background: linear-gradient(135deg, #7968ff, #5948dd); box-shadow: 0 7px 15px rgba(87, 70, 210, .18); animation: vocabHangulBounce 1.05s ease-in-out infinite; }
+.vocab-loader-bubbles span:nth-child(2) { animation-delay: .12s; }
+.vocab-loader-bubbles span:nth-child(3) { animation-delay: .24s; }
+@keyframes vocabHangulBounce { 0%, 55%, 100% { transform: translateY(0) rotate(0deg); } 25% { transform: translateY(-10px) rotate(-5deg); } 40% { transform: translateY(-3px) rotate(4deg); } }
+@keyframes vocabLoaderText { from { opacity: .35; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .vocab-loader-bubbles span, .vocab-funny-loader strong { animation: none; } }

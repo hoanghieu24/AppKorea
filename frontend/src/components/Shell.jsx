@@ -48,7 +48,7 @@ export default function Shell({ user, onLogout, children }) {
       <aside className={`sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
         <div className="brand-row">
           <div className="brand-mark">한</div>
-          <div className="brand-copy"><strong>HanQuoc</strong><span>Classroom · v2.2.8</span></div>
+          <div className="brand-copy"><strong>HanQuoc</strong></div>
           <button className="icon-button close-mobile" onClick={() => setMobileOpen(false)} aria-label="Đóng menu"><X size={20} /></button>
         </div>
         <button className="sidebar-desktop-toggle" type="button" onClick={() => setSidebarCollapsed((value) => !value)} title={sidebarCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'} aria-label={sidebarCollapsed ? 'Mở rộng menu' : 'Thu gọn menu'}>{sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
