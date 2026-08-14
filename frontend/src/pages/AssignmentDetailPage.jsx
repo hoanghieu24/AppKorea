@@ -33,7 +33,12 @@ export default function AssignmentDetailPage({ user }) {
       .then(setReport).catch(() => {}).finally(() => setReportLoading(false));
   }, [id, user.role, reportPage, data?.assignment?.id]);
 
-  const setAnswer = (qId, val) => setAnswers((prev) => ({ ...prev, [String(qId)]: val }));
+  const setAnswer = (qId, val) => {
+    setAnswers((prev) => ({ ...prev, [String(qId)]: val }));
+    // Nếu học sinh sửa đáp án sau khi đã check AI thì lần check cũ không còn
+    // đại diện cho bài hiện tại nữa. Bắt buộc check lại trước khi nộp.
+    setPreview(null);
+  };
 
   const checkWithAi = async () => {
     setChecking(true);
@@ -254,17 +259,25 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
                   {student.summary && <small className="student-ai-summary">AI: {student.summary}</small>}
                   {student.weakTopics?.length ? <small>Cần ôn: {student.weakTopics.map((t) => `${t.topic} (${t.mastery}%)`).join(', ')}</small> : null}
                   {student.attemptCount > 0 && (() => {
-                    const last = student.attempts?.[student.attempts.length - 1];
-                    if (!last) return null;
+                    // Backend trả attempts theo attempt_no DESC (mới nhất trước).
+                    // Nếu đã nộp, attempt có submissionId/submitted=true chính là lần
+                    // check AI được dùng để tạo bài nộp chính thức.
+                    const finalCheck = student.submitted
+                      ? (student.attempts?.find((attempt) => attempt.submitted) || student.attempts?.[0])
+                      : student.attempts?.[0];
+                    if (!finalCheck) return null;
+                    const checkLabel = student.submitted
+                      ? 'Lần check AI cuối cùng trước khi nộp'
+                      : `Lần check AI gần nhất · lần ${finalCheck.attemptNo ?? student.attemptCount}/${student.attemptCount}`;
                     return (
-                      <details className="attempt-history">
-                        <summary>Lần {last.attemptNo ?? student.attemptCount} / {student.attemptCount} lần check AI · {Math.round(last.percentage)}%</summary>
+                      <details className="attempt-history" open={student.submitted}>
+                        <summary>{checkLabel} · {Math.round(finalCheck.percentage)}%</summary>
                         <article>
-                          <span>{new Date(last.createdAt).toLocaleString('vi-VN')}</span>
-                          <p>{last.summary}</p>
-                          {last.results?.length ? (
+                          <span>{new Date(finalCheck.createdAt).toLocaleString('vi-VN')}</span>
+                          <p>{finalCheck.summary}</p>
+                          {finalCheck.results?.length ? (
                             <ul className="attempt-feedback">
-                              {last.results.map((result, index) => (
+                              {finalCheck.results.map((result, index) => (
                                 <li key={result.questionId}>
                                   <strong>Câu {index + 1}: {result.awarded}/{result.points} điểm</strong>
                                   <div className="attempt-ans-box">
