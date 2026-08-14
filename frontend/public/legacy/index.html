@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Be+Vietnam+Pro:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="light-mode">
+<body class="dark-mode">
 
 <!-- ===== SETTINGS MODAL ===== -->
 <div class="modal-overlay" id="settingsOverlay" onclick="closeSettings()">
@@ -21,9 +21,9 @@
     </div>
     <div class="modal-body">
       <!-- API KEY -->
-      <div class="settings-section">
-        <div class="settings-label">🤖 Gemini AI</div>
-        <p class="settings-desc">Trong Classroom, Gemini được cấu hình an toàn ở backend. Nếu mở trang học độc lập ngoài Classroom, bạn vẫn có thể nhập API key riêng như bản gốc.</p>
+      <div class="settings-section classroom-secret-setting">
+        <div class="settings-label">🤖 Gemini API Key</div>
+        <p class="settings-desc">Nhập key để dùng AI tạo từ vựng, trò chuyện và học thông minh hơn. Lấy key miễn phí tại <a href="https://aistudio.google.com/apikey" target="_blank" class="settings-link">aistudio.google.com</a></p>
         <div class="api-key-row">
           <input type="password" id="apiKeyInput" class="settings-input" placeholder="AIza..." autocomplete="off" />
           <button class="btn btn-primary btn-sm" onclick="saveApiKey()">💾 Lưu</button>
@@ -49,7 +49,7 @@
       </div>
 
       <!-- AI MODEL -->
-      <div class="settings-section">
+      <div class="settings-section classroom-secret-setting">
         <div class="settings-label">🧠 Mô hình AI</div>
         <select id="modelSelect" class="settings-select">
           <option value="gemini-3.5-flash">gemini-3.5-flash (Khuyên dùng - Cực nhanh)</option>
@@ -269,6 +269,7 @@
           <option value="all">🌐 Tất cả bài học</option>
         </select>
         <button class="btn btn-ghost btn-xs" onclick="openLessonModal()" title="Quản lý danh sách bài học">⚙️ Bài học</button>
+        <button class="btn btn-ai btn-xs" onclick="toggleSideTranslatePanel()" title="Mở ô Dịch Nghĩa Nhanh bên cạnh (chỉ dịch nghĩa)">⚡ Dịch Nghĩa Nhanh</button>
       </div>
       <div class="api-indicator" id="apiIndicator" title="Trạng thái Gemini AI">
         <span class="api-dot" id="apiDot"></span>
@@ -332,7 +333,7 @@
           <select id="grammarLessonSelect" class="settings-select-sm"></select>
         </div>
         <input type="text" id="grammarTitle" class="grammar-input" placeholder="VD: -이에/예요, -고 싶다, -아/어요" />
-        <textarea id="grammarFormula" class="grammar-textarea" placeholder="AI sẽ tự tạo nội dung nếu để trống (cần API key)" rows="4"></textarea>
+        <textarea id="grammarFormula" class="grammar-textarea" placeholder="AI sẽ tự tạo nội dung nếu để trống" rows="4"></textarea>
         <button class="btn btn-secondary" id="addGrammarBtn">
           <span>➕</span> Thêm ngữ pháp
         </button>
@@ -344,7 +345,20 @@
           <h3>Từ vựng (<span id="wordCount">0</span>)</h3>
           <button class="btn btn-ai btn-sm" id="regenAiBtn" onclick="regenerateAIWords()" style="display:none">🔄 Tạo lại bằng AI</button>
         </div>
+        <div class="word-list-tools">
+          <div class="word-page-size-control">
+            <label for="wordPageSize">📄 Mỗi trang:</label>
+            <select id="wordPageSize" class="settings-select-sm" onchange="changeWordPageSize(this.value)">
+              <option value="15">15 từ</option>
+              <option value="30" selected>30 từ</option>
+              <option value="60">60 từ</option>
+              <option value="120">120 từ</option>
+            </select>
+          </div>
+          <div class="word-page-range" id="wordPageRange">Đang xem 0 từ</div>
+        </div>
         <div class="word-chips" id="wordChips"></div>
+        <nav class="pagination" id="wordPagination" aria-label="Phân trang từ vựng"></nav>
         <div class="start-learning-actions">
           <button class="btn btn-primary" onclick="setMode('learn')">📖 Học ngay</button>
           <button class="btn btn-secondary" onclick="setMode('batch')">🎯 Lộ trình</button>
@@ -943,7 +957,7 @@
       </div>
       <div class="chat-controls">
         <button class="btn btn-ghost btn-sm" onclick="clearChat()">🗑 Xóa chat</button>
-        <button class="btn btn-ghost btn-sm" onclick="openSettings()">⚙️ API Key</button>
+        <button class="btn btn-ghost btn-sm" onclick="openSettings()">⚙️ Cài đặt</button>
       </div>
     </div>
 
@@ -967,7 +981,7 @@
       </div>
 
       <div class="no-api-notice" id="noApiNotice">
-        <span>⚠️ Cần API Key để dùng AI. </span>
+        <span>⚠️ AI chưa được cấu hình trên hệ thống. </span>
         <button class="link-btn" onclick="openSettings()">Cài đặt →</button>
       </div>
 
@@ -1010,7 +1024,7 @@
       <div class="tutor-chat" id="tutorChat"></div>
 
       <div class="no-api-notice" id="noApiNoticeTutor">
-        <span>⚠️ Cần API Key để dùng AI. </span>
+        <span>⚠️ AI chưa được cấu hình trên hệ thống. </span>
         <button class="link-btn" onclick="openSettings()">Cài đặt →</button>
       </div>
 
@@ -1054,11 +1068,111 @@
     </div>
   </section>
 
-  <!-- ===== GRAMMAR ===== -->
+  <!-- ===== GRAMMAR DICTIONARY (Từ điển Ngữ pháp Hàn - Việt) ===== -->
   <section class="page" id="page-grammar">
-    <div class="page-header"><h2 class="page-title">📐 Ngữ pháp</h2></div>
-    <div class="grammar-container" id="grammarContainer">
-      <div class="empty-state"><div class="empty-icon">📐</div><p>Chưa có ngữ pháp. <button class="link-btn" onclick="setMode('home')">Thêm ngữ pháp →</button></p></div>
+    <div class="page-header">
+      <div>
+        <h2 class="page-title">📐 Từ điển Ngữ pháp Hàn – Việt</h2>
+        <p class="page-subtitle">Tra cứu toàn bộ cấu trúc ngữ pháp (Công thức, Ý nghĩa, Ví dụ), Tìm kiếm tức thì & AI Làm bài tập ôn luyện ✨</p>
+      </div>
+    </div>
+
+    <!-- Quick Search & Control Bar -->
+    <div class="dict-search-bar">
+      <div style="flex:1; display:flex; gap:8px; flex-wrap:wrap; width:100%;">
+        <input type="text" id="gdictInput" class="dict-main-input" placeholder="🔍 Gõ ngữ pháp (-아/어/여요, -은/는, -고 싶다...), hoặc tiếng Việt để tìm ngay..." autocomplete="off" oninput="handleGdictFilterChange()" />
+        <button class="btn btn-primary" onclick="gdictSearch()">🔍 Tra ngữ pháp AI</button>
+        <button class="btn btn-ai" onclick="generateGdictQuickQuiz()">🏋️ Bài tập ôn luyện</button>
+        <button class="btn btn-secondary btn-sm" onclick="setMode('home')">➕ Thêm công thức mới</button>
+      </div>
+    </div>
+
+    <!-- Filter & Sort Controls -->
+    <div class="dict-filter-bar">
+      <div class="dict-filter-group">
+        <label class="dict-filter-label">📚 Bài học:</label>
+        <select id="gdictLessonFilter" class="dict-select" onchange="handleGdictFilterChange()">
+          <option value="all">Tất cả bài học</option>
+        </select>
+      </div>
+
+      <div class="dict-filter-group">
+        <label class="dict-filter-label">🏷️ Phân loại:</label>
+        <select id="gdictTypeFilter" class="dict-select" onchange="handleGdictFilterChange()">
+          <option value="all">Tất cả phân loại</option>
+          <option value="tiểu từ">Tiểu từ (조사)</option>
+          <option value="đuôi câu">Đuôi câu (어미)</option>
+          <option value="phủ định">Phủ định (부정)</option>
+          <option value="thời gian / địa điểm">Thời gian / Địa điểm</option>
+          <option value="biểu hiện">Cấu trúc biểu hiện (표현)</option>
+        </select>
+      </div>
+
+      <div class="dict-filter-group">
+        <label class="dict-filter-label">📂 Nguồn ngữ pháp:</label>
+        <select id="gdictSourceFilter" class="dict-select" onchange="handleGdictFilterChange()">
+          <option value="all">Tất cả (Hệ thống + Cá nhân)</option>
+          <option value="saved">Ngữ pháp đã lưu (⭐)</option>
+        </select>
+      </div>
+
+      <div class="dict-filter-group">
+        <label class="dict-filter-label">🔤 Sắp xếp:</label>
+        <select id="gdictSortFilter" class="dict-select" onchange="handleGdictFilterChange()">
+          <option value="title-asc">Tên ngữ pháp (A - Z)</option>
+          <option value="lesson-asc">Theo Bài học (Bài 1 - N)</option>
+        </select>
+      </div>
+
+      <div class="dict-filter-group">
+        <label class="dict-filter-label">👁️ Hiển thị:</label>
+        <div class="dict-view-btn-group">
+          <button class="dict-view-btn active" id="gview-cols1" onclick="setGdictViewMode('cols1')" title="1 hàng 1 cấu trúc (Chi tiết)">📄 1 Cột</button>
+          <button class="dict-view-btn" id="gview-cols2" onclick="setGdictViewMode('cols2')" title="2 Cột dạng thẻ">🎴 2 Cột</button>
+          <button class="dict-view-btn" id="gview-cols3" onclick="setGdictViewMode('cols3')" title="3 Cột thu gọn">🎛️ 3 Cột</button>
+        </div>
+      </div>
+
+      <div class="dict-count-badge" id="gdictCountBadge">Hiển thị: 0 ngữ pháp</div>
+    </div>
+
+    <!-- Tabs Navigation -->
+    <div class="dict-tabs">
+      <button class="dict-tab active" id="gtab-allgrammar" onclick="switchGdictTab('allgrammar')">📐 Tất cả ngữ pháp</button>
+      <button class="dict-tab" id="gtab-result" onclick="switchGdictTab('result')">📝 Tra cứu AI / Phân tích sâu</button>
+      <button class="dict-tab" id="gtab-saved" onclick="switchGdictTab('saved')">⭐ Ngữ pháp đã lưu</button>
+      <button class="dict-tab" id="gtab-quiz" onclick="switchGdictTab('quiz')">🏋️ Bài tập ôn luyện nhanh</button>
+    </div>
+
+    <!-- TAB: Tất cả ngữ pháp -->
+    <div class="dict-tab-content" id="gdictTabAllgrammar">
+      <div class="dict-list-container" id="gdictAllgrammarList"></div>
+    </div>
+
+    <!-- TAB: Tra cứu AI / Phân tích -->
+    <div class="dict-tab-content" id="gdictTabResult" style="display:none">
+      <div class="dict-result" id="gdictResult">
+        <div class="empty-state"><div class="empty-icon">🔍</div><p>Nhập ngữ pháp vào ô tìm kiếm và nhấn <strong>Tra ngữ pháp AI</strong></p></div>
+      </div>
+    </div>
+
+    <!-- TAB: Ngữ pháp đã lưu -->
+    <div class="dict-tab-content" id="gdictTabSaved" style="display:none">
+      <div class="dict-mywords" id="gdictSavedList"></div>
+    </div>
+
+    <!-- TAB: Bài tập ôn luyện nhanh -->
+    <div class="dict-tab-content" id="gdictTabQuiz" style="display:none">
+      <div class="card" style="padding:20px; max-width:800px; margin:0 auto;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:15px; border-bottom:1px solid var(--border); padding-bottom:12px;">
+          <div>
+            <h3 style="margin:0; font-size:1.15rem; font-weight:800; color:var(--accent-light);">🏋️ Bài Tập Ôn Luyện Ngữ Pháp Tương Tác</h3>
+            <p style="margin:4px 0 0; font-size:0.85rem; color:var(--text-secondary);">Tạo bài tập làm trực tiếp (Trắc nghiệm, Điền ngữ pháp, Dịch câu) để củng cố kiến thức!</p>
+          </div>
+          <button class="btn btn-primary" onclick="generateGdictQuickQuiz()">✨ AI Tạo bộ bài tập mới</button>
+        </div>
+        <div id="gdictQuizArea"></div>
+      </div>
     </div>
   </section>
 
@@ -1079,6 +1193,53 @@
         <button class="btn btn-secondary btn-sm" onclick="startGrammarComprehensiveTest()">📝 Kiểm tra tổng hợp</button>
       </div>
     </div>
+    <!-- Master Study Suite Card (3 Giai Đoạn: Ngữ Pháp -> Luyện Chép Từ Vựng -> Đề Thi Chốt Hạ) -->
+    <div class="card master-study-card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px;">
+        <div>
+          <span class="master-badge">🚀 SIÊU QUY TRÌNH HỌC SÂU</span>
+          <h3 style="margin:6px 0 2px; font-size:1.25rem; font-weight:900; color:var(--accent-light);">Ôn Luyện Ngữ Pháp & Từ Vựng Toàn Diện (3 Giai Đoạn)</h3>
+          <p style="margin:0; font-size:0.85rem; color:var(--text-secondary);">1. Luyện ngữ pháp (Từng bài / Gộp bài / Tất cả) ➔ 2. AI lấy từ vựng sai/mới cho Luyện chép 10 lần ➔ 3. Đề Thi Tổng Hợp Chốt Hạ ✨</p>
+        </div>
+        <button class="btn btn-ai btn-sm" onclick="toggleSideTranslatePanel()">⚡ Mở Ô Dịch Nghĩa Bên Cạnh</button>
+      </div>
+
+      <!-- Step Progress Bar -->
+      <div class="master-steps-bar" id="masterStepsBar">
+        <div class="master-step-pill active" id="mstep-1"><span>1</span> 📐 Luyện Ngữ Pháp</div>
+        <div class="master-step-arrow">➔</div>
+        <div class="master-step-pill" id="mstep-2"><span>2</span> ✏️ Luyện Chép Từ Vựng (10 lần)</div>
+        <div class="master-step-arrow">➔</div>
+        <div class="master-step-pill" id="mstep-3"><span>3</span> 📝 Đề Thi Ngữ Pháp Chốt Hạ</div>
+      </div>
+
+      <!-- Scope Controls -->
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <label style="font-size:0.85rem; font-weight:700; color:var(--text-primary);">📚 Phạm vi Bài học:</label>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;" id="masterScopeBtnGroup">
+            <button class="btn btn-ghost btn-sm active" id="mscope-single" onclick="setMasterScopeMode('single')">📖 Từng Bài</button>
+            <button class="btn btn-ghost btn-sm" id="mscope-multi" onclick="setMasterScopeMode('multi')">📦 Gộp Bài Tùy Chọn</button>
+            <button class="btn btn-ghost btn-sm" id="mscope-all" onclick="setMasterScopeMode('all')">🌐 Tất Cả Bài Học</button>
+          </div>
+        </div>
+
+        <div id="masterSingleLessonWrap" style="display:flex; align-items:center; gap:8px;">
+          <label style="font-size:0.8rem; color:var(--text-muted);">Bài học chọn luyện:</label>
+          <select id="masterSingleLessonSelect" class="settings-select-sm"></select>
+        </div>
+
+        <div id="masterMultiLessonWrap" style="display:none; flex-direction:column; gap:4px;">
+          <label style="font-size:0.8rem; color:var(--gold);">Tích chọn các bài muốn gộp chung để ôn tập:</label>
+          <div class="master-checkbox-grid" id="masterCheckboxGrid"></div>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
+          <button class="btn btn-accent btn-md" onclick="startMasterStudySuite()">🚀 Bắt Đầu Siêu Ôn Luyện (3 Giai Đoạn)</button>
+        </div>
+      </div>
+    </div>
+
     <div class="gp-layout">
       <div class="gp-sidebar">
         <div class="gp-sidebar-title">📐 Cấu trúc đã lưu</div>
@@ -1718,6 +1879,27 @@
         <button class="btn btn-primary" onclick="closeRobotModal(); setMode('aitutor');">🎓 Nhờ Robot làm Gia sư AI giải đáp</button>
         <button class="btn btn-secondary" onclick="generateRobotRandomTip()">💡 Đổi lời khuyên ngẫu nhiên</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SIDE TRANSLATION PANEL (CHỈ DỊCH NGHĨA TRỰC TIẾP) ===== -->
+<div class="side-translate-panel" id="sideTranslatePanel">
+  <div class="side-trans-header">
+    <div style="display:flex; flex-direction:column;">
+      <span style="font-size:0.95rem; font-weight:800; color:var(--accent-light);">⚡ Dịch Nghĩa Nhanh</span>
+      <span style="font-size:0.75rem; color:var(--text-muted);">(Chỉ dịch nghĩa, không giải thích)</span>
+    </div>
+    <button class="side-trans-close" onclick="toggleSideTranslatePanel()">✕</button>
+  </div>
+  <div class="side-trans-body">
+    <textarea id="sideTransInput" class="side-trans-textarea" placeholder="Nhập từ/câu tiếng Hàn hoặc tiếng Việt để dịch nhanh..." rows="3" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();quickSideTranslate();}"></textarea>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+      <span style="font-size:0.75rem; color:var(--text-muted);">Nhấn <kbd>Enter</kbd> để dịch</span>
+      <button class="btn btn-primary btn-xs" onclick="quickSideTranslate()">⚡ Dịch ngay</button>
+    </div>
+    <div class="side-trans-output-box" id="sideTransOutput">
+      <span style="color:var(--text-muted); font-size:0.85rem;">Kết quả dịch nghĩa sẽ xuất hiện tại đây...</span>
     </div>
   </div>
 </div>

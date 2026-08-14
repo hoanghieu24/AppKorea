@@ -8,128 +8,64 @@ function classroomSession() {
   catch { return null; }
 }
 
-function classroomAuthHeaders() {
-  const token = classroomSession()?.token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function classroomScopedStorageKey(baseKey) {
   const userId = classroomSession()?.user?.id;
   return userId ? `${baseKey}_user_${userId}` : baseKey;
 }
 
-// Phân trang nhẹ cho các list offline của Phòng tự học: chỉ render trang đang xem.
-const LEGACY_PAGER = { pages: Object.create(null), renderers: Object.create(null) };
-function legacyPageSlice(key, items, pageSize = 12, rerender = null) {
-  if (rerender) LEGACY_PAGER.renderers[key] = rerender;
-  const total = items.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(Math.max(1, Number(LEGACY_PAGER.pages[key] || 1)), totalPages);
-  LEGACY_PAGER.pages[key] = page;
-  const start = (page - 1) * pageSize;
-  return { key, items: items.slice(start, start + pageSize), start, page, pageSize, total, totalPages };
-}
-function legacyPagerHtml(data, label = 'mục') {
-  if (!data || data.totalPages <= 1) return '';
-  return `<div class="legacy-pagination">
-    <span>${data.total} ${label} · trang ${data.page}/${data.totalPages}</span>
-    <div>
-      <button ${data.page <= 1 ? 'disabled' : ''} onclick="legacyGoPage('${data.key}',${data.page - 1})">← Trước</button>
-      <button class="active">${data.page}</button>
-      <button ${data.page >= data.totalPages ? 'disabled' : ''} onclick="legacyGoPage('${data.key}',${data.page + 1})">Tiếp →</button>
-    </div>
-  </div>`;
-}
-function legacyGoPage(key, page) {
-  LEGACY_PAGER.pages[key] = Math.max(1, Number(page) || 1);
-  const rerender = LEGACY_PAGER.renderers[key];
-  if (rerender) rerender();
-}
-window.legacyGoPage = legacyGoPage;
+const CLASSROOM_BRIDGE = (() => {
+  let seq = 0;
+  const pending = new Map();
 
-function parseAIJson(raw) {
-  const text = String(raw || '').replace(/^\uFEFF/, '').trim();
-  if (!text) throw new Error('AI trả về nội dung rỗng');
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin) return;
+    const data = event.data || {};
+    if (data.type !== 'CLASSROOM_API_RESPONSE' || !data.requestId) return;
 
-  const candidates = [text];
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) candidates.push(fenced[1].trim());
+    const req = pending.get(data.requestId);
+    if (!req) return;
 
-  const firstObject = text.indexOf('{');
-  const lastObject = text.lastIndexOf('}');
-  if (firstObject >= 0 && lastObject > firstObject) candidates.push(text.slice(firstObject, lastObject + 1));
-
-  for (const candidate of candidates) {
-    const cleaned = candidate
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/i, '')
-      .replace(/,\s*([}\]])/g, '$1')
-      .trim();
-    try { return JSON.parse(cleaned); }
-    catch { /* Thử candidate tiếp theo. */ }
-  }
-
-  // Một số model có thể trả thêm phần suy luận/text chứa dấu ngoặc trước JSON thật.
-  // Thử từng JSON object/array cân bằng thay vì lấy từ dấu { đầu tiên đến } cuối cùng.
-  const findBalanced = (open, close) => {
-    const found = [];
-    for (let start = 0; start < text.length; start++) {
-      if (text[start] !== open) continue;
-      let depth = 0;
-      let inString = false;
-      let escaped = false;
-      for (let i = start; i < text.length; i++) {
-        const ch = text[i];
-        if (inString) {
-          if (escaped) escaped = false;
-          else if (ch === '\\') escaped = true;
-          else if (ch === '"') inString = false;
-          continue;
-        }
-        if (ch === '"') { inString = true; continue; }
-        if (ch === open) depth++;
-        else if (ch === close && --depth === 0) {
-          found.push(text.slice(start, i + 1));
-          break;
-        }
-      }
-    }
-    return found;
-  };
-  for (const candidate of [...findBalanced('{', '}'), ...findBalanced('[', ']')]) {
-    try { return JSON.parse(candidate.replace(/,\s*([}\]])/g, '$1')); }
-    catch { /* Tiếp tục tìm JSON hoàn chỉnh khác. */ }
-  }
-  throw new Error('AI trả dữ liệu chưa đúng định dạng JSON');
-}
-
-function requestClassroomAI(payload) {
-  return new Promise((resolve, reject) => {
-    const requestId = 'req_' + Math.random().toString(36).slice(2) + Date.now();
-    const timeout = setTimeout(() => {
-      window.removeEventListener('message', handler);
-      reject(new Error('TIMEOUT'));
-    }, 25000);
-
-    function handler(e) {
-      if (e.data?.type === 'CLASSROOM_AI_RESPONSE' && e.data?.requestId === requestId) {
-        clearTimeout(timeout);
-        window.removeEventListener('message', handler);
-        if (e.data.ok) resolve(e.data.text);
-        else reject(new Error(e.data.message || 'Lỗi AI'));
-      }
-    }
-    window.addEventListener('message', handler);
-    const target = (window.parent && window.parent !== window) ? window.parent : window;
-    target.postMessage({ type: 'CLASSROOM_AI_REQUEST', requestId, payload }, '*');
+    pending.delete(data.requestId);
+    clearTimeout(req.timer);
+    if (data.ok) req.resolve(data.data ?? {});
+    else req.reject(new Error(data.message || 'Không thể kết nối API Classroom.'));
   });
+
+  function request(path, { method = 'GET', body, timeout = 60000 } = {}) {
+    if (window.parent === window) return Promise.reject(new Error('CLASSROOM_BRIDGE_UNAVAILABLE'));
+
+    return new Promise((resolve, reject) => {
+      const requestId = `classroom_${Date.now()}_${++seq}`;
+      const timer = setTimeout(() => {
+        pending.delete(requestId);
+        reject(new Error('Classroom API phản hồi quá lâu.'));
+      }, timeout);
+
+      pending.set(requestId, { resolve, reject, timer });
+      window.parent.postMessage({
+        type: 'CLASSROOM_API_REQUEST',
+        requestId,
+        path,
+        method,
+        body,
+      }, window.location.origin);
+    });
+  }
+
+  return { request };
+})();
+
+function classroomApi(path, options = {}) {
+  return CLASSROOM_BRIDGE.request(path, options);
+}
+
+function learningStateStorageKey() {
+  return classroomScopedStorageKey('hq_state');
 }
 
 // ============ GEMINI API ============
 const GEMINI = {
-  getKey: () => {
-    return localStorage.getItem('hq_api_key') || localStorage.getItem('hq_gemini_key') || (classroomSession()?.token ? 'CLASSROOM_BACKEND' : '');
-  },
+  getKey: () => localStorage.getItem('hq_api_key') || (classroomSession()?.token ? 'CLASSROOM_BACKEND' : ''),
   getModel: () => {
     const model = localStorage.getItem('hq_model') || 'gemini-3.5-flash';
     return model;
@@ -138,24 +74,21 @@ const GEMINI = {
 
   async call(prompt, systemPrompt = '', opts = {}) {
     const { jsonMode = false, ...generationOpts } = opts;
-    const classroom = classroomSession();
-    if (classroom?.token) {
-      try {
-        const text = await requestClassroomAI({
+
+    if (classroomSession()?.token) {
+      const data = await classroomApi('/learning/ai', {
+        method: 'POST',
+        body: {
           prompt,
           systemPrompt,
           temperature: generationOpts.temperature ?? 0.7,
           maxOutputTokens: generationOpts.maxOutputTokens ?? 1024,
           jsonMode,
-        });
-        if (text) return text;
-      } catch (err) {
-        if (!GEMINI.getKey()) {
-          if (err.message === 'TIMEOUT') throw new Error('Yêu cầu AI quá thời gian phản hồi.');
-          throw err;
-        }
-      }
+        },
+      });
+      return String(data.text || '').trim();
     }
+
     const key = GEMINI.getKey();
     if (!key) throw new Error('NO_API_KEY');
     const model = GEMINI.getModel();
@@ -181,43 +114,15 @@ const GEMINI = {
       || parts.map(part => part.text || '').join('').trim();
   },
 
-  async callJSON(prompt, systemPrompt = '', opts = {}) {
-    const jsonOpts = {
-      ...opts,
-      jsonMode: true,
-      maxOutputTokens: opts.maxOutputTokens ?? 2048,
-    };
-    let lastError;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const strictPrompt = attempt === 0
-          ? prompt
-          : `${prompt}\n\nYÊU CẦU LẠI: Chỉ trả về đúng MỘT JSON hợp lệ. Không markdown, không code fence, không lời dẫn, không dấu phẩy thừa.`;
-        const raw = await GEMINI.call(strictPrompt, systemPrompt, {
-          ...jsonOpts,
-          temperature: attempt === 0 ? (jsonOpts.temperature ?? 0.4) : Math.min(jsonOpts.temperature ?? 0.4, 0.2),
-        });
-        return parseAIJson(raw);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw new Error(lastError?.message || 'AI trả dữ liệu chưa đúng định dạng JSON');
-  },
-
   async callChat(history, systemPrompt = '') {
-    const classroom = classroomSession();
-    if (classroom?.token) {
-      try {
-        const text = await requestClassroomAI({ history, systemPrompt, temperature: 0.85, maxOutputTokens: 1200 });
-        if (text) return text;
-      } catch (err) {
-        if (!GEMINI.getKey()) {
-          if (err.message === 'TIMEOUT') throw new Error('Yêu cầu AI quá thời gian phản hồi.');
-          throw err;
-        }
-      }
+    if (classroomSession()?.token) {
+      const data = await classroomApi('/learning/ai', {
+        method: 'POST',
+        body: { history, systemPrompt, temperature: 0.85, maxOutputTokens: 1200 },
+      });
+      return String(data.text || '').trim();
     }
+
     const key = GEMINI.getKey();
     if (!key) throw new Error('NO_API_KEY');
     const model = GEMINI.getModel();
@@ -253,7 +158,10 @@ Trả lời CHÍNH XÁC theo định dạng JSON sau (không thêm bất kỳ te
   "example": "câu ví dụ tiếng Hàn đơn giản dùng từ này",
   "exampleViet": "bản dịch tiếng Việt của câu ví dụ"
 }`;
-    return GEMINI.callJSON(prompt, '', { temperature: 0.4, maxOutputTokens: 1200 });
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.4 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    return JSON.parse(match[0]);
   },
 
   async generateGrammar(title) {
@@ -369,7 +277,8 @@ const TTS = {
 
   speakOnlineHD(text, lang = 'ko-KR', onEnd = null) {
     try {
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=ko&client=tw-ob`;
+      const langCode = (lang || 'ko-KR').split('-')[0];
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${langCode}&client=tw-ob`;
       const audio = new Audio(url);
       audio.playbackRate = TTS.rate || 0.9;
       TTS.currentAudio = audio;
@@ -399,7 +308,12 @@ const TTS = {
     u.lang = lang;
     u.rate = TTS.rate || 0.9;
     u.pitch = TTS.pitch || 1.0;
-    if (TTS.selectedVoice) u.voice = TTS.selectedVoice;
+    if (lang.startsWith('vi')) {
+      const viVoices = (TTS.voices || []).filter(v => v.lang && v.lang.toLowerCase().replace('_', '-').startsWith('vi'));
+      if (viVoices.length > 0) u.voice = viVoices[0];
+    } else if (TTS.selectedVoice) {
+      u.voice = TTS.selectedVoice;
+    }
     if (onEnd) u.onend = onEnd;
 
     setTimeout(() => {
@@ -413,6 +327,19 @@ const TTS = {
     TTS.speak('안녕하세요! 음성이 맑고 자연스럽나요?');
   }
 };
+
+function speakBilingual(koreanText, vietnameseText, callback = null) {
+  if (!koreanText) return;
+  TTS.speak(koreanText, 'ko-KR', () => {
+    if (vietnameseText && vietnameseText.trim()) {
+      setTimeout(() => {
+        TTS.speak(vietnameseText, 'vi-VN', callback);
+      }, 300);
+    } else {
+      if (callback) callback();
+    }
+  });
+}
 
 // ============ AI PERSONALITIES ============
 const PERSONALITIES = {
@@ -485,7 +412,7 @@ let state = {
   review: { queue: [], index: 0, hard: 0, medium: 0, easy: 0 },
   recognition: null,
   isRecording: false,
-  grammarPractice: { selectedIndex: 0, exercises: [], answers: {}, grading: [], submitted: false, difficulty: 'easy' },
+  grammarPractice: { selectedIndex: 0, exercises: [], answers: {}, submitted: false, difficulty: 'easy' },
   exam: { type: '', questions: [], current: 0, answers: {}, startTime: 0, timerInterval: null },
   dict: { history: [], savedWords: [] },
   pdfList: [],
@@ -594,66 +521,6 @@ const DEFAULT_GRAMMAR = [
   { title: '-(으)면서', body: 'Cấu trúc thực hiện song song 2 hành động "Vừa... vừa..."', lesson: 'Bài 5' },
 ];
 
-const GRAMMAR_PRACTICE_FALLBACKS = {
-  '-입니다 / -입니까?': [
-    { vi: 'Tôi là học sinh.', kr: '저는 학생입니다.', hint: '학생 + 입니다' },
-    { vi: 'Bạn là giáo viên phải không?', kr: '선생님입니까?', hint: 'Danh từ + 입니까?' },
-  ],
-  '-은 / -는': [
-    { vi: 'Tôi là học sinh.', kr: '저는 학생이에요.', hint: '저 + 는' },
-    { vi: 'Hôm nay thời tiết đẹp.', kr: '오늘은 날씨가 좋아요.', hint: '오늘 + 은' },
-  ],
-  '-이 / -가': [
-    { vi: 'Thời tiết đẹp.', kr: '날씨가 좋아요.', hint: '날씨 + 가' },
-    { vi: 'Bạn tôi đi đến trường.', kr: '친구가 학교에 가요.', hint: '친구 + 가' },
-  ],
-  '-을 / -를': [
-    { vi: 'Tôi ăn cơm.', kr: '저는 밥을 먹어요.', hint: '밥 + 을' },
-    { vi: 'Em tôi đọc sách.', kr: '동생은 책을 읽어요.', hint: '책 + 을' },
-  ],
-  '-아/어/여요': [
-    { vi: 'Tôi đi đến trường.', kr: '저는 학교에 가요.', hint: '가다 → 가요' },
-    { vi: 'Bạn tôi uống cà phê.', kr: '친구는 커피를 마셔요.', hint: '마시다 → 마셔요' },
-  ],
-  '-에 / -에서': [
-    { vi: 'Tôi đi đến trường.', kr: '저는 학교에 가요.', hint: 'Đích đến: 에' },
-    { vi: 'Tôi học ở trường.', kr: '저는 학교에서 공부해요.', hint: 'Nơi diễn ra hành động: 에서' },
-  ],
-  '-고 싶다': [
-    { vi: 'Tôi muốn đi Hàn Quốc.', kr: '저는 한국에 가고 싶어요.', hint: '가다 → 가고 싶어요' },
-    { vi: 'Tôi muốn ăn kimchi.', kr: '저는 김치를 먹고 싶어요.', hint: '먹다 → 먹고 싶어요' },
-  ],
-  '-(으)ㄹ 거예요': [
-    { vi: 'Ngày mai tôi sẽ đi đến trường.', kr: '내일 학교에 갈 거예요.', hint: '가다 → 갈 거예요' },
-    { vi: 'Cuối tuần tôi sẽ xem phim.', kr: '주말에 영화를 볼 거예요.', hint: '보다 → 볼 거예요' },
-  ],
-  '-지 않다 / 안 -': [
-    { vi: 'Tôi không uống cà phê.', kr: '저는 커피를 마시지 않아요.', hint: '마시다 → 마시지 않아요' },
-    { vi: 'Hôm nay tôi không đi đến trường.', kr: '저는 오늘 학교에 안 가요.', hint: '안 + động từ' },
-  ],
-  '-아/어/여야 하다': [
-    { vi: 'Tôi phải làm bài tập.', kr: '저는 숙제를 해야 해요.', hint: '하다 → 해야 해요' },
-    { vi: 'Ngày mai tôi phải dậy sớm.', kr: '내일 일찍 일어나야 해요.', hint: '일어나다 → 일어나야 해요' },
-  ],
-  '-(으)ㄹ 수 있다/없다': [
-    { vi: 'Tôi có thể đọc tiếng Hàn.', kr: '저는 한국어를 읽을 수 있어요.', hint: '읽다 → 읽을 수 있어요' },
-    { vi: 'Tôi không thể ăn đồ cay.', kr: '저는 매운 음식을 먹을 수 없어요.', hint: '먹다 → 먹을 수 없어요' },
-  ],
-  '-(으)면서': [
-    { vi: 'Tôi vừa nghe nhạc vừa học tiếng Hàn.', kr: '저는 음악을 들으면서 한국어를 공부해요.', hint: '듣다 → 들으면서' },
-    { vi: 'Tôi vừa ăn cơm vừa xem TV.', kr: '저는 밥을 먹으면서 텔레비전을 봐요.', hint: '먹다 → 먹으면서' },
-  ],
-};
-
-function buildGrammarPracticeFallback(grammar) {
-  const samples = GRAMMAR_PRACTICE_FALLBACKS[grammar?.title] || [];
-  const explanation = grammar?.body || `Áp dụng cấu trúc ${grammar?.title || 'ngữ pháp đã chọn'}.`;
-  return samples.flatMap((sample) => [
-    { type: 'vn2kr', prompt: sample.vi, answer: sample.kr, hint: sample.hint, explanation },
-    { type: 'kr2vn', prompt: sample.kr, answer: sample.vi, hint: sample.hint, explanation },
-  ]);
-}
-
 const DEFAULT_WORDS = Object.entries(VOCAB_DB).map(([k, v]) => ({
   korean: k,
   roman: v.roman || k,
@@ -666,17 +533,17 @@ const DEFAULT_WORDS = Object.entries(VOCAB_DB).map(([k, v]) => ({
 }));
 
 let classroomStateSyncTimer = null;
-
-function learningStateStorageKey() {
-  return classroomScopedStorageKey('hq_state');
-}
+let lastClassroomLearningSync = null;
 
 function buildPersistedLearningState() {
   return {
-    words: state.words, grammar: state.grammar,
-    stats: state.stats, personality: state.personality,
-    dict: state.dict, lessons: state.lessons, activeLesson: state.activeLesson,
-    learn: { known: state.learn.known }, homework: { history: state.homework.history },
+    words: state.words,
+    grammar: state.grammar,
+    stats: state.stats,
+    personality: state.personality,
+    dict: state.dict,
+    lessons: state.lessons,
+    activeLesson: state.activeLesson,
     batchLearn: { size: state.batchLearn.size, mastered: state.batchLearn.mastered },
   };
 }
@@ -685,10 +552,10 @@ function syncClassroomLearningState(snapshot) {
   if (!classroomSession()?.token) return;
   clearTimeout(classroomStateSyncTimer);
   classroomStateSyncTimer = setTimeout(() => {
-    fetch('/api/learning/state', {
+    classroomApi('/learning/state', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...classroomAuthHeaders() },
-      body: JSON.stringify({ state: snapshot }),
+      body: { state: snapshot },
+      timeout: 30000,
     }).catch(() => {});
   }, 700);
 }
@@ -701,32 +568,42 @@ function saveState() {
   syncClassroomLearningState(snapshot);
 }
 
-async function hydrateClassroomLearningState() {
-  if (!classroomSession()?.token) return;
+function loadState() {
   try {
-    const res = await fetch('/api/learning/state', { headers: classroomAuthHeaders() });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.state) {
-        localStorage.setItem(learningStateStorageKey(), JSON.stringify(data.state));
-        loadState();
-        renderWordChips();
-        renderGrammarChips();
-        renderLessonSelectors();
-        document.getElementById('xpCount').textContent = state.stats.xp + ' XP';
-        document.getElementById('streakCount').textContent = state.stats.streak;
-      }
-    }
-  } catch(e) {}
-  await hydrateClassroomSystemSettings();
+    const d = JSON.parse(localStorage.getItem(learningStateStorageKey()) || '{}');
+    if (d.words && d.words.length > 0) state.words = d.words;
+    else state.words = [...DEFAULT_WORDS];
+
+    if (d.grammar && d.grammar.length > 0) state.grammar = d.grammar;
+    else state.grammar = [...DEFAULT_GRAMMAR];
+
+    if (d.stats) state.stats = { ...state.stats, ...d.stats };
+    if (d.personality) state.personality = d.personality;
+    if (d.dict) state.dict = { ...state.dict, ...d.dict };
+    if (d.lessons && d.lessons.length > 0) state.lessons = d.lessons;
+    if (d.activeLesson) state.activeLesson = d.activeLesson;
+    if (d.batchLearn) state.batchLearn = { ...state.batchLearn, ...d.batchLearn };
+
+    if (!state.words || state.words.length === 0) state.words = [...DEFAULT_WORDS];
+    if (!state.grammar || state.grammar.length === 0) state.grammar = [...DEFAULT_GRAMMAR];
+
+    if (!state.stats.wordSeenCount) state.stats.wordSeenCount = {};
+    if (!state.stats.examHistory) state.stats.examHistory = [];
+    if (!state.dict.savedWords) state.dict.savedWords = [];
+    if (!state.dict.history) state.dict.history = [];
+    if (!state.batchLearn) state.batchLearn = { size: 20, index: 0, mastered: {} };
+    if (!state.batchLearn.mastered) state.batchLearn.mastered = {};
+    if (!state.batchLearn.size) state.batchLearn.size = 20;
+  } catch(e){
+    state.words = [...DEFAULT_WORDS];
+    state.grammar = [...DEFAULT_GRAMMAR];
+  }
 }
 
 async function hydrateClassroomSystemSettings() {
   if (!classroomSession()?.token) return;
   try {
-    const res = await fetch('/api/learning/settings', { headers: classroomAuthHeaders() });
-    if (!res.ok) return;
-    const { settings } = await res.json();
+    const { settings } = await classroomApi('/learning/settings', { timeout: 30000 });
     if (!settings) return;
 
     localStorage.setItem('hq_model', settings.geminiModel || 'gemini-2.5-flash');
@@ -752,41 +629,35 @@ async function hydrateClassroomSystemSettings() {
     if (aiBadge) aiBadge.style.display = settings.aiConfigured ? 'flex' : 'none';
   } catch(e) {}
 }
-function loadState() {
+
+async function hydrateClassroomLearningState() {
+  if (!classroomSession()?.token) return;
   try {
-    const d = JSON.parse(localStorage.getItem(learningStateStorageKey()) || '{}');
-    if (d.words && d.words.length > 0) state.words = d.words;
-    else state.words = [...DEFAULT_WORDS];
+    const data = await classroomApi('/learning/state', { timeout: 30000 });
+    if (data.state) {
+      localStorage.setItem(learningStateStorageKey(), JSON.stringify(data.state));
+      loadState();
+      renderWordChips();
+      renderGrammarChips();
+      renderLessonSelectors();
+      const xp = document.getElementById('xpCount');
+      const streak = document.getElementById('streakCount');
+      if (xp) xp.textContent = state.stats.xp + ' XP';
+      if (streak) streak.textContent = state.stats.streak;
+    }
+  } catch(e) {}
 
-    if (d.grammar && d.grammar.length > 0) state.grammar = d.grammar;
-    else state.grammar = [...DEFAULT_GRAMMAR];
+  await hydrateClassroomSystemSettings();
 
-    if (d.stats) state.stats = { ...state.stats, ...d.stats };
-    if (d.personality) state.personality = d.personality;
-    if (d.dict) state.dict = { ...state.dict, ...d.dict };
-    if (d.lessons && d.lessons.length > 0) state.lessons = d.lessons;
-    if (d.activeLesson) state.activeLesson = d.activeLesson;
-    if (d.learn) state.learn = { ...state.learn, ...d.learn };
-    if (d.homework) state.homework = { ...state.homework, ...d.homework };
-    if (d.batchLearn) state.batchLearn = { ...state.batchLearn, ...d.batchLearn };
+  // Nếu parent đã gửi dữ liệu lớp trong lúc state server đang hydrate, áp lại lần cuối
+  // để state cũ không ghi đè từ vựng/ngữ pháp giáo viên vừa giao.
+  if (lastClassroomLearningSync) applyClassroomLearningSync(lastClassroomLearningSync, { quiet: true });
 
-    // Ensure state words and grammar are never empty
-    if (!state.words || state.words.length === 0) state.words = [...DEFAULT_WORDS];
-    if (!state.grammar || state.grammar.length === 0) state.grammar = [...DEFAULT_GRAMMAR];
-
-    // Ensure new sub-fields always exist
-    if (!state.stats.wordSeenCount) state.stats.wordSeenCount = {};
-    if (!state.stats.examHistory) state.stats.examHistory = [];
-    if (!state.dict.savedWords) state.dict.savedWords = [];
-    if (!state.dict.history) state.dict.history = [];
-    if (!state.batchLearn) state.batchLearn = { size: 20, index: 0, mastered: {} };
-    if (!state.batchLearn.mastered) state.batchLearn.mastered = {};
-    if (!state.batchLearn.size) state.batchLearn.size = 20;
-  } catch(e){
-    state.words = [...DEFAULT_WORDS];
-    state.grammar = [...DEFAULT_GRAMMAR];
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ type: 'CLASSROOM_LEARNING_READY' }, window.location.origin);
   }
 }
+
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length-1; i>0; i--) {
@@ -873,8 +744,8 @@ function renderLessonSelectors() {
   // 3. Lesson Modal List
   const manageList = document.getElementById('lessonManageList');
   if (manageList) {
-    const paged = legacyPageSlice('lessonManager', lessons, 8, renderLessonSelectors);
-    manageList.innerHTML = paged.items.map(l => {
+    const lessonMeta = paginateList('lessonManage', lessons, renderLessonSelectors, 10);
+    manageList.innerHTML = lessonMeta.pageItems.map(l => {
       const wordCount = state.words.filter(w => (w.lesson || 'Bài 1') === l).length;
       const grammarCount = state.grammar.filter(g => (g.lesson || 'Bài 1') === l).length;
       return `
@@ -886,7 +757,8 @@ function renderLessonSelectors() {
           <button class="btn btn-ghost btn-xs" onclick="deleteLesson('${escStr(l)}')" title="Xóa bài học này">🗑 Xóa</button>
         </div>
       `;
-    }).join('') + legacyPagerHtml(paged, 'bài');
+    }).join('');
+    mountListPagination(manageList, 'lessonManage', lessonMeta, 'bài học');
   }
 }
 
@@ -948,25 +820,18 @@ function generateWordData(korean) {
 
 // ============ API KEY MANAGEMENT ============
 function saveApiKey() {
-  const inputEl = document.getElementById('apiKeyInput');
-  const key = inputEl ? inputEl.value.trim() : '';
-  if (key) {
-    localStorage.setItem('hq_api_key', key);
-    localStorage.setItem('hq_gemini_key', key);
+  if (classroomSession()?.token) {
+    showToast('🔒 API AI do Admin quản lý trên Classroom.', 'info');
+    return;
   }
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) { showApiStatus('Vui lòng nhập API key!', 'err'); return; }
+  localStorage.setItem('hq_api_key', key);
   showApiStatus('⏳ Đang kiểm tra và lưu key...', 'loading');
   testApiKey(key);
 }
 async function testApiKey(key) {
   try {
-    if (!key && classroomSession()?.token) {
-      showApiStatus('✅ Gemini backend đang kết nối với Classroom.', 'ok');
-      updateApiIndicator(true);
-      const badge = document.getElementById('aiPowerBadge');
-      if (badge) badge.style.display = 'flex';
-      showToast('🤖 AI backend Classroom đã sẵn sàng!', 'success');
-      return;
-    }
     const model = GEMINI.getModel();
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
@@ -976,31 +841,29 @@ async function testApiKey(key) {
     if (res.ok) {
       showApiStatus('✅ Đã lưu! AI đã hoạt động.', 'ok');
       updateApiIndicator(true);
-      const badge = document.getElementById('aiPowerBadge');
-      if (badge) badge.style.display = 'flex';
+      document.getElementById('aiPowerBadge').style.display = 'flex';
       showToast('🤖 Gemini AI đã kết nối!', 'success');
     } else {
       const err = await res.json().catch(() => ({}));
       const msg = err?.error?.message || 'Lỗi không xác định';
-      showApiStatus(`⚠️ Đã lưu nhưng kiểm tra lỗi: ${msg}.`, 'err');
-      updateApiIndicator(true);
+      showApiStatus(`⚠️ Đã lưu nhưng kiểm tra lỗi: ${msg}. Bạn vẫn có thể thử chat xem sao.`, 'err');
+      updateApiIndicator(true); // Vẫn cho phép hiện xanh/hoạt động
+      document.getElementById('aiPowerBadge').style.display = 'flex';
     }
   } catch(e) {
-    showApiStatus(`⚠️ Lỗi kết nối: ${e.message}`, 'err');
+    showApiStatus(`⚠️ Đã lưu nhưng lỗi kết nối: ${e.message}`, 'err');
     updateApiIndicator(true);
+    document.getElementById('aiPowerBadge').style.display = 'flex';
   }
 }
 function showApiStatus(msg, cls) {
   const el = document.getElementById('apiStatus');
-  if (el) {
-    el.textContent = msg;
-    el.className = 'api-status ' + cls;
-  }
+  el.textContent = msg;
+  el.className = 'api-status ' + cls;
 }
 function updateApiIndicator(ok) {
   const dot = document.getElementById('apiDot');
   const label = document.getElementById('apiLabel');
-  if (!dot || !label) return;
   if (ok) {
     dot.classList.add('active');
     dot.classList.remove('error');
@@ -1017,27 +880,28 @@ function updateApiIndicator(ok) {
 // ============ SETTINGS MODAL ============
 function openSettings() {
   const modal = document.getElementById('settingsOverlay');
-  if (modal) modal.classList.add('open');
-  const key = localStorage.getItem('hq_api_key') || localStorage.getItem('hq_gemini_key') || '';
-  const inputEl = document.getElementById('apiKeyInput');
-  if (inputEl) {
-    inputEl.value = key;
-    if (key) showApiStatus('Key riêng đã được lưu.', 'ok');
-    else if (classroomSession()?.token) showApiStatus('Đang dùng AI cấu hình mặc định từ Classroom.', 'ok');
-  }
+  modal.classList.add('open');
 
-  // Populate model
-  const modelSel = document.getElementById('modelSelect');
-  const savedModel = GEMINI.getModel();
-  modelSel.value = savedModel;
-  modelSel.addEventListener('change', () => {
-    localStorage.setItem('hq_model', modelSel.value);
-    const currentKey = GEMINI.getKey();
-    if (currentKey) {
-      showApiStatus(`⏳ Đang chuyển mô hình và kiểm tra...`, 'loading');
-      testApiKey(currentKey);
+  // Trong Classroom, API key/model do Admin quản lý ở backend.
+  // Bản standalone vẫn giữ cơ chế nhập key như cũ.
+  if (!classroomSession()?.token) {
+    const key = GEMINI.getKey();
+    if (key) {
+      document.getElementById('apiKeyInput').value = key;
+      showApiStatus('Key đã được lưu. Kiểm tra lại nếu cần.', 'ok');
     }
-  });
+    const modelSel = document.getElementById('modelSelect');
+    const savedModel = GEMINI.getModel();
+    modelSel.value = savedModel;
+    modelSel.onchange = () => {
+      localStorage.setItem('hq_model', modelSel.value);
+      const currentKey = GEMINI.getKey();
+      if (currentKey) {
+        showApiStatus(`⏳ Đang chuyển mô hình và kiểm tra...`, 'loading');
+        testApiKey(currentKey);
+      }
+    };
+  }
   // Rate/Pitch sliders
   const rateSlider = document.getElementById('speechRate');
   const pitchSlider = document.getElementById('speechPitch');
@@ -1107,7 +971,7 @@ function setMode(mode) {
     case 'aitutor': initAITutor(); break;
     case 'review': startReview(); break;
     case 'dialogue': generateDialogue(); break;
-    case 'grammar': renderGrammar(); break;
+    case 'grammar': initGrammarDictionary(); break;
     case 'grammarPractice': initGrammarPractice(); break;
     case 'stats': renderStats(); break;
     case 'exam': initExam(); break;
@@ -1212,23 +1076,189 @@ async function regenerateAIWords() {
   else showToast(`⚠️ Đã tạo lại ${done} từ, còn ${failed} từ bị lỗi (thử lại sau).`,'error');
 }
 
+const WORD_PAGE_SIZE_KEY = 'hq_word_page_size';
+const WORD_PAGE_SIZES = [15, 30, 60, 120];
+const savedWordPageSize = parseInt(localStorage.getItem(WORD_PAGE_SIZE_KEY), 10);
+let wordPagination = {
+  page: 1,
+  pageSize: WORD_PAGE_SIZES.includes(savedWordPageSize) ? savedWordPageSize : 30
+};
+
+
+// ============ SHARED LIST PAGINATION ============
+const LIST_PAGE_SIZES = [10, 20, 30, 60];
+const listPaginationState = {};
+const listPaginationRenderers = {};
+
+function getListPaginationState(key, defaultSize = 20) {
+  if (!listPaginationState[key]) {
+    const saved = parseInt(localStorage.getItem(`hq_list_page_size_${key}`), 10);
+    listPaginationState[key] = {
+      page: 1,
+      pageSize: LIST_PAGE_SIZES.includes(saved) ? saved : defaultSize
+    };
+  }
+  return listPaginationState[key];
+}
+
+function paginateList(key, items, renderer, defaultSize = 20) {
+  listPaginationRenderers[key] = renderer;
+  const pg = getListPaginationState(key, defaultSize);
+  const totalItems = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pg.pageSize));
+  pg.page = Math.min(Math.max(1, pg.page), totalPages);
+  const start = (pg.page - 1) * pg.pageSize;
+  const end = Math.min(start + pg.pageSize, totalItems);
+  return { pageItems: items.slice(start, end), totalItems, totalPages, start, end, pg };
+}
+
+function mountListPagination(container, key, meta, label = 'mục') {
+  if (!container || !container.parentElement) return;
+  const pagerId = `listPagination_${key}`;
+  let pager = document.getElementById(pagerId);
+  if (!pager) {
+    pager = document.createElement('nav');
+    pager.id = pagerId;
+    pager.className = 'pagination list-pagination';
+    pager.setAttribute('aria-label', `Phân trang ${label}`);
+    container.insertAdjacentElement('afterend', pager);
+  }
+  const { totalItems, totalPages, start, end, pg } = meta;
+  if (totalItems === 0 || totalPages <= 1) {
+    pager.innerHTML = '';
+    pager.style.display = 'none';
+    return;
+  }
+  const pageItems = getPaginationItems(pg.page, totalPages);
+  pager.style.display = 'flex';
+  pager.innerHTML = `
+    <span class="pagination-range">${start + 1}–${end} / ${totalItems} ${label}</span>
+    <select class="pagination-size-select" onchange="changeListPageSize('${key}', this.value)" title="Số mục mỗi trang">
+      ${LIST_PAGE_SIZES.map(size => `<option value="${size}" ${size === pg.pageSize ? 'selected' : ''}>${size}/trang</option>`).join('')}
+    </select>
+    <button class="pagination-btn pagination-nav" onclick="changeListPage('${key}', ${pg.page - 1})" ${pg.page === 1 ? 'disabled' : ''}>‹ <span>Trước</span></button>
+    <div class="pagination-pages">
+      ${pageItems.map(item => typeof item === 'number'
+        ? `<button class="pagination-btn ${item === pg.page ? 'active' : ''}" onclick="changeListPage('${key}', ${item})">${item}</button>`
+        : `<span class="pagination-ellipsis">…</span>`).join('')}
+    </div>
+    <button class="pagination-btn pagination-nav" onclick="changeListPage('${key}', ${pg.page + 1})" ${pg.page === totalPages ? 'disabled' : ''}><span>Sau</span> ›</button>
+    <span class="pagination-summary">Trang ${pg.page}/${totalPages}</span>`;
+}
+
+function changeListPage(key, page) {
+  const pg = getListPaginationState(key);
+  pg.page = Math.max(1, Number(page) || 1);
+  const render = listPaginationRenderers[key];
+  if (render) render();
+  const pager = document.getElementById(`listPagination_${key}`);
+  const target = pager?.previousElementSibling;
+  target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function changeListPageSize(key, value) {
+  const size = parseInt(value, 10);
+  if (!LIST_PAGE_SIZES.includes(size)) return;
+  const pg = getListPaginationState(key);
+  pg.pageSize = size;
+  pg.page = 1;
+  localStorage.setItem(`hq_list_page_size_${key}`, String(size));
+  const render = listPaginationRenderers[key];
+  if (render) render();
+}
+
+function resetListPagination(key) {
+  getListPaginationState(key).page = 1;
+}
+
+function changeWordPage(page) {
+  const nextPage = Number(page);
+  if (!Number.isFinite(nextPage) || nextPage < 1) return;
+  wordPagination.page = Math.floor(nextPage);
+  renderWordChips();
+  document.getElementById('wordListCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function changeWordPageSize(value) {
+  const size = parseInt(value, 10);
+  if (!WORD_PAGE_SIZES.includes(size)) return;
+  wordPagination.pageSize = size;
+  wordPagination.page = 1;
+  localStorage.setItem(WORD_PAGE_SIZE_KEY, String(size));
+  renderWordChips();
+}
+
+function renderWordPagination(totalItems) {
+  const pager = document.getElementById('wordPagination');
+  if (!pager) return;
+
+  const totalPages = Math.max(1, Math.ceil(totalItems / wordPagination.pageSize));
+  wordPagination.page = Math.min(Math.max(1, wordPagination.page), totalPages);
+
+  if (totalItems === 0 || totalPages <= 1) {
+    pager.innerHTML = '';
+    pager.style.display = 'none';
+    return;
+  }
+
+  const pageItems = getPaginationItems(wordPagination.page, totalPages);
+  pager.style.display = 'flex';
+  pager.innerHTML = `
+    <button class="pagination-btn pagination-nav" onclick="changeWordPage(${wordPagination.page - 1})" ${wordPagination.page === 1 ? 'disabled' : ''} aria-label="Trang trước">‹ <span>Trước</span></button>
+    <div class="pagination-pages">
+      ${pageItems.map(item => typeof item === 'number'
+        ? `<button class="pagination-btn ${item === wordPagination.page ? 'active' : ''}" onclick="changeWordPage(${item})" ${item === wordPagination.page ? 'aria-current="page"' : ''}>${item}</button>`
+        : `<span class="pagination-ellipsis" aria-hidden="true">…</span>`
+      ).join('')}
+    </div>
+    <button class="pagination-btn pagination-nav" onclick="changeWordPage(${wordPagination.page + 1})" ${wordPagination.page === totalPages ? 'disabled' : ''} aria-label="Trang sau"><span>Sau</span> ›</button>
+    <span class="pagination-summary">Trang ${wordPagination.page}/${totalPages}</span>
+  `;
+}
+
 function renderWordChips() {
   const chips = document.getElementById('wordChips');
   const card = document.getElementById('wordListCard');
   const count = document.getElementById('wordCount');
+  const range = document.getElementById('wordPageRange');
+  const pageSizeSelect = document.getElementById('wordPageSize');
+  if (!chips || !card || !count) return;
+
   chips.innerHTML = '';
-  count.textContent = state.words.length;
-  if (state.words.length===0) { card.style.display='none'; return; }
+  const totalItems = state.words.length;
+  count.textContent = totalItems;
+
+  if (totalItems === 0) {
+    card.style.display = 'none';
+    if (range) range.textContent = 'Đang xem 0 từ';
+    renderWordPagination(0);
+    return;
+  }
+
   card.style.display = 'block';
-  const paged = legacyPageSlice('homeWords', state.words, 20, renderWordChips);
-  paged.items.forEach((w,i) => {
+  const totalPages = Math.max(1, Math.ceil(totalItems / wordPagination.pageSize));
+  wordPagination.page = Math.min(Math.max(1, wordPagination.page), totalPages);
+
+  const startIndex = (wordPagination.page - 1) * wordPagination.pageSize;
+  const endIndex = Math.min(startIndex + wordPagination.pageSize, totalItems);
+  const pageWords = state.words.slice(startIndex, endIndex);
+
+  if (pageSizeSelect && Number(pageSizeSelect.value) !== wordPagination.pageSize) {
+    pageSizeSelect.value = String(wordPagination.pageSize);
+  }
+  if (range) range.textContent = `Đang xem ${startIndex + 1}–${endIndex} / ${totalItems} từ`;
+
+  pageWords.forEach((w, pageIndex) => {
+    const originalIndex = startIndex + pageIndex;
     const chip = document.createElement('div');
     const isPending = needsAIRegen(w);
     chip.className = `word-chip ${isPending ? 'word-chip-pending' : ''}`;
-    chip.innerHTML = `${w.korean} ${isPending ? '⚠️' : ''} <button class="word-chip-del" onclick="removeWord(${paged.start + i})">×</button>`;
+    chip.innerHTML = `${w.korean} ${isPending ? '⚠️' : ''} <button class="word-chip-del" onclick="removeWord(${originalIndex})">×</button>`;
     chips.appendChild(chip);
   });
-  chips.insertAdjacentHTML('beforeend', legacyPagerHtml(paged, 'từ'));
+
+  renderWordPagination(totalItems);
+
   const regenBtn = document.getElementById('regenAiBtn');
   if (regenBtn) {
     const pending = state.words.filter(needsAIRegen).length;
@@ -1241,19 +1271,23 @@ function renderGrammarChips() {
   const chips = document.getElementById('grammarChips');
   const card = document.getElementById('grammarListCard');
   const count = document.getElementById('grammarCount');
-  chips.innerHTML = '';
+  if (!chips || !card || !count) return;
   count.textContent = state.grammar.length;
-  if (state.grammar.length===0) { card.style.display='none'; return; }
+  if (state.grammar.length === 0) {
+    chips.innerHTML = '';
+    card.style.display = 'none';
+    mountListPagination(chips, 'grammarChips', { totalItems:0, totalPages:1, start:0, end:0, pg:getListPaginationState('grammarChips') }, 'ngữ pháp');
+    return;
+  }
   card.style.display = 'block';
-  const paged = legacyPageSlice('homeGrammar', state.grammar, 16, renderGrammarChips);
-  paged.items.forEach((g,i) => {
-    const c = document.createElement('div');
-    c.className = 'grammar-chip';
-    c.innerHTML = `📐 ${g.title} <button class="word-chip-del" onclick="removeGrammar(${paged.start + i})">×</button>`;
-    chips.appendChild(c);
-  });
-  chips.insertAdjacentHTML('beforeend', legacyPagerHtml(paged, 'ngữ pháp'));
+  const entries = state.grammar.map((g, i) => ({ g, i }));
+  const meta = paginateList('grammarChips', entries, renderGrammarChips, 20);
+  chips.innerHTML = meta.pageItems.map(({g, i}) => `
+    <div class="grammar-chip">📐 ${g.title} <button class="word-chip-del" onclick="removeGrammar(${i})">×</button></div>
+  `).join('');
+  mountListPagination(chips, 'grammarChips', meta, 'ngữ pháp');
 }
+
 function removeGrammar(i) { state.grammar.splice(i,1); renderGrammarChips(); renderGrammar(); saveState(); }
 function loadSample(type) {
   document.getElementById('wordInput').value = (SAMPLES[type]||[]).join('\n');
@@ -1338,6 +1372,7 @@ function markKnown(known) {
 let batchViewIndex = null; // bộ đang xem (null = tự theo bộ hiện tại đang mở khóa gần nhất)
 let batchTest = null;      // phiên kiểm tra đang chạy (null = đang ở chế độ học/xem thẻ)
 let batchSentencePractice = null; // phiên luyện đặt/dịch câu theo bộ
+let batch10xPractice = null; // phiên luyện chép 10 lần theo bộ
 
 function getBatches(words, size) {
   const out = [];
@@ -1358,18 +1393,18 @@ function getCurrentBatchIndex(batches) {
 function setBatchSize(size) {
   state.batchLearn.size = size;
   state.batchLearn.index = 0;
-  batchViewIndex = null; batchTest = null; batchSentencePractice = null;
+  batchViewIndex = null; batchTest = null; batchSentencePractice = null; batch10xPractice = null;
   saveState();
   renderBatchPage();
   showToast(`📦 Mỗi bộ giờ có ${size} từ`, 'info', 1800);
 }
 function initBatchLearn() {
-  batchTest = null; batchSentencePractice = null;
+  batchTest = null; batchSentencePractice = null; batch10xPractice = null;
   renderBatchPage();
 }
 function viewBatch(i) {
   batchViewIndex = i;
-  batchTest = null; batchSentencePractice = null;
+  batchTest = null; batchSentencePractice = null; batch10xPractice = null;
   state.batchLearn.index = 0;
   renderBatchPage();
 }
@@ -1388,7 +1423,10 @@ function renderBatchPage() {
   const sizeSel = document.getElementById('batchSizeSelect');
   if (sizeSel) sizeSel.value = String(size);
 
-  document.getElementById('batchOverview').innerHTML = batches.map((b,i) => {
+  const batchOverviewEl = document.getElementById('batchOverview');
+  const batchEntries = batches.map((b, i) => ({ b, i }));
+  const batchMeta = paginateList('batchOverview', batchEntries, renderBatchPage, 20);
+  batchOverviewEl.innerHTML = batchMeta.pageItems.map(({b,i}) => {
     const done = isBatchComplete(b);
     const locked = i > curIdx;
     const active = i === viewIdx;
@@ -1400,6 +1438,7 @@ function renderBatchPage() {
       <span class="batch-chip-count">${getBatchMasteredCount(b)}/${b.length}</span>
     </button>`;
   }).join('');
+  mountListPagination(batchOverviewEl, 'batchOverview', batchMeta, 'bộ');
 
   renderBatchBody(batches, viewIdx, curIdx);
 }
@@ -1414,6 +1453,11 @@ function renderBatchBody(batches, viewIdx, curIdx) {
       <p>Hoàn thành Bộ ${curIdx+1} với 100% chính xác để mở khóa Bộ ${viewIdx+1} nhé!</p>
       <button class="btn btn-primary" onclick="viewBatch(${curIdx})">📖 Về Bộ ${curIdx+1}</button>
     </div>`;
+    return;
+  }
+
+  if (batch10xPractice && batch10xPractice.batchIndex === viewIdx) {
+    renderBatch10xPracticeUI();
     return;
   }
 
@@ -1464,12 +1508,265 @@ function renderBatchBody(batches, viewIdx, curIdx) {
       <button class="btn btn-ghost btn-sm" onclick="batchStudyNav(1)">Tiếp →</button>
     </div>
     <div class="batch-actions" style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+      <button class="btn btn-accent btn-lg" onclick="startBatch10xPractice(${viewIdx})">✏️ Luyện chép 10 lần & Kiểm tra Bộ ${viewIdx+1}</button>
       <button class="btn btn-primary btn-lg" onclick="startBatchTest(${viewIdx})">🎯 Trắc nghiệm Bộ ${viewIdx+1}</button>
       <button class="btn btn-ai btn-lg" onclick="startBatchSentencePractice(${viewIdx})">✍️ Luyện viết câu Bộ ${viewIdx+1}</button>
       ${done && !isLast ? `<button class="btn btn-accent btn-lg" onclick="viewBatch(${viewIdx+1})">➡️ Sang Bộ ${viewIdx+2}</button>` : ''}
     </div>
     ${done && isLast ? `<div class="batch-all-done">🏆 Bạn đã hoàn thành tất cả các bộ từ hiện có! Thêm từ mới ở Trang chủ để tiếp tục lộ trình nhé.</div>` : ''}
   `;
+}
+
+// ============ BATCH 10X PRACTICE (LUYỆN CHÉP 10 LẦN THEO BỘ) ============
+function startBatch10xPractice(batchIdx, targetCount = 10) {
+  const words = getActiveWords();
+  const batches = getBatches(words, state.batchLearn.size || 20);
+  const batch = batches[batchIdx];
+  if (!batch || !batch.length) return;
+
+  batchViewIndex = batchIdx;
+  batchTest = null;
+  batchSentencePractice = null;
+
+  batch10xPractice = {
+    batchIndex: batchIdx,
+    batchWords: batch,
+    wordIndex: 0,
+    targetCount: targetCount,
+    currentCount: 0,
+    completedWords: new Set(),
+    autoStartTest: true,
+  };
+
+  renderBatchPage();
+}
+
+function set10xTargetCount(count) {
+  if (!batch10xPractice) return;
+  batch10xPractice.targetCount = parseInt(count) || 10;
+  if (batch10xPractice.currentCount > batch10xPractice.targetCount) {
+    batch10xPractice.currentCount = batch10xPractice.targetCount;
+  }
+  renderBatchPage();
+}
+
+function renderBatch10xPracticeUI() {
+  const sp = batch10xPractice;
+  const body = document.getElementById('batchBody');
+  if (!sp || !sp.batchWords || !sp.batchWords.length) {
+    body.innerHTML = '';
+    return;
+  }
+
+  const w = sp.batchWords[sp.wordIndex];
+  if (!w) {
+    finishBatch10xPractice();
+    return;
+  }
+
+  const totalWords = sp.batchWords.length;
+  const wordNum = sp.wordIndex + 1;
+  const currentCount = sp.currentCount;
+  const targetCount = sp.targetCount || 10;
+
+  let pillsHtml = '';
+  for (let i = 1; i <= targetCount; i++) {
+    const isDone = i <= currentCount;
+    const isActive = i === currentCount + 1;
+    pillsHtml += `<span class="rep-pill ${isDone ? 'done' : ''} ${isActive ? 'active' : ''}">${isDone ? '✓' : i}</span>`;
+  }
+
+  const safeKorean = escStr(w.korean);
+  const safeMeaning = escStr(w.meaning || '');
+  const safeExample = escStr(w.example || w.korean);
+
+  body.innerHTML = `
+    <div class="batch-status-row">
+      <span>✏️ Luyện chép 10 lần · Bộ ${sp.batchIndex + 1}</span>
+      <span>Từ ${wordNum}/${totalWords}: <strong>${w.korean}</strong></span>
+    </div>
+    <div class="progress-bar-wrapper">
+      <div class="progress-bar-fill" style="width:${(sp.wordIndex / totalWords) * 100}%"></div>
+    </div>
+
+    <div class="batch-10x-card">
+      <div class="batch-10x-header">
+        <div class="batch-10x-settings">
+          <label for="targetCountSelect">🎯 Mục tiêu luyện chép:</label>
+          <select id="targetCountSelect" class="settings-select-sm" onchange="set10xTargetCount(this.value)">
+            <option value="5" ${targetCount === 5 ? 'selected' : ''}>5 lần / từ</option>
+            <option value="10" ${targetCount === 10 ? 'selected' : ''}>10 lần / từ (Khuyên dùng)</option>
+            <option value="15" ${targetCount === 15 ? 'selected' : ''}>15 lần / từ</option>
+            <option value="20" ${targetCount === 20 ? 'selected' : ''}>20 lần / từ</option>
+          </select>
+          <label class="toggle-label" style="display:inline-flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer;margin-left:10px">
+            <input type="checkbox" id="bilingualTtsToggle" ${state.bilingualTts !== false ? 'checked' : ''} onchange="state.bilingualTts = this.checked; saveState();" /> 🔊 Đọc Hàn + Việt
+          </label>
+        </div>
+        <div class="batch-10x-counter-badge">
+          Lần <span class="counter-num">${currentCount}</span> / ${targetCount}
+        </div>
+      </div>
+
+      <div class="batch-10x-word-box">
+        <div class="batch-10x-pos-row">
+          <span class="word-pos">${w.pos || '명사'}</span>
+          <button class="audio-btn" onclick="speakBilingual('${safeKorean}', '${safeMeaning}')" title="Nghe đọc tiếng Hàn & tiếng Việt">🔊 Nghe Hàn + Việt</button>
+        </div>
+        <div class="korean-word font-kr" style="font-size:2.4rem;color:var(--accent-light);margin:6px 0">${w.korean}</div>
+        <div class="romanization" style="font-size:1.05rem;color:var(--text-secondary)">[ ${w.roman || w.korean} ]</div>
+        <div class="meaning" style="font-size:1.15rem;font-weight:700;color:var(--text-primary);margin-top:6px">🇻🇳 ${w.meaning || ''}</div>
+
+        ${w.example ? `
+          <div class="example-block" style="margin-top:12px;text-align:left">
+            <div class="example-label">Ví dụ <button class="mini-audio-btn" onclick="TTS.speak('${safeExample}')">🔊</button></div>
+            <div class="example-korean font-kr">${w.example}</div>
+            ${w.exampleViet ? `<div class="example-viet">${w.exampleViet}</div>` : ''}
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="rep-pills-wrap">
+        <div class="rep-pills-label">Số lần đã gõ đúng từ <strong>"${w.korean}"</strong>:</div>
+        <div class="rep-pills-row" id="repPillsRow">${pillsHtml}</div>
+      </div>
+
+      <div class="batch-10x-input-wrap">
+        <input type="text" id="batch10xInput" class="batch-10x-input font-kr"
+          placeholder="Gõ lại từ tiếng Hàn: ${w.korean}"
+          autocomplete="off"
+          autofocus
+          onkeydown="if(event.key==='Enter') handleBatch10xSubmit()" />
+        <button class="btn btn-primary btn-md" onclick="handleBatch10xSubmit()">✅ Xác nhận (Enter)</button>
+      </div>
+      <div class="batch-10x-input-tip">💡 Bật bàn phím tiếng Hàn (Win + Space) để gõ chính xác</div>
+      <div id="batch10xFeedback" class="batch-10x-feedback" style="display:none"></div>
+    </div>
+
+    <div class="batch-10x-actions">
+      <button class="btn btn-ghost btn-sm" onclick="navBatch10xWord(-1)" ${sp.wordIndex === 0 ? 'disabled' : ''}>← Từ trước</button>
+      <span class="card-counter">${wordNum} / ${totalWords}</span>
+      <button class="btn btn-ghost btn-sm" onclick="navBatch10xWord(1)" ${sp.wordIndex === totalWords - 1 ? 'disabled' : ''}>Từ tiếp →</button>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="startBatchTest(${sp.batchIndex})">🎯 Qua thẳng Kiểm tra Bộ ${sp.batchIndex + 1}</button>
+      <button class="btn btn-ghost" onclick="stopBatchTest()">🔙 Thoát luyện chép</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    const inputEl = document.getElementById('batch10xInput');
+    if (inputEl) inputEl.focus();
+  }, 50);
+}
+
+function handleBatch10xSubmit() {
+  const sp = batch10xPractice;
+  if (!sp) return;
+  const inputEl = document.getElementById('batch10xInput');
+  const fbEl = document.getElementById('batch10xFeedback');
+  if (!inputEl) return;
+
+  const w = sp.batchWords[sp.wordIndex];
+  if (!w) return;
+
+  const typedVal = inputEl.value.trim();
+  const targetVal = w.korean.trim();
+
+  if (!typedVal) {
+    if (fbEl) {
+      fbEl.style.display = 'block';
+      fbEl.className = 'batch-10x-feedback fb-warn';
+      fbEl.innerHTML = '⚠️ Vui lòng nhập từ tiếng Hàn vào ô trên!';
+    }
+    return;
+  }
+
+  if (typedVal === targetVal) {
+    sp.currentCount++;
+    addXP(1);
+    if (state.bilingualTts !== false) {
+      speakBilingual(w.korean, w.meaning);
+    } else {
+      TTS.speak(w.korean, 'ko-KR');
+    }
+
+    inputEl.value = '';
+
+    if (fbEl) {
+      fbEl.style.display = 'block';
+      fbEl.className = 'batch-10x-feedback fb-success';
+      fbEl.innerHTML = `🎉 Chính xác! (+1 XP) — Đã thuộc <strong>${sp.currentCount}/${sp.targetCount}</strong> lần`;
+    }
+
+    if (sp.currentCount >= sp.targetCount) {
+      sp.completedWords.add(w.korean);
+      if (sp.wordIndex < sp.batchWords.length - 1) {
+        showToast(`🎉 Tuyệt vời! Đã hoàn thành ${sp.targetCount} lần từ "${w.korean}". Sang từ tiếp theo!`, 'success', 2000);
+        sp.wordIndex++;
+        sp.currentCount = 0;
+      } else {
+        finishBatch10xPractice();
+        return;
+      }
+    }
+
+    renderBatchPage();
+  } else {
+    inputEl.classList.add('shake-error');
+    setTimeout(() => inputEl.classList.remove('shake-error'), 500);
+    inputEl.select();
+
+    if (fbEl) {
+      fbEl.style.display = 'block';
+      fbEl.className = 'batch-10x-feedback fb-error';
+      fbEl.innerHTML = `❌ Chưa đúng! Bạn nhập "<strong>${typedVal}</strong>", đáp án đúng là "<strong>${targetVal}</strong>". Thử lại nhé!`;
+    }
+  }
+}
+
+function navBatch10xWord(delta) {
+  const sp = batch10xPractice;
+  if (!sp) return;
+  const newIdx = sp.wordIndex + delta;
+  if (newIdx >= 0 && newIdx < sp.batchWords.length) {
+    sp.wordIndex = newIdx;
+    sp.currentCount = 0;
+    renderBatchPage();
+  }
+}
+
+function finishBatch10xPractice() {
+  const sp = batch10xPractice;
+  if (!sp) return;
+  const bIdx = sp.batchIndex;
+  const tCount = sp.targetCount;
+  batch10xPractice = null;
+  showToast(`🏆 Xuất sắc! Bạn đã hoàn thành luyện chép ${tCount} lần tất cả từ trong Bộ ${bIdx + 1}! Chuyển sang bài kiểm tra ngay.`, 'success', 3500);
+  startBatchTest(bIdx);
+}
+
+function startQuick10xWord(koreanWord) {
+  const words = getActiveWords();
+  const size = state.batchLearn.size || 20;
+  const batches = getBatches(words, size);
+  let foundBatchIdx = 0;
+  for (let i = 0; i < batches.length; i++) {
+    if (batches[i].some(w => w.korean === koreanWord)) {
+      foundBatchIdx = i;
+      break;
+    }
+  }
+
+  setMode('batch');
+  startBatch10xPractice(foundBatchIdx, 10);
+
+  if (batch10xPractice) {
+    const wIdx = batch10xPractice.batchWords.findIndex(w => w.korean === koreanWord);
+    if (wIdx >= 0) batch10xPractice.wordIndex = wIdx;
+    renderBatchPage();
+  }
 }
 function batchStudyNav(delta) {
   const words = getActiveWords();
@@ -1575,6 +1872,9 @@ function answerBatchTest(btn, chosen, correct) {
             ${w.exampleViet ? `<div class="batch-explain-vi">${w.exampleViet}</div>` : ''}
           </div>` : ''}
         ${w.tip ? `<div class="batch-explain-tip">💡 <em>${w.tip}</em></div>` : ''}
+        <div style="margin-top:8px;text-align:center">
+          <button class="btn btn-ghost btn-sm" style="color:var(--accent-light);border:1px solid var(--accent-glow)" onclick="startQuick10xWord('${safeKr}')">✏️ Luyện chép 10 lần từ "${w.korean}" ngay</button>
+        </div>
       </div>
     `;
     fb.className = 'quiz-feedback feedback-wrong';
@@ -1712,8 +2012,10 @@ Trả về JSON (không có text nào khác):
   "explanation": "giải thích ngắn nghĩa và ngữ pháp bằng tiếng Việt"
 }`;
 
-      const parsed = await GEMINI.callJSON(prompt, '', { temperature: 0.3, maxOutputTokens: 900 });
-      if (parsed) {
+      const raw = await GEMINI.call(prompt, '', { temperature: 0.3, maxOutputTokens: 500 });
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
 
         // Validate: the Korean answer must contain at least one batch vocab word
         const answerKr = (direction === 'vn2kr' ? parsed.answerText : parsed.questionText) || '';
@@ -1862,85 +2164,162 @@ function renderBatchSentencePracticeUI() {
   }
 }
 
+function normalizePracticeText(value) {
+  return String(value || '').toLowerCase().replace(/[.,!?~"'“”‘’]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function hasHangul(value) {
+  return /[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(String(value || ''));
+}
+
+function isAnswerLanguageValid(direction, answer) {
+  const text = String(answer || '').trim();
+  if (!text) return false;
+
+  if (direction === 'vn2kr') {
+    // Việt -> Hàn: câu trả lời bắt buộc phải có Hangul.
+    return hasHangul(text);
+  }
+
+  // Hàn -> Việt: không chấp nhận câu chỉ/toàn tiếng Hàn.
+  const chars = [...text].filter(ch => /[A-Za-zÀ-ỹ가-힣]/.test(ch));
+  if (!chars.length) return false;
+  const hangulCount = chars.filter(ch => /[가-힣]/.test(ch)).length;
+  return hangulCount / chars.length < 0.45;
+}
+
+function escapePracticeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 async function checkBatchSentenceAnswer() {
   const sp = batchSentencePractice;
   if (!sp || sp.answered) return;
 
   const inp = document.getElementById('batchSpAnswerInput');
   const userAns = (inp ? inp.value : '').trim();
-  if (!userAns) { showToast('⚠️ Vui lòng nhập câu dịch của bạn!', 'warning'); return; }
+  if (!userAns) {
+    showToast('⚠️ Vui lòng nhập câu dịch của bạn!', 'warning');
+    return;
+  }
+
+  const q = sp.currentQuestion;
+  const languageOk = isAnswerLanguageValid(q.direction, userAns);
+  const copiedQuestion = normalizePracticeText(userAns) === normalizePracticeText(q.questionText)
+    && normalizePracticeText(q.questionText) !== normalizePracticeText(q.answerText);
 
   sp.answered = true;
   sp.lastUserAnswer = userAns;
   sp.total++;
 
   const checkBtn = document.getElementById('batchSpCheckBtn');
-  if (checkBtn) { checkBtn.disabled = true; checkBtn.textContent = '⏳ AI đang chấm...'; }
+  if (checkBtn) {
+    checkBtn.disabled = true;
+    checkBtn.textContent = '⏳ AI đang chấm...';
+  }
 
-  const q = sp.currentQuestion;
   let gradeResult = null;
 
-  if (GEMINI.getKey()) {
+  // Chặn lỗi như ảnh: đề yêu cầu Việt -> Hàn nhưng học viên nhập lại câu tiếng Việt
+  // mà AI vẫn cho 100/100.
+  if (!languageOk || copiedQuestion) {
+    const target = q.direction === 'vn2kr' ? 'tiếng Hàn' : 'tiếng Việt';
+    gradeResult = {
+      score: 0,
+      verdict: 'wrong',
+      note: copiedQuestion
+        ? `Bạn đang nhập lại nguyên câu đề bài. Hãy dịch sang ${target}.`
+        : `Câu trả lời chưa đúng ngôn ngữ yêu cầu. Hãy trả lời bằng ${target}.`,
+      corrected: q.answerText,
+      explanation: q.explanation || `Chiều dịch của câu này là ${q.direction === 'vn2kr' ? 'Việt → Hàn' : 'Hàn → Việt'}.`,
+    };
+  }
+
+  if (!gradeResult && GEMINI.getKey()) {
     try {
-      const prompt = `Chấm bài dịch câu kết hợp từ vựng và ngữ pháp.
+      const targetLanguage = q.direction === 'vn2kr' ? 'TIẾNG HÀN' : 'TIẾNG VIỆT';
+      const prompt = `Bạn là giáo viên tiếng Hàn đang chấm bài dịch cho học viên Việt Nam.
+
+CHIỀU DỊCH BẮT BUỘC: ${q.direction === 'vn2kr' ? 'Tiếng Việt -> Tiếng Hàn' : 'Tiếng Hàn -> Tiếng Việt'}
+NGÔN NGỮ CÂU TRẢ LỜI BẮT BUỘC: ${targetLanguage}
+
 Bộ từ vựng tested: ${q.batchVocabUsed.join(', ')}
 Ngữ pháp tested: ${q.grammarUsed}
 Câu gốc: "${q.questionText}"
-Đáp án chuẩn: "${q.answerText}"
+Đáp án tham khảo: "${q.answerText}"
 Bài của học viên: "${userAns}"
+
+QUY TẮC CHẤM:
+1. Nếu học viên trả lời sai ngôn ngữ yêu cầu hoặc chỉ chép lại câu gốc: score = 0.
+2. Chấm theo NGHĨA + NGỮ PHÁP, không bắt buộc giống từng chữ với đáp án tham khảo.
+3. Câu tự nhiên, đúng nghĩa và đúng ngữ pháp có thể đạt 100 dù cách diễn đạt khác.
+4. Nếu sai tiểu từ/chia động từ nhưng vẫn hiểu được: trừ điểm tương ứng, không cho 100.
+5. "corrected" phải là câu sửa hoàn chỉnh bằng ${targetLanguage}.
 
 Trả về duy nhất JSON:
 {
-  "score": <số từ 0 đến 100>,
+  "score": <số nguyên 0-100>,
   "verdict": "<correct|partial|wrong>",
-  "note": "Nhận xét ngắn bằng tiếng Việt",
-  "corrected": "Câu tiếng Hàn chuẩn",
-  "explanation": "Giải thích chi tiết từ vựng bộ này và ngữ pháp đã áp dụng"
+  "note": "nhận xét ngắn bằng tiếng Việt",
+  "corrected": "câu sửa chuẩn",
+  "explanation": "giải thích lỗi/điểm đúng, từ vựng và ngữ pháp bằng tiếng Việt"
 }`;
 
-      gradeResult = await GEMINI.callJSON(prompt, '', { temperature: 0.3, maxOutputTokens: 800 });
+      const raw = await GEMINI.call(prompt, '', { temperature: 0.2, maxOutputTokens: 700, jsonMode: true });
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) gradeResult = JSON.parse(match[0]);
     } catch(e) {
       console.warn('AI grading failed, using fallback check:', e);
     }
   }
 
   if (!gradeResult) {
-    const norm = s => s.toLowerCase().replace(/[.,!?~]/g, '').trim();
-    const ok = norm(userAns) === norm(q.answerText);
+    const ok = normalizePracticeText(userAns) === normalizePracticeText(q.answerText);
     gradeResult = {
       score: ok ? 100 : 40,
       verdict: ok ? 'correct' : 'wrong',
       note: ok ? 'Chính xác!' : 'Chưa chính xác lắm, xem đáp án bên dưới nhé.',
       corrected: q.answerText,
-      explanation: q.explanation || `Áp dụng từ vựng: ${q.batchVocabUsed.join(', ')} & Ngữ pháp: ${q.grammarUsed}`
+      explanation: q.explanation || `Áp dụng từ vựng: ${q.batchVocabUsed.join(', ')} & Ngữ pháp: ${q.grammarUsed}`,
     };
   }
 
-  if (gradeResult.score >= 70) sp.correct++;
-  addXP(8);
+  let score = Math.max(0, Math.min(100, Math.round(Number(gradeResult.score) || 0)));
+
+  // Hậu kiểm: kể cả model có hallucinate 100 điểm thì sai ngôn ngữ vẫn không được qua.
+  if (!languageOk || copiedQuestion) score = 0;
+  gradeResult.score = score;
+  gradeResult.corrected = gradeResult.corrected || q.answerText;
+
+  if (score >= 70) sp.correct++;
+  addXP(score >= 70 ? 8 : 2);
 
   renderBatchPage();
 
   const fb = document.getElementById('batchSpFeedback');
   if (fb) {
     fb.style.display = 'block';
-    const score = gradeResult.score || 0;
     const isOk = score >= 70;
     fb.className = `sp-feedback ${isOk ? 'sp-ok' : 'sp-wrong'}`;
     fb.innerHTML = `
-      <div class="sp-fb-header">${isOk ? '🎉 Xuất sắc!' : '❌ Chưa chính xác'} — Điểm: <span style="color:${isOk ? 'var(--green)' : '#ef4444'}">${score}/100</span></div>
-      ${gradeResult.note ? `<div class="sp-fb-explanation">📝 ${gradeResult.note}</div>` : ''}
+      <div class="sp-fb-header">${score >= 90 ? '🎉 Xuất sắc!' : isOk ? '👍 Khá tốt!' : '❌ Chưa chính xác'} — Điểm: <span style="color:${isOk ? 'var(--green)' : '#ef4444'}">${score}/100</span></div>
+      ${gradeResult.note ? `<div class="sp-fb-explanation">📝 ${escapePracticeHtml(gradeResult.note)}</div>` : ''}
       <div style="margin-top:10px;display:grid;gap:8px">
-        <div style="padding:10px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:10px;">
+        <div class="sp-user-answer-box" style="padding:10px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:10px;">
           <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:2px">✏️ Câu bạn đã nhập:</div>
-          <div style="font-weight:600;color:var(--text-primary);font-family:'Noto Sans KR',sans-serif">${escStr(userAns)}</div>
+          <div class="sp-user-answer" style="font-weight:700;color:var(--text-primary);font-family:'Noto Sans KR',sans-serif">${escapePracticeHtml(userAns)}</div>
         </div>
         <div style="padding:10px 14px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;">
           <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:2px">✅ Đáp án chuẩn:</div>
-          <div style="font-weight:700;color:var(--green);font-family:'Noto Sans KR',sans-serif">${escStr(gradeResult.corrected || q.answerText)}</div>
+          <div style="font-weight:700;color:var(--green);font-family:'Noto Sans KR',sans-serif">${escapePracticeHtml(gradeResult.corrected || q.answerText)}</div>
         </div>
       </div>
-      ${gradeResult.explanation ? `<div class="sp-fb-grammar-notes"><strong>📐 Giải thích cách dùng từ vựng Bộ & Ngữ pháp:</strong><br>${gradeResult.explanation}</div>` : ''}
+      ${gradeResult.explanation ? `<div class="sp-fb-grammar-notes"><strong>📐 Giải thích cách dùng từ vựng Bộ & Ngữ pháp:</strong><br>${escapePracticeHtml(gradeResult.explanation)}</div>` : ''}
     `;
   }
 }
@@ -2304,7 +2683,10 @@ Trả lời EXACT JSON:
 }`;
 
   try {
-    const data = await GEMINI.callJSON(prompt, '', { temperature: 0.65, maxOutputTokens: 2400 });
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.65, maxOutputTokens: 2000 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('JSON error');
+    const data = JSON.parse(match[0]);
     state.listenDial.dialogue = data;
     state.listenDial.questions = data.questions || [];
     state.listenDial.answers = {};
@@ -2613,10 +2995,7 @@ async function sendChatMessage() {
     saveState();
   } catch(e) {
     removeTypingIndicator(typingId);
-    const errMsg = e.message === 'NO_API_KEY'
-      ? 'Vui lòng vào phần Cài đặt (⚙️) nhập Gemini API Key riêng để dùng AI Chat.'
-      : (e.message || 'Lỗi kết nối AI');
-    appendChatMessage('ai', `❌ ${errMsg}`, p.avatar);
+    appendChatMessage('ai', `❌ Lỗi: ${e.message}. Kiểm tra API key!`, p.avatar);
   }
 }
 
@@ -2894,20 +3273,468 @@ async function addGrammar(title, body) {
   state.grammar.push({ title, body, lesson: targetLesson });
   renderLessonSelectors();
 }
+// ============ GRAMMAR DICTIONARY (TỪ ĐIỂN NGỮ PHÁP HÀN - VIỆT) ============
+let gdictViewMode = 'cols1';
+let gdictQuizState = null;
+
 function renderGrammar() {
-  const cont = document.getElementById('grammarContainer');
-  const list = getActiveGrammar();
-  if (list.length===0) {
-    cont.innerHTML=`<div class="empty-state"><div class="empty-icon">📐</div><p>Chưa có ngữ pháp ${state.activeLesson !== 'all' ? `trong ${state.activeLesson}` : ''}. <button class="link-btn" onclick="setMode('home')">Thêm →</button></p></div>`; return;
-  }
-  const paged = legacyPageSlice('grammarCards', list, 8, renderGrammar);
-  cont.innerHTML = paged.items.map((g,i)=>`
-    <div class="grammar-card fade-in">
-      <button class="grammar-card-del" onclick="removeGrammar(${paged.start + i})">🗑 Xóa</button>
-      <div class="grammar-card-title">📐 ${g.title} <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400;margin-left:8px">(${g.lesson || 'Bài 1'})</span></div>
-      <div class="grammar-card-body">${g.body}</div>
-    </div>`).join('') + legacyPagerHtml(paged, 'ngữ pháp');
+  initGrammarDictionary();
 }
+
+function initGrammarDictionary() {
+  const input = document.getElementById('gdictInput');
+  if (input) {
+    input.onkeydown = e => { if (e.key === 'Enter') gdictSearch(); };
+  }
+  populateGdictLessonFilter();
+  setGdictViewMode(gdictViewMode);
+  switchGdictTab('allgrammar');
+  renderGdictSavedList();
+}
+
+function setGdictViewMode(mode) {
+  gdictViewMode = mode;
+  ['cols1', 'cols2', 'cols3'].forEach(m => {
+    const btn = document.getElementById(`gview-${m}`);
+    if (btn) btn.classList.toggle('active', m === mode);
+  });
+  renderFullGrammarDictionaryList();
+}
+
+function switchGdictTab(tab) {
+  const tabs = ['allgrammar', 'result', 'saved', 'quiz'];
+  tabs.forEach(t => {
+    const btn = document.getElementById(`gtab-${t}`);
+    const content = document.getElementById(`gdictTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+    if (btn) btn.classList.toggle('active', t === tab);
+    if (content) content.style.display = t === tab ? 'block' : 'none';
+  });
+  if (tab === 'allgrammar') {
+    populateGdictLessonFilter();
+    renderFullGrammarDictionaryList();
+  }
+  if (tab === 'saved') renderGdictSavedList();
+  if (tab === 'quiz') {
+    if (!gdictQuizState) generateGdictQuickQuiz();
+  }
+}
+
+function getAllGrammarList() {
+  const list = state.grammar && state.grammar.length > 0 ? state.grammar : DEFAULT_GRAMMAR;
+  return list.map(g => {
+    const title = g.title || '';
+    let autoType = 'Cấu trúc';
+    if (title.includes('은') || title.includes('이') || title.includes('을') || title.includes('에') || title.includes('가') || title.includes('는') || title.includes('를') || title.includes('에서')) {
+      autoType = 'tiểu từ';
+    } else if (title.includes('않다') || title.includes('안')) {
+      autoType = 'phủ định';
+    } else if (title.includes('입니다') || title.includes('요') || title.includes('예요') || title.includes('거예요')) {
+      autoType = 'đuôi câu';
+    }
+    return {
+      title: title,
+      body: g.body || '',
+      lesson: g.lesson || 'Bài 1',
+      type: g.type || autoType,
+      example: g.example || '',
+      exampleViet: g.exampleViet || '',
+      isSaved: (state.dict && state.dict.savedGrammar) ? state.dict.savedGrammar.includes(title) : false
+    };
+  });
+}
+
+function populateGdictLessonFilter() {
+  const sel = document.getElementById('gdictLessonFilter');
+  if (!sel) return;
+  const lessons = getUniqueLessons();
+  const cur = sel.value || 'all';
+  sel.innerHTML = `<option value="all">Tất cả bài học</option>` + lessons.map(l => `<option value="${escStr(l)}" ${l===cur?'selected':''}>${l}</option>`).join('');
+}
+
+function handleGdictFilterChange() {
+  resetListPagination('gdictAll');
+  const allTab = document.getElementById('gtab-allgrammar');
+  if (allTab && allTab.classList.contains('active')) {
+    renderFullGrammarDictionaryList();
+  }
+}
+
+function renderFullGrammarDictionaryList() {
+  const container = document.getElementById('gdictAllgrammarList');
+  const countBadge = document.getElementById('gdictCountBadge');
+  if (!container) return;
+
+  container.className = `dict-list-container view-${gdictViewMode}`;
+
+  const allGrammar = getAllGrammarList();
+  const searchInput = (document.getElementById('gdictInput')?.value || '').trim().toLowerCase();
+  const lessonFilter = document.getElementById('gdictLessonFilter')?.value || 'all';
+  const typeFilter = document.getElementById('gdictTypeFilter')?.value || 'all';
+  const sourceFilter = document.getElementById('gdictSourceFilter')?.value || 'all';
+  const sortFilter = document.getElementById('gdictSortFilter')?.value || 'title-asc';
+
+  let filtered = allGrammar.filter(g => {
+    if (searchInput) {
+      const mTitle = g.title.toLowerCase().includes(searchInput);
+      const mBody = (g.body || '').toLowerCase().includes(searchInput);
+      if (!mTitle && !mBody) return false;
+    }
+    if (lessonFilter !== 'all' && (g.lesson || 'Bài 1') !== lessonFilter) return false;
+    if (typeFilter !== 'all' && (g.type || '').toLowerCase() !== typeFilter.toLowerCase()) return false;
+    if (sourceFilter === 'saved' && !g.isSaved) return false;
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    if (sortFilter === 'title-asc') return a.title.localeCompare(b.title, 'ko');
+    if (sortFilter === 'lesson-asc') return (a.lesson || '').localeCompare(b.lesson || '');
+    return 0;
+  });
+
+  if (countBadge) {
+    countBadge.textContent = `Hiển thị: ${filtered.length} / ${allGrammar.length} ngữ pháp`;
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">🔍</div><p>Không tìm thấy cấu trúc ngữ pháp nào khớp với bộ lọc.</p></div>`;
+    mountListPagination(container, 'gdictAll', { totalItems:0, totalPages:1, start:0, end:0, pg:getListPaginationState('gdictAll') }, 'ngữ pháp');
+    return;
+  }
+
+  const gMeta = paginateList('gdictAll', filtered, renderFullGrammarDictionaryList, 15);
+  container.innerHTML = gMeta.pageItems.map(g => {
+    const safeTitle = escStr(g.title);
+    const isSaved = g.isSaved;
+
+    if (gdictViewMode === 'cols3') {
+      return `
+        <div class="dict-word-card cols5-card">
+          <div class="dw-top">
+            <span class="dw-korean font-kr" style="font-size:1.15rem; color:var(--accent-light); font-weight:800;">${g.title}</span>
+            <button class="mini-audio-btn" onclick="TTS.speak('${safeTitle}')" title="Nghe phát âm">🔊</button>
+          </div>
+          <div class="dw-meaning" style="font-size:0.85rem">${g.body}</div>
+          <div class="dw-footer-compact" style="margin-top:8px">
+            <span class="dict-pos-badge" style="font-size:0.7rem">${g.lesson || 'Bài 1'}</span>
+            <div style="display:flex; gap:4px">
+              <button class="mini-audio-btn" onclick="gdictAiSearchForTitle('${safeTitle}')" title="AI Phân tích sâu">🔍</button>
+              <button class="mini-audio-btn" onclick="startSingleGrammarQuiz('${safeTitle}')" title="Làm bài tập ngay">🏋️</button>
+              <button class="mini-audio-btn" onclick="toggleSaveGrammar('${safeTitle}')" style="${isSaved?'color:var(--gold)':''}" title="${isSaved?'Bỏ lưu':'Lưu ngữ pháp'}">${isSaved?'★':'⭐'}</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (gdictViewMode === 'cols2') {
+      return `
+        <div class="dict-word-card cols3-card">
+          <div class="dw-top">
+            <div class="dw-main">
+              <span class="dw-korean font-kr" style="font-size:1.3rem; color:var(--accent-light); font-weight:800;">${g.title}</span>
+              <span class="dict-pos-badge">${g.type || 'Cấu trúc'}</span>
+            </div>
+            <button class="mini-audio-btn" onclick="TTS.speak('${safeTitle}')" title="Nghe đọc">🔊</button>
+          </div>
+          <div class="dw-meaning" style="margin-top:6px">📌 <strong>Cách dùng:</strong> ${g.body}</div>
+          <div class="dw-footer-row" style="margin-top:12px">
+            <span class="dw-lesson-tag">${g.lesson || 'Bài 1'}</span>
+            <div class="dw-actions">
+              <button class="btn btn-ghost btn-sm" onclick="gdictAiSearchForTitle('${safeTitle}')">🔍 Tra AI</button>
+              <button class="btn btn-primary btn-sm" onclick="startSingleGrammarQuiz('${safeTitle}')">🏋️ Ôn luyện</button>
+              <button class="btn btn-ghost btn-sm" onclick="toggleSaveGrammar('${safeTitle}')" style="${isSaved?'color:var(--gold)':''}">${isSaved?'★':'⭐'}</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Default: cols1 (Full Detail Dictionary Card)
+    return `
+      <div class="dict-word-card cols1-card">
+        <div class="dw-top">
+          <div class="dw-main">
+            <span class="dw-korean font-kr" style="font-size:1.4rem; color:var(--accent-light); font-weight:900;">📐 ${g.title}</span>
+            <span class="dict-pos-badge">${g.type || 'Ngữ pháp'}</span>
+          </div>
+          <span class="dw-lesson-tag">${g.lesson || 'Bài 1'}</span>
+        </div>
+        <div class="dw-meaning" style="font-size:1rem; line-height:1.6;">💡 <strong>Ý nghĩa & Quy tắc:</strong> ${g.body}</div>
+        ${g.example ? `
+          <div class="dw-example font-kr" style="margin-top:8px">
+            📌 <strong>Ví dụ mẫu:</strong> ${g.example}
+            ${g.exampleViet ? `<div class="dw-example-vi">🇻🇳 ${g.exampleViet}</div>` : ''}
+          </div>
+        ` : ''}
+        <div class="dw-actions" style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="mini-audio-btn" onclick="TTS.speak('${safeTitle}')">🔊 Nghe đọc tên ngữ pháp</button>
+          <button class="btn btn-ai btn-sm" onclick="gdictAiSearchForTitle('${safeTitle}')">🤖 AI Giải thích chi tiết</button>
+          <button class="btn btn-accent btn-sm" onclick="startSingleGrammarQuiz('${safeTitle}')">🏋️ Làm Bài Tập Cấu Trúc Này</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleSaveGrammar('${safeTitle}')" style="${isSaved?'color:var(--gold)':''}">${isSaved?'★ Đã lưu':'⭐ Lưu vào Từ điển'}</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  mountListPagination(container, 'gdictAll', gMeta, 'ngữ pháp');
+}
+
+function renderGdictSavedList() {
+  const container = document.getElementById('gdictSavedList');
+  if (!container) return;
+  const savedTitles = (state.dict && state.dict.savedGrammar) ? state.dict.savedGrammar : [];
+  if (!savedTitles.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">⭐</div><p>Chưa có ngữ pháp nào được lưu. Hãy nhấn ⭐ bên cạnh cấu trúc ngữ pháp để lưu lại!</p></div>`;
+    return;
+  }
+  const allG = getAllGrammarList();
+  const savedG = allG.filter(g => savedTitles.includes(g.title));
+  container.innerHTML = savedG.map(g => `
+    <div class="dict-word-card cols1-card" style="margin-bottom:12px">
+      <div class="dw-top">
+        <span class="dw-korean font-kr" style="font-size:1.3rem; color:var(--accent-light); font-weight:800;">📐 ${g.title}</span>
+        <span class="dw-lesson-tag">${g.lesson || 'Bài 1'}</span>
+      </div>
+      <div class="dw-meaning">💡 <strong>Ý nghĩa:</strong> ${g.body}</div>
+      <div class="dw-actions" style="margin-top:10px">
+        <button class="btn btn-ai btn-sm" onclick="gdictAiSearchForTitle('${escStr(g.title)}')">🤖 Phân tích AI</button>
+        <button class="btn btn-primary btn-sm" onclick="startSingleGrammarQuiz('${escStr(g.title)}')">🏋️ Làm bài tập</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleSaveGrammar('${escStr(g.title)}')" style="color:var(--gold)">★ Bỏ lưu</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleSaveGrammar(title) {
+  if (!state.dict) state.dict = { savedWords: [], savedGrammar: [] };
+  if (!state.dict.savedGrammar) state.dict.savedGrammar = [];
+  const idx = state.dict.savedGrammar.indexOf(title);
+  if (idx >= 0) {
+    state.dict.savedGrammar.splice(idx, 1);
+    showToast(`⭐ Đã bỏ lưu cấu trúc "${title}"`, 'info');
+  } else {
+    state.dict.savedGrammar.push(title);
+    showToast(`⭐ Đã lưu cấu trúc "${title}" vào Từ điển Ngữ pháp!`, 'success');
+  }
+  saveState();
+  renderFullGrammarDictionaryList();
+  if (document.getElementById('gtab-saved')?.classList.contains('active')) {
+    renderGdictSavedList();
+  }
+}
+
+async function gdictSearch() {
+  const input = document.getElementById('gdictInput');
+  const q = input ? input.value.trim() : '';
+  if (!q) return;
+  gdictAiSearchForTitle(q);
+}
+
+async function gdictAiSearchForTitle(title) {
+  switchGdictTab('result');
+  const res = document.getElementById('gdictResult');
+  if (!res) return;
+  res.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 Gemini AI đang phân tích chi tiết cấu trúc ngữ pháp "${title}"...</span></div>`;
+
+  if (!GEMINI.getKey()) {
+    showToast('⚠️ Cần API Key!', 'error');
+    openSettings();
+    return;
+  }
+
+  const prompt = `Phân tích sâu ngữ pháp tiếng Hàn: "${title}".
+  Cung cấp:
+  1. Ý nghĩa cốt lõi & Ngữ cảnh sử dụng.
+  2. Công thức chia động từ/tính từ/danh từ chi tiết (có ví dụ biến đổi).
+  3. 3 Câu ví dụ mẫu thực tế (Tiếng Hàn + Phiên âm + Tiếng Việt).
+  4. Lưu ý hoặc Phân biệt với các cấu trúc tương tự (nếu có).
+
+  Trả về định dạng HTML đẹp mắt (dùng <h3>, <ul>, <li>, <strong>, <span>):`;
+
+  try {
+    const html = await GEMINI.call(prompt, '', { temperature: 0.5 });
+    res.innerHTML = `
+      <div class="card" style="padding:24px; max-width:800px; margin:0 auto; line-height:1.7;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+          <h3 style="margin:0; font-size:1.4rem; color:var(--accent-light);" class="font-kr">📐 Phân tích: ${title}</h3>
+          <button class="btn btn-accent btn-sm" onclick="startSingleGrammarQuiz('${escStr(title)}')">🏋️ Làm bài tập ngay</button>
+        </div>
+        <div>${html}</div>
+      </div>
+    `;
+  } catch(e) {
+    res.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi phân tích AI: ${e.message}</p></div>`;
+  }
+}
+
+async function startSingleGrammarQuiz(grammarTitle) {
+  switchGdictTab('quiz');
+  const quizArea = document.getElementById('gdictQuizArea');
+  if (!quizArea) return;
+  quizArea.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang tạo bài tập thực hành cho cấu trúc "${grammarTitle}"...</span></div>`;
+
+  if (!GEMINI.getKey()) {
+    showToast('⚠️ Cần API Key!', 'error');
+    openSettings();
+    return;
+  }
+
+  const prompt = `Bạn là giáo viên tiếng Hàn. Hãy tạo đúng 4 câu hỏi bài tập thực hành làm trực tiếp (Trắc nghiệm hoặc điền đáp án) cho cấu trúc ngữ pháp "${grammarTitle}".
+  Trả về EXACT JSON:
+  {
+    "title": "Bài tập ôn luyện ngữ pháp: ${grammarTitle}",
+    "questions": [
+      {
+        "id": 1,
+        "question": "Nội dung câu hỏi...",
+        "options": ["đáp án 1", "đáp án 2", "đáp án 3", "đáp án 4"],
+        "answer": "đáp án 1",
+        "explain": "Giải thích chi tiết tại sao chọn đáp án này"
+      }
+    ]
+  }`;
+
+  try {
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.5 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    const data = JSON.parse(match[0]);
+    gdictQuizState = {
+      title: data.title,
+      questions: data.questions || [],
+      userAnswers: {},
+      submitted: false,
+    };
+    renderGdictQuizUI();
+  } catch(e) {
+    quizArea.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${e.message}</p></div>`;
+  }
+}
+
+async function generateGdictQuickQuiz() {
+  const activeG = getActiveGrammar();
+  const sampleGrammars = activeG.slice(0, 8).map(g => g.title).join(', ');
+  switchGdictTab('quiz');
+  const quizArea = document.getElementById('gdictQuizArea');
+  if (!quizArea) return;
+  quizArea.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang khởi tạo 5 câu bài tập tổng hợp ngữ pháp...</span></div>`;
+
+  if (!GEMINI.getKey()) {
+    showToast('⚠️ Cần API Key!', 'error');
+    openSettings();
+    return;
+  }
+
+  const prompt = `Tạo đúng 5 câu hỏi bài tập trắc nghiệm ngữ pháp tiếng Hàn dựa trên các cấu trúc: ${sampleGrammars}.
+  Trả về EXACT JSON:
+  {
+    "title": "Bộ Bài Tập Ôn Luyện Ngữ Pháp Tổng Hợp",
+    "questions": [
+      {
+        "id": 1,
+        "question": "Câu hỏi trắc nghiệm tiếng Hàn...",
+        "options": ["A", "B", "C", "D"],
+        "answer": "A",
+        "explain": "Giải thích đáp án..."
+      }
+    ]
+  }`;
+
+  try {
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.6 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    const data = JSON.parse(match[0]);
+    gdictQuizState = {
+      title: data.title,
+      questions: data.questions || [],
+      userAnswers: {},
+      submitted: false,
+    };
+    renderGdictQuizUI();
+  } catch(e) {
+    quizArea.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${e.message}</p></div>`;
+  }
+}
+
+function renderGdictQuizUI() {
+  const qArea = document.getElementById('gdictQuizArea');
+  const st = gdictQuizState;
+  if (!qArea || !st || !st.questions.length) return;
+
+  const submitted = st.submitted;
+
+  const qsHtml = st.questions.map((q, idx) => {
+    const userChoice = st.userAnswers[idx];
+    const isCorrect = userChoice === q.answer;
+
+    return `
+      <div class="card" style="background:var(--bg-input); border:1px solid var(--border); padding:16px; margin-bottom:14px; border-radius:var(--radius);">
+        <div style="font-weight:800; font-size:1rem; color:var(--text-primary); margin-bottom:10px;">
+          Câu ${idx + 1}: ${q.question}
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          ${q.options.map(opt => {
+            const selected = userChoice === opt;
+            let optClass = 'quiz-option';
+            if (submitted) {
+              if (opt === q.answer) optClass += ' correct';
+              else if (selected) optClass += ' wrong';
+            } else if (selected) {
+              optClass += ' selected';
+            }
+            return `
+              <button class="${optClass}" style="text-align:left; font-family:'Noto Sans KR',sans-serif;" ${submitted ? 'disabled' : ''} onclick="selectGdictQuizOption(${idx}, '${escStr(opt)}')">
+                ${opt}
+              </button>
+            `;
+          }).join('')}
+        </div>
+        ${submitted ? `
+          <div class="quiz-feedback ${isCorrect ? 'feedback-correct' : 'feedback-wrong'}" style="display:block; margin-top:10px; padding:10px; border-radius:8px;">
+            <div style="font-weight:800;">${isCorrect ? '🎉 Chính xác!' : '❌ Chưa chính xác!'}</div>
+            <div style="font-size:0.85rem; margin-top:4px;">💡 <strong>Giải thích:</strong> ${q.explain}</div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+
+  qArea.innerHTML = `
+    <h4 style="margin:0 0 14px; font-size:1.1rem; color:var(--text-primary); font-weight:800;">${st.title}</h4>
+    <div>${qsHtml}</div>
+    <div style="margin-top:16px; text-align:center;">
+      ${!submitted ? `
+        <button class="btn btn-primary btn-lg" onclick="submitGdictQuiz()">✅ Nộp Bài & Chấm Điểm</button>
+      ` : `
+        <button class="btn btn-secondary btn-lg" onclick="generateGdictQuickQuiz()">🔄 Làm Bài Tập Mới</button>
+      `}
+    </div>
+  `;
+}
+
+function selectGdictQuizOption(qIdx, choice) {
+  if (!gdictQuizState || gdictQuizState.submitted) return;
+  gdictQuizState.userAnswers[qIdx] = choice;
+  renderGdictQuizUI();
+}
+
+function submitGdictQuiz() {
+  if (!gdictQuizState || gdictQuizState.submitted) return;
+  gdictQuizState.submitted = true;
+
+  let correctCount = 0;
+  gdictQuizState.questions.forEach((q, idx) => {
+    if (gdictQuizState.userAnswers[idx] === q.answer) correctCount++;
+  });
+
+  const xpEarned = correctCount * 5;
+  addXP(xpEarned);
+  saveState();
+  renderGdictQuizUI();
+  showToast(`🏆 Hoàn thành! Đúng ${correctCount}/${gdictQuizState.questions.length} câu (+${xpEarned} XP)`, 'success', 3500);
+}
+
+// ============ STATS ============
 
 // ============ STATS ============
 function renderStats() {
@@ -2932,8 +3759,514 @@ function renderStats() {
   document.getElementById('streakCount').textContent=state.stats.streak;
   const diffWords=state.words.filter(w=>state.stats.ratings[w.korean]==='hard');
   document.getElementById('difficultSection').style.display=diffWords.length>0?'block':'none';
-  const pagedDiff = legacyPageSlice('difficultWords', diffWords, 15, renderStats);
-  document.getElementById('difficultList').innerHTML=pagedDiff.items.map(w=>`<span class="diff-chip" title="${w.meaning}">${w.korean}</span>`).join('') + legacyPagerHtml(pagedDiff, 'từ cần ôn');
+  const difficultListEl = document.getElementById('difficultList');
+  const diffMeta = paginateList('difficultWords', diffWords, renderStats, 20);
+  difficultListEl.innerHTML = diffMeta.pageItems.map(w=>`<span class="diff-chip" title="${w.meaning}">${w.korean}</span>`).join('');
+  mountListPagination(difficultListEl, 'difficultWords', diffMeta, 'từ');
+}
+
+// ============ SIDE TRANSLATION PANEL (CHỈ DỊCH NGHĨA TRỰC TIẾP) ============
+function toggleSideTranslatePanel() {
+  const panel = document.getElementById('sideTranslatePanel');
+  if (panel) panel.classList.toggle('active');
+}
+
+async function quickSideTranslate() {
+  const inputEl = document.getElementById('sideTransInput');
+  const outEl = document.getElementById('sideTransOutput');
+  if (!inputEl || !outEl) return;
+  const q = inputEl.value.trim();
+  if (!q) { outEl.innerHTML = '<span style="color:var(--text-muted); font-size:0.85rem;">Nhập văn bản cần dịch...</span>'; return; }
+
+  outEl.innerHTML = '<span style="color:var(--accent-light); font-size:0.85rem;">⚡ Đang dịch nhanh...</span>';
+
+  if (!GEMINI.getKey()) {
+    showToast('⚠️ Cần API Key!', 'error');
+    openSettings();
+    return;
+  }
+
+  const prompt = `Bạn là công cụ dịch thuật cực kỳ nhanh và chính xác. 
+Dịch đoạn văn sau (Nếu là Tiếng Việt -> dịch sang Tiếng Hàn; Nếu là Tiếng Hàn -> dịch sang Tiếng Việt).
+Văn bản: "${q}"
+
+QUY TẮC BẮT BUỘC (TUÂN THỦ 100%):
+- CHỈ TRẢ VỀ DUY NHẤT BẢN DỊCH NGHĨA.
+- KHÔNG GIẢI THÍCH, KHÔNG CHÚ THÍCH PHỤ, KHÔNG THÊM BẤT KỲ VĂN BẢN NÀO KHÁC.`;
+
+  try {
+    const res = await GEMINI.call(prompt, '', { temperature: 0.1 });
+    const cleanTrans = res.trim().replace(/^"|"$/g, '');
+    const safeQ = escStr(q);
+    const safeT = escStr(cleanTrans);
+    outEl.innerHTML = `
+      <div style="font-size:1.05rem; font-weight:700; color:var(--text-primary); line-height:1.5; font-family:'Noto Sans KR',sans-serif;">${cleanTrans}</div>
+      <div style="margin-top:8px; display:flex; gap:6px;">
+        <button class="mini-audio-btn" onclick="speakBilingual('${safeQ}', '${safeT}')">🔊 Nghe đọc song ngữ</button>
+      </div>
+    `;
+  } catch(e) {
+    outEl.innerHTML = `<span style="color:var(--red); font-size:0.85rem;">❌ Lỗi dịch: ${e.message}</span>`;
+  }
+}
+
+function quickSideTranslateWithText(text) {
+  toggleSideTranslatePanel();
+  const inp = document.getElementById('sideTransInput');
+  if (inp) {
+    inp.value = text;
+    quickSideTranslate();
+  }
+}
+
+// ============ MASTER STUDY SUITE (3 GIAI ĐOẠN) ============
+let masterScopeMode = 'single'; // 'single', 'multi', 'all'
+let masterStudyState = null;
+
+function setMasterScopeMode(mode) {
+  masterScopeMode = mode;
+  ['single', 'multi', 'all'].forEach(m => {
+    const btn = document.getElementById(`mscope-${m}`);
+    if (btn) btn.classList.toggle('active', m === mode);
+  });
+  const singleWrap = document.getElementById('masterSingleLessonWrap');
+  const multiWrap = document.getElementById('masterMultiLessonWrap');
+
+  if (singleWrap) singleWrap.style.display = mode === 'single' ? 'flex' : 'none';
+  if (multiWrap) multiWrap.style.display = mode === 'multi' ? 'flex' : 'none';
+
+  if (mode === 'single') populateMasterSingleLessonSelect();
+  if (mode === 'multi') populateMasterMultiLessonCheckboxes();
+}
+
+function populateMasterSingleLessonSelect() {
+  const sel = document.getElementById('masterSingleLessonSelect');
+  if (!sel) return;
+  const lessons = getUniqueLessons();
+  sel.innerHTML = lessons.map(l => `<option value="${escStr(l)}">${l}</option>`).join('');
+}
+
+function populateMasterMultiLessonCheckboxes() {
+  const grid = document.getElementById('masterCheckboxGrid');
+  if (!grid) return;
+  const lessons = getUniqueLessons();
+  grid.innerHTML = lessons.map((l, i) => `
+    <label class="master-cb-item">
+      <input type="checkbox" value="${escStr(l)}" class="master-l-cb" ${i===0?'checked':''} />
+      <span>${l}</span>
+    </label>
+  `).join('');
+}
+
+function getSelectedMasterLessons() {
+  if (masterScopeMode === 'all') return getUniqueLessons();
+  if (masterScopeMode === 'single') {
+    const sel = document.getElementById('masterSingleLessonSelect');
+    return sel ? [sel.value] : ['Bài 1'];
+  }
+  if (masterScopeMode === 'multi') {
+    const cbs = document.querySelectorAll('.master-l-cb:checked');
+    const selected = Array.from(cbs).map(c => c.value);
+    return selected.length > 0 ? selected : getUniqueLessons().slice(0, 2);
+  }
+  return ['Bài 1'];
+}
+
+function updateMasterStepsBar(stage) {
+  [1, 2, 3].forEach(s => {
+    const pill = document.getElementById(`mstep-${s}`);
+    if (!pill) return;
+    pill.classList.remove('active', 'done');
+    if (s === stage) pill.classList.add('active');
+    else if (s < stage) pill.classList.add('done');
+  });
+}
+
+async function startMasterStudySuite() {
+  const selectedLessons = getSelectedMasterLessons();
+  if (!selectedLessons.length) {
+    showToast('⚠️ Vui lòng chọn ít nhất 1 bài học!', 'error');
+    return;
+  }
+
+  updateMasterStepsBar(1);
+  const exBox = document.getElementById('gpExercises');
+  if (!exBox) return;
+
+  exBox.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang khởi tạo Giai đoạn 1: Bài tập Ngữ pháp cho bài: ${selectedLessons.join(', ')}...</span></div>`;
+
+  if (!GEMINI.getKey()) {
+    showToast('⚠️ Cần API Key!', 'error');
+    openSettings();
+    return;
+  }
+
+  const targetGrammar = state.grammar.filter(g => selectedLessons.includes(g.lesson || 'Bài 1'));
+  const useGrammar = targetGrammar.length > 0 ? targetGrammar : DEFAULT_GRAMMAR.slice(0, 4);
+
+  const targetWords = state.words.filter(w => selectedLessons.includes(w.lesson || 'Bài 1'));
+  const useWords = targetWords.length > 0 ? targetWords : state.words.slice(0, 10);
+
+  const grammarList = useGrammar.map(g => g.title).join(', ');
+  const wordList = useWords.slice(0, 15).map(w => `${w.korean}(${w.meaning})`).join(', ');
+
+  const prompt = `Bạn là giáo viên tiếng Hàn. Bạn đang tạo Giai đoạn 1 của bài Ôn Luyện Ngữ Pháp & Từ Vựng Tổng Hợp.
+Bài học chọn ôn: ${selectedLessons.join(', ')}
+Cấu trúc ngữ pháp trọng tâm: ${grammarList}
+Từ vựng có trong bài: ${wordList}
+
+Hãy tạo đúng 5 câu bài tập thực hành ngữ pháp.
+Trả về EXACT JSON:
+{
+  "exercises": [
+    {
+      "id": 1,
+      "type": "vn2kr",
+      "prompt": "Câu tiếng Việt cần dịch sang tiếng Hàn",
+      "answer": "Đáp án tiếng Hàn chính xác",
+      "hint": "Từ vựng chìa khóa hoặc ngữ pháp cần dùng",
+      "explanation": "Giải thích cấu trúc và cách chia"
+    }
+  ]
+}`;
+
+  try {
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.5 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    const parsed = JSON.parse(match[0]);
+
+    masterStudyState = {
+      stage: 1,
+      selectedLessons: selectedLessons,
+      exercises: parsed.exercises || [],
+      userAnswers: {},
+      submitted: false
+    };
+
+    renderMasterStage1UI();
+    showToast(`🚀 Giai đoạn 1: Luyện Ngữ Pháp cho [${selectedLessons.join(', ')}]!`, 'success');
+  } catch(e) {
+    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${e.message}</p></div>`;
+  }
+}
+
+function renderMasterStage1UI() {
+  const exBox = document.getElementById('gpExercises');
+  const st = masterStudyState;
+  if (!exBox || !st || !st.exercises.length) return;
+
+  updateMasterStepsBar(1);
+  const submitted = st.submitted;
+
+  const html = st.exercises.map((ex, idx) => {
+    const userAns = st.userAnswers[idx] || '';
+    const isCorrect = submitted && userAns.trim().toLowerCase() === ex.answer.trim().toLowerCase();
+
+    return `
+      <div class="gp-exercise ${submitted ? (isCorrect ? 'gp-correct' : 'gp-wrong') : ''}" style="margin-bottom:16px;">
+        <div class="gp-ex-badge">Câu ${idx + 1}: ${ex.type === 'vn2kr' ? '🇻🇳 → 🇰🇷 Dịch sang tiếng Hàn' : '🇰🇷 → 🇻🇳 Dịch sang tiếng Việt'}</div>
+        <div class="gp-ex-prompt">${ex.prompt}</div>
+        ${ex.hint ? `<div class="gp-ex-hint">💡 Gợi ý: ${ex.hint}</div>` : ''}
+        <div class="gp-ex-input-row" style="margin-top:8px;">
+          <input type="text" id="mstage1_ans_${idx}" class="gp-ex-input" value="${escStr(userAns)}" ${submitted ? 'disabled' : ''} placeholder="Nhập đáp án..." onchange="masterStudyState.userAnswers[${idx}] = this.value.trim()" />
+          <button class="mini-audio-btn" onclick="quickSideTranslateWithText('${escStr(ex.prompt)}')">⚡ Dịch nghĩa</button>
+        </div>
+        ${submitted ? `
+          <div style="margin-top:8px; font-weight:700; font-size:0.9rem; color:${isCorrect ? 'var(--green)' : 'var(--red)'};">
+            ${isCorrect ? '🎉 Đúng rồi!' : `❌ Chưa đúng. Đáp án: <strong class="font-kr" style="color:var(--green)">${ex.answer}</strong>`}
+          </div>
+          ${ex.explanation ? `<div style="margin-top:6px; font-size:0.85rem; color:var(--text-muted);">🧑‍🏫 <strong>Giải thích:</strong> ${ex.explanation}</div>` : ''}
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+
+  exBox.innerHTML = `
+    <div style="margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+      <h3 style="margin:0; color:var(--accent-light);">📐 Giai Đoạn 1: Luyện Ngữ Pháp (${st.selectedLessons.join(', ')})</h3>
+      <p style="margin:4px 0 0; font-size:0.85rem; color:var(--text-secondary);">Hoàn thành 5 câu bên dưới. Sau đó AI sẽ tự động trích xuất các từ vựng sai/mới để luyện chép 10 lần!</p>
+    </div>
+    <div>${html}</div>
+    <div style="margin-top:20px; text-align:center;">
+      ${!submitted ? `
+        <button class="btn btn-primary btn-lg" onclick="submitMasterStage1()">✅ Nộp Bài Giai Đoạn 1 ➔ Chuyển Sang Luyện Từ Vựng</button>
+      ` : `
+        <button class="btn btn-accent btn-lg" onclick="startMasterStage2Vocab10x()">🚀 Chuyển Sang Giai Đoạn 2: Luyện Chép 10 Lần Từ Vựng ➔</button>
+      `}
+    </div>
+  `;
+}
+
+async function submitMasterStage1() {
+  const st = masterStudyState;
+  if (!st || st.submitted) return;
+
+  st.exercises.forEach((ex, idx) => {
+    const inp = document.getElementById(`mstage1_ans_${idx}`);
+    if (inp) st.userAnswers[idx] = inp.value.trim();
+  });
+
+  st.submitted = true;
+  renderMasterStage1UI();
+  showToast('✅ Đã nộp bài Giai đoạn 1! Nhấn nút bên dưới để chuyển sang Luyện từ vựng 10 lần.', 'success', 3500);
+}
+
+async function startMasterStage2Vocab10x() {
+  const st = masterStudyState;
+  if (!st) return;
+
+  st.stage = 2;
+  updateMasterStepsBar(2);
+
+  const exBox = document.getElementById('gpExercises');
+  if (!exBox) return;
+
+  exBox.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang phân tích câu sai & trích xuất các từ vựng trọng tâm từ Giai đoạn 1...</span></div>`;
+
+  const selectedLessons = st.selectedLessons;
+  const lessonWords = state.words.filter(w => selectedLessons.includes(w.lesson || 'Bài 1'));
+  const useWords = lessonWords.length > 0 ? lessonWords : state.words.slice(0, 8);
+
+  st.extractedVocab = useWords.slice(0, 6);
+  st.vocab10xIndex = 0;
+  st.vocab10xCounts = {};
+  st.extractedVocab.forEach(w => st.vocab10xCounts[w.korean] = 0);
+
+  renderMasterStage2Vocab10xUI();
+}
+
+function renderMasterStage2Vocab10xUI() {
+  const exBox = document.getElementById('gpExercises');
+  const st = masterStudyState;
+  if (!exBox || !st || !st.extractedVocab.length) return;
+
+  const curWord = st.extractedVocab[st.vocab10xIndex];
+  const curCount = st.vocab10xCounts[curWord.korean] || 0;
+  const isWordDone = curCount >= 10;
+  const totalDone = st.extractedVocab.filter(w => (st.vocab10xCounts[w.korean]||0) >= 10).length;
+
+  exBox.innerHTML = `
+    <div style="margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+      <span class="master-badge">✏️ GIAI ĐOẠN 2: LUYỆN CHÉP 10 LẦN</span>
+      <h3 style="margin:6px 0 2px; color:var(--accent-light);">Ghi Nhớ Từ Vựng Trọng Tâm & Từ Hay Sai (${totalDone}/${st.extractedVocab.length} từ đã thuộc)</h3>
+      <p style="margin:0; font-size:0.85rem; color:var(--text-secondary);">Gõ từ tiếng Hàn đúng 10 lần. Khi gõ xong hệ thống sẽ phát âm song ngữ Hàn + Việt cho bạn nhớ lâu!</p>
+    </div>
+
+    <!-- Current Word 10x Card -->
+    <div class="card batch-10x-card" style="padding:24px; max-width:600px; margin:0 auto; text-align:center;">
+      <div style="font-size:0.8rem; color:var(--text-muted);">Từ thứ ${st.vocab10xIndex + 1} / ${st.extractedVocab.length}</div>
+      <div class="batch-10x-kr font-kr" style="font-size:2.2rem; color:var(--accent-light); margin:8px 0;">${curWord.korean}</div>
+      <div class="batch-10x-vi" style="font-size:1.1rem; font-weight:700; color:var(--text-primary);">🇻🇳 ${curWord.meaning}</div>
+      ${curWord.roman ? `<div style="font-size:0.85rem; color:var(--text-muted); margin-top:2px;">[ ${curWord.roman} ]</div>` : ''}
+
+      <!-- Progress bar for 10x -->
+      <div style="margin:16px 0 8px;">
+        <div style="font-size:0.85rem; font-weight:700; color:var(--gold);">Tiến độ: ${curCount}/10 lần ${isWordDone ? '🎉 (Đã thuộc!)' : ''}</div>
+        <div style="width:100%; height:8px; background:var(--bg-input); border-radius:4px; margin-top:6px; overflow:hidden;">
+          <div style="width:${(curCount/10)*100}%; height:100%; background:linear-gradient(90deg, var(--accent), var(--green)); transition:width 0.2s ease;"></div>
+        </div>
+      </div>
+
+      <!-- Typing Input -->
+      <div style="margin-top:16px;">
+        <input type="text" id="mstage2_input" class="batch-10x-input font-kr" placeholder="Gõ từ '${curWord.korean}' tại đây..." autocomplete="off" onkeydown="if(event.key==='Enter')checkMasterVocab10xStep()" />
+        <div style="font-size:0.78rem; color:var(--text-muted); margin-top:6px;">Nhấn <kbd>Enter</kbd> sau mỗi lần gõ đúng</div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:18px;">
+        <button class="btn btn-ghost btn-sm" ${st.vocab10xIndex === 0 ? 'disabled' : ''} onclick="prevMasterVocab10xWord()">← Từ trước</button>
+        <button class="btn btn-ghost btn-sm" onclick="TTS.speak('${escStr(curWord.korean)}')">🔊 Nghe đọc Hàn</button>
+        <button class="btn btn-ghost btn-sm" ${st.vocab10xIndex === st.extractedVocab.length - 1 ? 'disabled' : ''} onclick="nextMasterVocab10xWord()">Từ tiếp →</button>
+      </div>
+    </div>
+
+    <div style="margin-top:24px; text-align:center;">
+      <button class="btn btn-accent btn-lg" onclick="startMasterFinalGrammarExam()">🚀 Chuyển Sang Giai Đoạn 3: Đề Thi Ngữ Pháp Chốt Hạ ➔</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    const inp = document.getElementById('mstage2_input');
+    if (inp) inp.focus();
+  }, 100);
+}
+
+function checkMasterVocab10xStep() {
+  const st = masterStudyState;
+  if (!st) return;
+  const curWord = st.extractedVocab[st.vocab10xIndex];
+  const inp = document.getElementById('mstage2_input');
+  if (!inp) return;
+
+  const typed = inp.value.trim();
+  if (typed === curWord.korean) {
+    st.vocab10xCounts[curWord.korean] = (st.vocab10xCounts[curWord.korean] || 0) + 1;
+    inp.value = '';
+    const newCount = st.vocab10xCounts[curWord.korean];
+
+    if (newCount === 10) {
+      speakBilingual(curWord.korean, curWord.meaning);
+      showToast(`🎉 Xuất sắc! Thuộc từ "${curWord.korean}" (10/10 lần)!`, 'success');
+      if (st.vocab10xIndex < st.extractedVocab.length - 1) {
+        st.vocab10xIndex++;
+      }
+    } else {
+      TTS.speak(curWord.korean);
+    }
+    renderMasterStage2Vocab10xUI();
+  } else {
+    showToast(`❌ Bạn gõ "${typed}". Cần gõ đúng: "${curWord.korean}"`, 'error');
+    inp.classList.add('shake-error');
+    setTimeout(() => inp.classList.remove('shake-error'), 400);
+  }
+}
+
+function prevMasterVocab10xWord() {
+  if (!masterStudyState || masterStudyState.vocab10xIndex <= 0) return;
+  masterStudyState.vocab10xIndex--;
+  renderMasterStage2Vocab10xUI();
+}
+
+function nextMasterVocab10xWord() {
+  if (!masterStudyState || masterStudyState.vocab10xIndex >= masterStudyState.extractedVocab.length - 1) return;
+  masterStudyState.vocab10xIndex++;
+  renderMasterStage2Vocab10xUI();
+}
+
+async function startMasterFinalGrammarExam() {
+  const st = masterStudyState;
+  if (!st) return;
+
+  st.stage = 3;
+  updateMasterStepsBar(3);
+
+  const exBox = document.getElementById('gpExercises');
+  if (!exBox) return;
+
+  exBox.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang thiết lập Giai đoạn 3: Đề Thi Ngữ Pháp Tổng Hợp Chốt Hạ cho bài [${st.selectedLessons.join(', ')}]...</span></div>`;
+
+  if (!GEMINI.getKey()) {
+    showToast('⚠️ Cần API Key!', 'error');
+    openSettings();
+    return;
+  }
+
+  const prompt = `Tạo Giai đoạn 3: Đề Thi Ngữ Pháp Tổng Hợp Chốt Hạ cho bài học: ${st.selectedLessons.join(', ')}.
+Tạo đúng 5 câu trắc nghiệm tổng hợp ngữ pháp nâng cao.
+Trả về EXACT JSON:
+{
+  "examTitle": "Đề Thi Ngữ Pháp Tổng Hợp Chốt Hạ - ${st.selectedLessons.join(', ')}",
+  "questions": [
+    {
+      "id": 1,
+      "question": "Nội dung câu hỏi trắc nghiệm tiếng Hàn...",
+      "options": ["A", "B", "C", "D"],
+      "answer": "A",
+      "explain": "Giải thích chi tiết đáp án"
+    }
+  ]
+}`;
+
+  try {
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.5 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    const parsed = JSON.parse(match[0]);
+
+    st.examTitle = parsed.examTitle;
+    st.examQuestions = parsed.questions || [];
+    st.examUserAnswers = {};
+    st.examSubmitted = false;
+
+    renderMasterFinalExamUI();
+  } catch(e) {
+    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo đề thi: ${e.message}</p></div>`;
+  }
+}
+
+function renderMasterFinalExamUI() {
+  const exBox = document.getElementById('gpExercises');
+  const st = masterStudyState;
+  if (!exBox || !st || !st.examQuestions.length) return;
+
+  updateMasterStepsBar(3);
+  const submitted = st.examSubmitted;
+
+  const html = st.examQuestions.map((q, idx) => {
+    const userAns = st.examUserAnswers[idx];
+    const isCorrect = userAns === q.answer;
+
+    return `
+      <div class="card" style="background:var(--bg-input); border:1px solid var(--border); padding:16px; margin-bottom:14px; border-radius:var(--radius);">
+        <div style="font-weight:800; font-size:1rem; color:var(--text-primary); margin-bottom:10px;">
+          Câu ${idx + 1}: ${q.question}
+        </div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          ${q.options.map(opt => {
+            const selected = userAns === opt;
+            let optClass = 'quiz-option';
+            if (submitted) {
+              if (opt === q.answer) optClass += ' correct';
+              else if (selected) optClass += ' wrong';
+            } else if (selected) {
+              optClass += ' selected';
+            }
+            return `
+              <button class="${optClass}" style="text-align:left; font-family:'Noto Sans KR',sans-serif;" ${submitted ? 'disabled' : ''} onclick="selectMasterExamOption(${idx}, '${escStr(opt)}')">
+                ${opt}
+              </button>
+            `;
+          }).join('')}
+        </div>
+        ${submitted ? `
+          <div class="quiz-feedback ${isCorrect ? 'feedback-correct' : 'feedback-wrong'}" style="display:block; margin-top:10px; padding:10px; border-radius:8px;">
+            <div style="font-weight:800;">${isCorrect ? '🎉 Chính xác!' : '❌ Chưa chính xác!'}</div>
+            <div style="font-size:0.85rem; margin-top:4px;">💡 <strong>Giải thích:</strong> ${q.explain}</div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+
+  exBox.innerHTML = `
+    <div style="margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+      <span class="master-badge">🏆 GIAI ĐOẠN 3: ĐỀ THI CHỐT HẠ</span>
+      <h3 style="margin:6px 0 2px; color:var(--accent-light);">${st.examTitle}</h3>
+      <p style="margin:0; font-size:0.85rem; color:var(--text-secondary);">Kiểm tra lại toàn bộ kiến thức ngữ pháp đã chép từ vựng để hoàn thành lộ trình!</p>
+    </div>
+    <div>${html}</div>
+    <div style="margin-top:20px; text-align:center;">
+      ${!submitted ? `
+        <button class="btn btn-primary btn-lg" onclick="submitMasterFinalExam()">✅ Nộp Bài Thi & Hoàn Thành Lộ Trình</button>
+      ` : `
+        <button class="btn btn-accent btn-lg" onclick="startMasterStudySuite()">🔄 Làm Lại Lộ Trình Ôn Mới</button>
+      `}
+    </div>
+  `;
+}
+
+function selectMasterExamOption(qIdx, choice) {
+  if (!masterStudyState || masterStudyState.examSubmitted) return;
+  masterStudyState.examUserAnswers[qIdx] = choice;
+  renderMasterFinalExamUI();
+}
+
+function submitMasterFinalExam() {
+  const st = masterStudyState;
+  if (!st || st.examSubmitted) return;
+
+  st.examSubmitted = true;
+  let correctCount = 0;
+  st.examQuestions.forEach((q, idx) => {
+    if (st.examUserAnswers[idx] === q.answer) correctCount++;
+  });
+
+  const xpEarned = correctCount * 10 + 20;
+  addXP(xpEarned);
+  saveState();
+  renderMasterFinalExamUI();
+  showToast(`🏆 HOÀN THÀNH LỘ TRÌNH! Đúng ${correctCount}/${st.examQuestions.length} câu (+${xpEarned} XP)`, 'success', 5000);
 }
 
 // ============ SEARCH ============
@@ -2960,6 +4293,85 @@ function goToWord(korean) {
   document.getElementById('searchResults').style.display='none';
 }
 
+
+// ============ CLASSROOM CONTENT SYNC ============
+function applyClassroomLearningSync(payload, { quiet = false } = {}) {
+  const data = payload || {};
+  const classId = data.classId ?? null;
+  const incomingWords = Array.isArray(data.words) ? data.words : [];
+  const incomingGrammar = Array.isArray(data.grammar) ? data.grammar : [];
+
+  lastClassroomLearningSync = { ...data, words: incomingWords, grammar: incomingGrammar };
+
+  // Khi đổi lớp, bỏ phần học liệu Classroom cũ nhưng giữ các mục người dùng tự thêm.
+  const localWords = (state.words || []).filter((word) => !word.__classroomSynced);
+  const localGrammar = (state.grammar || []).filter((grammar) => !grammar.__classroomSynced);
+
+  const wordMap = new Map(localWords.map((word) => [String(word.korean || '').trim(), word]));
+  incomingWords.forEach((word) => {
+    const key = String(word.korean || '').trim();
+    if (!key) return;
+    wordMap.set(key, {
+      ...wordMap.get(key),
+      ...word,
+      __classroomSynced: true,
+      __classroomClassId: classId,
+    });
+  });
+
+  const grammarMap = new Map(localGrammar.map((g) => [String(g.title || '').trim(), g]));
+  incomingGrammar.forEach((grammar) => {
+    const key = String(grammar.title || '').trim();
+    if (!key) return;
+    grammarMap.set(key, {
+      ...grammarMap.get(key),
+      ...grammar,
+      __classroomSynced: true,
+      __classroomClassId: classId,
+    });
+  });
+
+  state.words = [...wordMap.values()];
+  state.grammar = [...grammarMap.values()];
+
+  const lessonNames = [
+    ...incomingWords.map((word) => word.lesson),
+    ...incomingGrammar.map((grammar) => grammar.lesson),
+  ].filter(Boolean);
+  state.lessons = [...new Set([...(state.lessons || []), ...lessonNames])];
+
+  renderWordChips();
+  renderGrammarChips();
+  renderLessonSelectors();
+  saveState();
+
+  if (!quiet) {
+    showToast(`📚 Đã đồng bộ ${incomingWords.length} từ vựng · ${incomingGrammar.length} ngữ pháp từ lớp học`, 'success', 2400);
+  }
+}
+
+window.addEventListener('message', (event) => {
+  if (event.origin !== window.location.origin) return;
+  const data = event.data || {};
+
+  if (data.type === 'CLASSROOM_LEARNING_SYNC') {
+    applyClassroomLearningSync(data);
+    return;
+  }
+
+  // Tương thích với bản Classroom cũ chỉ gửi từ vựng.
+  if (data.type === 'CLASSROOM_VOCAB_SYNC') {
+    applyClassroomLearningSync({ ...data, grammar: data.grammar || [] });
+    return;
+  }
+
+  if (data.type === 'CLASSROOM_SETTINGS_SYNC' && data.settings) {
+    const settings = data.settings;
+    localStorage.setItem('hq_model', settings.geminiModel || 'gemini-2.5-flash');
+    if (settings.personality && PERSONALITIES[settings.personality]) selectPersonality(settings.personality, false);
+  }
+});
+
 // ============ KEYBOARD ============
 function initKeyboard() {
   document.addEventListener('keydown', e => {
@@ -2981,7 +4393,7 @@ function initKeyboard() {
 }
 
 // ============ INIT APP ============
-function initApp() {
+async function initApp() {
   if (classroomSession()?.token) document.body.classList.add('classroom-embedded');
   loadState();
   TTS.init();
@@ -3005,15 +4417,11 @@ function initApp() {
     document.getElementById('themeToggle').textContent = isDark ? '🌙' : '☀️';
     localStorage.setItem('hq_theme', isDark ? 'dark' : 'light');
   });
-  const theme = localStorage.getItem('hq_theme') || 'light';
-  if (theme !== 'dark') {
+  const theme = localStorage.getItem('hq_theme');
+  if (theme==='light') {
     document.body.classList.remove('dark-mode');
     document.body.classList.add('light-mode');
     document.getElementById('themeToggle').textContent = '☀️';
-  } else {
-    document.body.classList.remove('light-mode');
-    document.body.classList.add('dark-mode');
-    document.getElementById('themeToggle').textContent = '🌙';
   }
 
   // ADD WORDS
@@ -3024,8 +4432,11 @@ function initApp() {
     document.getElementById('addWordsBtn').disabled = true;
     const count = await processWords(lines);
     document.getElementById('addWordsBtn').disabled = false;
-    if (count>0) { showToast(`✅ Đã thêm ${count} từ! +${count*3} XP`,'success'); addXP(count*3); updateStreak(); }
-    else showToast('ℹ️ Từ đã được thêm trước đó!','info');
+    if (count>0) {
+      showToast(`✅ Đã thêm ${count} từ! +${count*3} XP`,'success');
+      addXP(count*3); updateStreak();
+      wordPagination.page = Math.max(1, Math.ceil(state.words.length / wordPagination.pageSize));
+    } else showToast('ℹ️ Từ đã được thêm trước đó!','info');
     renderWordChips(); saveState();
     document.getElementById('wordInput').value = '';
   });
@@ -3085,23 +4496,11 @@ function initApp() {
 
   renderLessonSelectors();
   updateStreak();
-  hydrateClassroomLearningState();
-}
 
-window.addEventListener('message', (event) => {
-  if (event.origin !== window.location.origin || event.data?.type !== 'CLASSROOM_VOCAB_SYNC') return;
-  const incoming = Array.isArray(event.data.words) ? event.data.words : [];
-  if (!incoming.length) return;
-  const merged = new Map(state.words.map(word => [word.korean, word]));
-  incoming.forEach(word => merged.set(word.korean, { ...merged.get(word.korean), ...word }));
-  state.words = [...merged.values()];
-  const lessons = incoming.map(word => word.lesson).filter(Boolean);
-  state.lessons = [...new Set([...(state.lessons || []), ...lessons])];
-  renderWordChips();
-  renderLessonSelectors();
-  saveState();
-  showToast(`📚 Đã đồng bộ ${incoming.length} từ vựng từ lớp học`, 'success', 2200);
-});
+  if (classroomSession()?.token) {
+    await hydrateClassroomLearningState();
+  }
+}
 
 window.addEventListener('DOMContentLoaded', initApp);
 
@@ -3155,16 +4554,19 @@ function initGrammarPractice() {
   if (grammar.length === 0) {
     list.innerHTML = '';
     empty.style.display = 'flex';
+    mountListPagination(list, 'grammarPracticeList', { totalItems:0, totalPages:1, start:0, end:0, pg:getListPaginationState('grammarPracticeList') }, 'ngữ pháp');
     return;
   }
   empty.style.display = 'none';
-  const paged = legacyPageSlice('grammarPracticeList', grammar, 10, initGrammarPractice);
-  list.innerHTML = paged.items.map((g, i) => `
-    <div class="gp-grammar-item ${(state.grammarPractice.selectedIndex === paged.start + i || (state.grammarPractice.selectedIndex < 0 && paged.start + i === 0)) ? 'active' : ''}" onclick="selectGrammarForPractice(${paged.start + i})">
+  const gpEntries = grammar.map((g, i) => ({ g, i }));
+  const gpMeta = paginateList('grammarPracticeList', gpEntries, initGrammarPractice, 10);
+  list.innerHTML = gpMeta.pageItems.map(({g, i}) => `
+    <div class="gp-grammar-item ${(state.grammarPractice.selectedIndex === i || (state.grammarPractice.selectedIndex < 0 && i === 0)) ? 'active' : ''}" onclick="selectGrammarForPractice(${i})">
       <div class="gp-grammar-icon">📐</div>
       <div class="gp-grammar-name">${g.title} <span style="font-size:0.7rem;color:var(--text-muted)">(${g.lesson || 'Bài 1'})</span></div>
     </div>
-  `).join('') + legacyPagerHtml(paged, 'cấu trúc');
+  `).join('');
+  mountListPagination(list, 'grammarPracticeList', gpMeta, 'ngữ pháp');
 
   if (state.grammarPractice.selectedIndex < 0 || state.grammarPractice.selectedIndex >= grammar.length) {
     selectGrammarForPractice(0);
@@ -3184,7 +4586,6 @@ function selectGrammarForPractice(idx) {
   state.grammarPractice.selectedIndex = idx;
   state.grammarPractice.exercises = [];
   state.grammarPractice.answers = {};
-  state.grammarPractice.grading = [];
   state.grammarPractice.submitted = false;
   document.querySelectorAll('.gp-grammar-item').forEach((el, i) => el.classList.toggle('active', i === idx));
   const grammar = getActiveGrammar();
@@ -3223,13 +4624,9 @@ async function generateGrammarExercises() {
 
   // Difficulty-based prompt instructions
   const diffInstructions = {
-    easy: allVocab
-      ? `QUAN TRỌNG - Mức DỄ: Ưu tiên các từ vựng đã học sau: ${allVocab}.
-Câu ngắn, cấu trúc đơn giản, dễ hiểu. Nếu danh sách chưa đủ để tạo câu đúng ngữ pháp thì được dùng thêm từ sơ cấp rất cơ bản.`
-      : 'Mức DỄ: Lớp chưa có kho từ vựng. Dùng từ sơ cấp thông dụng, câu ngắn và dễ hiểu.',
-    medium: allVocab
-      ? `Mức THƯỜNG: Dùng chủ yếu từ vựng đã học (${allVocab}), nhưng có thể thêm 2-3 từ mới phù hợp chủ đề ${randomTopic}. Câu tự nhiên hơn, tình huống đa dạng. Nếu có từ mới, hãy chú thích trong phần "hint".`
-      : `Mức THƯỜNG: Lớp chưa có kho từ vựng. Dùng từ sơ cấp phù hợp chủ đề ${randomTopic}, có chú thích từ khó trong "hint".`,
+    easy: `QUAN TRỌNG - Mức DỄ: Chỉ được dùng các từ vựng đã học sau: ${allVocab}.
+Câu ngắn, cấu trúc đơn giản, dễ hiểu, dễ điền. Tuyệt đối KHÔNG dùng từ ngoài danh sách này.`,
+    medium: `Mức THƯỜNG: Dùng chủ yếu từ vựng đã học (${allVocab}), nhưng có thể thêm 2-3 từ mới phù hợp chủ đề ${randomTopic}. Câu tự nhiên hơn, tình huống đa dạng. Nếu có từ mới, hãy chú thích trong phần "hint".`,
     hard: `Mức KHÓ (sát TOPIK): Tự do dùng từ phù hợp chủ đề ${randomTopic}, có thể xuất hiện nhiều từ mới. Câu phức tạp, dài, đòi hỏi suy luận. (Từ tham khảo: ${allVocab})`
   };
 
@@ -3256,36 +4653,19 @@ Trả lời CHÍNH XÁC định dạng JSON (không thêm bất kỳ text nào n
 }`;
 
   try {
-    const parsed = await GEMINI.callJSON(prompt, '', {
-      temperature: diff === 'easy' ? 0.4 : diff === 'medium' ? 0.65 : 0.75,
-      maxOutputTokens: 4096,
-    });
-    let exercises = Array.isArray(parsed.exercises) ? parsed.exercises.filter(ex => ex?.prompt && ex?.answer) : [];
-    if (exercises.length < 4) {
-      const fallback = buildGrammarPracticeFallback(g);
-      exercises = [...exercises, ...fallback].slice(0, 4);
-    }
-    if (!exercises.length) throw new Error('AI chưa tạo được câu hỏi hợp lệ');
-    state.grammarPractice.exercises = exercises;
+    const raw = await GEMINI.call(prompt, '', { temperature: diff === 'easy' ? 0.4 : diff === 'medium' ? 0.7 : 0.85 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    const parsed = JSON.parse(match[0]);
+    state.grammarPractice.exercises = parsed.exercises || [];
     state.grammarPractice.answers = {};
-    state.grammarPractice.grading = [];
     state.grammarPractice.submitted = false;
     renderGrammarExercises();
     showToast(`✅ Đã tạo 4 bài tập ${diffLabels[diff]} mới!`, 'success');
     addXP(5);
   } catch(e) {
-    const fallback = buildGrammarPracticeFallback(g);
-    if (fallback.length) {
-      state.grammarPractice.exercises = shuffle(fallback).slice(0, 4);
-      state.grammarPractice.answers = {};
-      state.grammarPractice.grading = [];
-      state.grammarPractice.submitted = false;
-      renderGrammarExercises();
-      showToast('⚠️ Gemini trả dữ liệu lỗi, đã chuyển sang bộ bài dự phòng để bạn học tiếp.', 'info', 4000);
-      return;
-    }
-    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>AI tạm thời chưa tạo được bài. Hãy thử lại hoặc đổi model Gemini trong trang Admin.</p></div>`;
-    showToast('❌ AI chưa tạo được bài. Thử lại!', 'error');
+    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${e.message}</p></div>`;
+    showToast('❌ Lỗi tạo bài tập. Thử lại!', 'error');
   }
 }
 
@@ -3322,10 +4702,12 @@ Trả lời CHÍNH XÁC định dạng JSON (không thêm text khác):
 }`;
 
   try {
-    const data = await GEMINI.callJSON(prompt, '', { temperature: 0.6, maxOutputTokens: 2800 });
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.6, maxOutputTokens: 2500 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('JSON error');
+    const data = JSON.parse(match[0]);
     const qs = data.questions || [];
     window._compAnswers = {};
-    window._compGrading = [];
     window._compQuestions = qs;
     window._compSubmitted = false;
     renderCompTest(qs);
@@ -3336,115 +4718,18 @@ Trả lời CHÍNH XÁC định dạng JSON (không thêm text khác):
   }
 }
 
-function normalizeLearningAnswer(value) {
-  return String(value || '')
-    .normalize('NFC')
-    .toLowerCase()
-    .replace(/[.!?。！？]+$/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function koreanCoordinationEquivalent(userAnswer, referenceAnswer, allowTenseFlex = true) {
-  // 하고 không đụng với danh từ phổ biến như 사과, nên an toàn để auto-accept cục bộ.
-  // Các kiểu 와/과/랑/이랑 còn lại để AI đánh giá theo ngữ cảnh.
-  const coordinatorAtEnd = /하고$/;
-  const userTokens = normalizeLearningAnswer(userAnswer).split(' ').filter(Boolean);
-  const refTokens = normalizeLearningAnswer(referenceAnswer).split(' ').filter(Boolean);
-  if (!userTokens.some(token => coordinatorAtEnd.test(token)) || !refTokens.some(token => coordinatorAtEnd.test(token))) return false;
-
-  const canonicalToken = (token) => {
-    let value = token
-      .replace(/[.,!?。！？]/g, '')
-      .replace(coordinatorAtEnd, '')
-      .replace(/(은|는|이|가|을|를|도)$/g, '');
-    if (allowTenseFlex) value = value.replace(/(았어요|었어요|했어요|아요|어요|여요)$/g, '');
-    return value.replace(/요$/g, '');
-  };
-  const canonical = (tokens) => tokens.map(canonicalToken).filter(Boolean).sort().join('|');
-  return canonical(userTokens) === canonical(refTokens);
-}
-
-function localGrammarGrade(exercise, userAnswer) {
-  const answer = normalizeLearningAnswer(userAnswer);
-  const reference = normalizeLearningAnswer(exercise?.answer);
-  if (!answer) return { status: 'wrong', feedback: 'Bạn chưa nhập câu trả lời.' };
-  if (answer === reference) return { status: 'correct', feedback: 'Khớp với đáp án mẫu.' };
-  const explicitTense = /(^|\s)(đã|đang|sẽ|hôm qua|ngày mai|trước đây|lúc nãy)(\s|$)/i.test(String(exercise?.prompt || ''));
-  if (exercise?.type === 'vn2kr' && koreanCoordinationEquivalent(answer, reference, !explicitTense)) {
-    return {
-      status: 'correct',
-      feedback: 'Cách diễn đạt tương đương: đổi thứ tự các danh từ nối bằng 하고 vẫn giữ nguyên nghĩa.',
-    };
-  }
-  return null;
-}
-
-async function gradeGrammarAnswers(exercises, answers) {
-  const results = exercises.map((exercise, index) => localGrammarGrade(exercise, answers[index]));
-  const pending = exercises
-    .map((exercise, index) => ({ index, exercise, userAnswer: String(answers[index] || '').trim() }))
-    .filter(item => !results[item.index] && item.userAnswer);
-
-  if (pending.length && GEMINI.getKey()) {
-    const payload = pending.map(({ index, exercise, userAnswer }) => ({
-      index,
-      direction: exercise.type,
-      prompt: exercise.prompt,
-      referenceAnswer: exercise.answer,
-      userAnswer,
-    }));
-    const prompt = `Bạn là giáo viên tiếng Hàn chấm bài cho người Việt. Chấm theo NGHĨA và tính tự nhiên, KHÔNG so khớp từng chữ.
-
-Quy tắc bắt buộc:
-- "correct": cùng nghĩa, ngữ pháp tự nhiên. Không trừ vì đổi thứ tự các danh từ trong danh sách nối bằng 하고/와/과/랑/이랑; không trừ dấu câu/khoảng trắng; chấp nhận cách diễn đạt hoặc từ đồng nghĩa tự nhiên.
-- Nếu câu tiếng Việt không nói rõ đã/đang/sẽ, chấp nhận thì tiếng Hàn hợp lý với ngữ cảnh; đừng phạt chỉ vì đáp án mẫu dùng 먹어요 nhưng học viên dùng 먹었어요 khi nghĩa vẫn hợp lý.
-- "imperfect": đúng ý chính nhưng có lỗi nhỏ về tiểu từ, chính tả hoặc đuôi câu; người Hàn vẫn hiểu rõ.
-- "wrong": đổi nghĩa, thiếu ý quan trọng, hoặc sai ngữ pháp chính của bài.
-- Đáp án mẫu chỉ là GỢI Ý, không phải câu duy nhất đúng.
-
-Dữ liệu cần chấm:
-${JSON.stringify(payload)}
-
-Chỉ trả JSON:
-{"results":[{"index":0,"status":"correct|imperfect|wrong","feedback":"nhận xét ngắn bằng tiếng Việt"}]}`;
-    try {
-      const ai = await GEMINI.callJSON(prompt, '', { temperature: 0.15, maxOutputTokens: 1800 });
-      for (const item of Array.isArray(ai.results) ? ai.results : []) {
-        const index = Number(item.index);
-        if (!Number.isInteger(index) || index < 0 || index >= exercises.length) continue;
-        const status = ['correct', 'imperfect', 'wrong'].includes(item.status) ? item.status : 'wrong';
-        results[index] = { status, feedback: String(item.feedback || '') };
-      }
-    } catch (error) {
-      console.warn('Flexible grammar grading failed:', error);
-    }
-  }
-
-  return results.map((result, index) => result || {
-    status: 'wrong',
-    feedback: answers[index] ? 'Câu này chưa tương đương đáp án mẫu; xem gợi ý và thử lại nhé.' : 'Bạn chưa nhập câu trả lời.',
-  });
-}
-
 function renderCompTest(qs) {
   const content = document.getElementById('gpCompContent');
   if (!content) return;
   const submitted = window._compSubmitted;
   const answers = window._compAnswers || {};
-  const grading = window._compGrading || [];
 
   const html = qs.map((q, i) => {
     const isVn2kr = q.type === 'vn2kr';
     const ans = answers[i] || '';
-    const grade = submitted ? (grading[i] || localGrammarGrade(q, ans) || { status: 'wrong', feedback: '' }) : null;
-    const status = grade?.status || '';
-    const isOk = status === 'correct';
-    const isPartial = status === 'imperfect';
-    const cardClass = isOk ? 'comp-ok' : isPartial ? 'comp-partial' : 'comp-err';
-    const resultColor = isOk ? 'var(--green)' : isPartial ? 'var(--gold)' : 'var(--red)';
+    const isOk = submitted && (ans.trim().toLowerCase() === q.answer.trim().toLowerCase());
     return `
-      <div class="comp-q-item ${submitted ? cardClass : ''}" style="margin-bottom:15px; padding:15px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-input);">
+      <div class="comp-q-item ${submitted ? (isOk?'comp-ok':'comp-err') : ''}" style="margin-bottom:15px; padding:15px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg-input);">
         <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
           <span style="font-size:0.8rem; font-weight:700; color:var(--accent-light);">📐 ${q.grammar}</span>
           <span style="font-size:0.75rem; color:var(--text-muted);">${isVn2kr ? '🇻🇳 → 🇰🇷 Dịch sang tiếng Hàn' : '🇰🇷 → 🇻🇳 Dịch sang tiếng Việt'}</span>
@@ -3458,12 +4743,8 @@ function renderCompTest(qs) {
           ${isVn2kr ? `<button class="mini-audio-btn" onclick="TTS.speak('${escStr(q.answer)}')">🔊</button>` : `<button class="mini-audio-btn" onclick="TTS.speak('${escStr(q.prompt)}')">🔊</button>`}
         </div>
         ${submitted ? `
-          <div style="margin-top:10px; font-size:0.9rem; font-weight:600; color:${resultColor}">
-            ${isOk
-              ? `✅ Đúng rồi! ${grade?.feedback || ''}`
-              : isPartial
-                ? `🟡 Đúng ý, cần chỉnh nhẹ. ${grade?.feedback || ''}<br>✨ Câu gợi ý: <strong style="font-family:Noto Sans KR,sans-serif; color:var(--green);">${q.answer}</strong>`
-                : `❌ Chưa đúng. ${grade?.feedback || ''}<br>✨ Câu gợi ý: <strong style="font-family:Noto Sans KR,sans-serif; color:var(--green);">${q.answer}</strong>`}
+          <div style="margin-top:10px; font-size:0.9rem; font-weight:600; color:${isOk?'var(--green)':'var(--red)'}">
+            ${isOk ? '✅ Đúng rồi!' : `❌ Sai rồi. Đáp án đúng: <strong style="font-family:Noto Sans KR,sans-serif; color:var(--green);">${q.answer}</strong>`}
           </div>
           ${q.explanation ? `
             <div style="margin-top:8px; padding:10px; background:rgba(0,212,170,0.05); border-left:3px solid var(--teal); border-radius:var(--radius-sm); font-size:0.82rem; line-height:1.4; color:var(--text-muted);">
@@ -3474,39 +4755,27 @@ function renderCompTest(qs) {
       </div>`;
   }).join('');
 
-  const score = submitted ? grading.filter(item => item?.status === 'correct').length : 0;
-  const imperfect = submitted ? grading.filter(item => item?.status === 'imperfect').length : 0;
-  const earnedXp = score * 15 + imperfect * 7;
+  const score = submitted ? qs.filter((q,i) => (answers[i]||'').trim().toLowerCase() === q.answer.trim().toLowerCase()).length : 0;
   const actions = submitted
-    ? `<div style="margin: 15px 0; font-size:1.1rem; font-weight:700; text-align:center;">🏆 Kết quả: <span style="color:var(--accent-light);">${score} đúng · ${imperfect} gần đúng</span> — +${earnedXp} XP</div>
+    ? `<div style="margin: 15px 0; font-size:1.1rem; font-weight:700; text-align:center;">🏆 Kết quả: <span style="color:var(--accent-light);">${score}/${qs.length}</span> đúng — +${score*15} XP</div>
        <div class="ldial-actions"><button class="btn btn-ai" onclick="startGrammarComprehensiveTest()">🔄 Đề mới</button><button class="btn btn-ghost" onclick="closeGrammarCompTest()">Đóng</button></div>`
     : `<div class="ldial-actions"><button class="btn btn-primary" onclick="submitCompTest()">✅ Nộp bài</button><button class="btn btn-ghost" onclick="closeGrammarCompTest()">Hủy</button></div>`;
 
   content.innerHTML = `<div style="max-height: 60vh; overflow-y: auto; padding-right:5px;">${html}</div>${actions}`;
 }
 
-async function submitCompTest() {
+function submitCompTest() {
   const qs = window._compQuestions || [];
-  if (window._compGradingPending) return;
   qs.forEach((q,i) => {
     const inp = document.getElementById(`compinput${i}`);
     window._compAnswers[i] = inp ? inp.value.trim() : '';
   });
-  window._compGradingPending = true;
-  showToast('🤖 Đang chấm linh hoạt theo nghĩa...', 'info', 3000);
-  try {
-    window._compGrading = await gradeGrammarAnswers(qs, window._compAnswers);
-    window._compSubmitted = true;
-    const score = window._compGrading.filter(item => item.status === 'correct').length;
-    const imperfect = window._compGrading.filter(item => item.status === 'imperfect').length;
-    const xp = score * 15 + imperfect * 7;
-    addXP(xp);
-    saveState();
-    renderCompTest(qs);
-    showToast(`🏆 ${score} đúng · ${imperfect} gần đúng · +${xp} XP`, score>=qs.length*0.7?'success':'info', 3500);
-  } finally {
-    window._compGradingPending = false;
-  }
+  window._compSubmitted = true;
+  const score = qs.filter((q,i) => (window._compAnswers[i]||'').trim().toLowerCase() === q.answer.trim().toLowerCase()).length;
+  addXP(score * 15);
+  saveState();
+  renderCompTest(qs);
+  showToast(`🏆 ${score}/${qs.length} đúng! +${score*15} XP`, score>=qs.length*0.7?'success':'info', 3000);
 }
 
 function closeGrammarCompTest() {
@@ -3522,24 +4791,16 @@ function renderGrammarExercises() {
   const html = exs.map((ex, i) => {
     const isVn2kr = ex.type === 'vn2kr';
     const ans = state.grammarPractice.answers[i] || '';
-    const grade = submitted
-      ? (state.grammarPractice.grading?.[i] || localGrammarGrade(ex, ans) || { status: 'wrong', feedback: '' })
-      : null;
-    const status = grade?.status || '';
-    const isCorrect = status === 'correct';
-    const isPartial = status === 'imperfect';
-    const stateClass = isCorrect ? 'gp-correct' : isPartial ? 'gp-partial' : 'gp-wrong';
-    const inputClass = isCorrect ? 'input-correct' : isPartial ? 'input-partial' : 'input-wrong';
-    const resultClass = isCorrect ? 'gp-result-ok' : isPartial ? 'gp-result-partial' : 'gp-result-err';
+    const isCorrect = submitted && ans.trim() === ex.answer.trim();
     const safePrompt = escStr(ex.prompt);
     const safeAnswer = escStr(ex.answer);
     return `
-      <div class="gp-exercise ${submitted ? stateClass : ''}">
+      <div class="gp-exercise ${submitted ? (isCorrect ? 'gp-correct' : 'gp-wrong') : ''}">
         <div class="gp-ex-badge">${isVn2kr ? '🇻🇳 → 🇰🇷 Dịch sang tiếng Hàn' : '🇰🇷 → 🇻🇳 Dịch sang tiếng Việt'}</div>
         <div class="gp-ex-prompt">${ex.prompt}</div>
         ${(gpDifficulty !== 'easy' && ex.hint) ? `<div class="gp-ex-hint">💡 ${ex.hint}</div>` : ''}
         <div class="gp-ex-input-row">
-          <input type="text" class="gp-ex-input ${submitted ? inputClass : ''}" 
+          <input type="text" class="gp-ex-input ${submitted ? (isCorrect ? 'input-correct' : 'input-wrong') : ''}" 
             id="gpInput${i}" value="${ans.replace(/"/g,'&quot;')}" 
             placeholder="${isVn2kr ? 'Nhập tiếng Hàn...' : 'Nhập tiếng Việt...'}"
             ${submitted ? 'disabled' : ''}
@@ -3548,12 +4809,8 @@ function renderGrammarExercises() {
           <button class="mini-audio-btn" onclick="TTS.speak('${safePrompt}')" title="Nghe">🔊</button>
         </div>
         ${submitted ? `
-          <div class="gp-ex-result ${resultClass}">
-            ${isCorrect
-              ? `✅ Chính xác! ${grade?.feedback || ''}`
-              : isPartial
-                ? `🟡 Đúng ý, cần chỉnh nhẹ. ${grade?.feedback || ''}<br>✨ Câu gợi ý: <strong>${ex.answer}</strong>`
-                : `❌ Chưa đúng. ${grade?.feedback || ''}<br>✨ Câu gợi ý: <strong>${ex.answer}</strong>`}
+          <div class="gp-ex-result ${isCorrect ? 'gp-result-ok' : 'gp-result-err'}">
+            ${isCorrect ? '✅ Chính xác!' : `❌ Đáp án đúng: <strong>${ex.answer}</strong>`}
             ${isVn2kr ? `<button class="mini-audio-btn" onclick="TTS.speak('${safeAnswer}')" style="margin-left:8px">🔊</button>` : ''}
           </div>
           ${ex.explanation ? `
@@ -3579,36 +4836,30 @@ function renderGrammarExercises() {
   `;
 }
 
-async function checkGrammarExercise() {
+function checkGrammarExercise() {
   const exs = state.grammarPractice.exercises;
-  if (!exs.length || state.grammarPractice.gradingPending) return;
+  if (!exs.length) return;
   // Collect all answers
   exs.forEach((_, i) => {
     const input = document.getElementById(`gpInput${i}`);
     if (input) state.grammarPractice.answers[i] = input.value;
   });
-  state.grammarPractice.gradingPending = true;
-  showToast('🤖 Đang chấm theo nghĩa và ngữ pháp, không so từng chữ...', 'info', 3000);
-  try {
-    state.grammarPractice.grading = await gradeGrammarAnswers(exs, state.grammarPractice.answers);
-    state.grammarPractice.submitted = true;
-    const correct = state.grammarPractice.grading.filter(item => item.status === 'correct').length;
-    const imperfect = state.grammarPractice.grading.filter(item => item.status === 'imperfect').length;
-    const xp = correct * 8 + imperfect * 4;
-    renderGrammarExercises();
-    showToast(`🎯 ${correct} đúng · ${imperfect} gần đúng · +${xp} XP`, correct === exs.length ? 'success' : 'info', 4000);
-    addXP(xp);
-    state.stats.totalAnswered += exs.length;
-    state.stats.totalCorrect += correct;
-    saveState();
-  } finally {
-    state.grammarPractice.gradingPending = false;
-  }
+  state.grammarPractice.submitted = true;
+  // Calculate score
+  const correct = exs.filter((ex, i) =>
+    (state.grammarPractice.answers[i] || '').trim() === ex.answer.trim()
+  ).length;
+  renderGrammarExercises();
+  const pct = Math.round((correct / exs.length) * 100);
+  showToast(`🎯 ${correct}/${exs.length} đúng (${pct}%) +${correct * 8} XP`, correct === exs.length ? 'success' : 'info', 3500);
+  addXP(correct * 8);
+  state.stats.totalAnswered += exs.length;
+  state.stats.totalCorrect += correct;
+  saveState();
 }
 
 function resetGrammarPractice() {
   state.grammarPractice.answers = {};
-  state.grammarPractice.grading = [];
   state.grammarPractice.submitted = false;
   renderGrammarExercises();
 }
@@ -3626,14 +4877,20 @@ function initExam() {
 function renderExamHistory() {
   const hist = state.stats.examHistory || [];
   const el = document.getElementById('examHistoryList');
-  if (!hist.length) { el.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Chưa có lịch sử</p>'; return; }
-  el.innerHTML = hist.slice(-5).reverse().map(h => `
+  if (!hist.length) {
+    el.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem">Chưa có lịch sử</p>';
+    mountListPagination(el, 'examHistory', { totalItems:0, totalPages:1, start:0, end:0, pg:getListPaginationState('examHistory') }, 'lần thi');
+    return;
+  }
+  const ordered = [...hist].reverse();
+  const meta = paginateList('examHistory', ordered, renderExamHistory, 10);
+  el.innerHTML = meta.pageItems.map(h => `
     <div class="exam-hist-item">
       <span class="exam-hist-type">${h.type}</span>
       <span class="exam-hist-score" style="color:${h.pct>=70?'var(--green)':'var(--orange)'}">${h.score}/${h.total} (${h.pct}%)</span>
       <span class="exam-hist-date">${h.date}</span>
-    </div>
-  `).join('');
+    </div>`).join('');
+  mountListPagination(el, 'examHistory', meta, 'lần thi');
 }
 
 async function startExam(type) {
@@ -3770,7 +5027,10 @@ Trả lời CHÍNH XÁC định dạng JSON (không thêm text ngoài JSON):
   ]
 }`;
   try {
-    const parsed = await GEMINI.callJSON(prompt, '', { temperature: 0.6, maxOutputTokens: 3000 });
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.6, maxOutputTokens: 2500 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    const parsed = JSON.parse(match[0]);
     if (!parsed.questions || !parsed.questions.length) throw new Error('Empty questions');
     state.exam.questions = parsed.questions;
     showToast(`✅ Đã tạo đề thi TOPIK chuẩn AI!`, 'success');
@@ -3927,7 +5187,6 @@ function resetExam() {
 // ============ DICTIONARY MODULE ============
 // ============================================================
 let dictViewMode = localStorage.getItem('hq_dict_view_mode') || 'cols3';
-
 function setDictViewMode(mode, btn) {
   dictViewMode = mode;
   localStorage.setItem('hq_dict_view_mode', mode);
@@ -4044,10 +5303,25 @@ function getAllDictionaryWords() {
 }
 
 function handleDictFilterChange() {
+  resetListPagination('dictAll');
   const allwordsTab = document.getElementById('dtab-allwords');
   if (allwordsTab && allwordsTab.classList.contains('active')) {
     renderFullDictionaryList();
   }
+}
+
+function getPaginationItems(currentPage, totalPages) {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+
+  const items = [1];
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+
+  if (start > 2) items.push('ellipsis-left');
+  for (let page = start; page <= end; page++) items.push(page);
+  if (end < totalPages - 1) items.push('ellipsis-right');
+  items.push(totalPages);
+  return items;
 }
 
 function renderFullDictionaryList() {
@@ -4099,22 +5373,27 @@ function renderFullDictionaryList() {
     return 0;
   });
 
+  const totalFiltered = filtered.length;
+
   if (countBadge) {
-    countBadge.textContent = `Hiển thị ${filtered.length} / ${allWords.length} từ vựng`;
+    countBadge.textContent = totalFiltered !== allWords.length
+      ? `Hiển thị: ${totalFiltered} / ${allWords.length} từ`
+      : `Hiển thị: ${totalFiltered} từ`;
   }
 
-  if (filtered.length === 0) {
+  if (totalFiltered === 0) {
     container.innerHTML = `
       <div class="empty-state" style="grid-column: 1 / -1;">
         <div class="empty-icon">🔍</div>
         <p>Không tìm thấy từ vựng nào khớp với bộ lọc đã chọn.</p>
       </div>
     `;
+    mountListPagination(container, 'dictAll', { totalItems:0, totalPages:1, start:0, end:0, pg:getListPaginationState('dictAll') }, 'từ');
     return;
   }
 
-  const paged = legacyPageSlice('dictionaryWords', filtered, 15, renderFullDictionaryList);
-  container.innerHTML = paged.items.map(w => {
+  const dictMeta = paginateList('dictAll', filtered, renderFullDictionaryList, 30);
+  container.innerHTML = dictMeta.pageItems.map(w => {
     const safeKr = escStr(w.korean);
 
     if (dictViewMode === 'cols5') {
@@ -4208,7 +5487,8 @@ function renderFullDictionaryList() {
         </div>
       </div>
     `;
-  }).join('') + legacyPagerHtml(paged, 'từ');
+  }).join('');
+  mountListPagination(container, 'dictAll', dictMeta, 'từ');
 }
 
 function quickDictDetail(korean) {
@@ -4248,7 +5528,9 @@ async function dictSearch() {
       } else {
         const prompt = `Từ tiếng Việt: "${q}". Cho biết từ tiếng Hàn tương đương và thông tin học tập. Trả lời JSON:
 {"korean":"từ tiếng Hàn","roman":"phiên âm","meaning":"${q}","pos":"từ loại Hàn","tip":"mẹo nhớ","example":"câu ví dụ Hàn","exampleViet":"câu ví dụ Việt"}`;
-        aiData = await GEMINI.callJSON(prompt, '', { temperature: 0.4, maxOutputTokens: 1200 });
+        const raw = await GEMINI.call(prompt, '', { temperature: 0.4 });
+        const match = raw.match(/\{[\s\S]*\}/);
+        aiData = match ? JSON.parse(match[0]) : null;
       }
       if (aiData) {
         result.innerHTML = renderDictCard(aiData, false);
@@ -4304,7 +5586,7 @@ function addDictWordToMyList(korean) {
   } else {
     showToast('ℹ️ Từ đã có trong danh sách bài học!', 'info');
   }
-  handleDictFilterChange();
+  handleDictFilterChange(false);
 }
 
 function saveDictWord(korean) {
@@ -4314,7 +5596,7 @@ function saveDictWord(korean) {
     saveState();
     showToast(`⭐ Đã lưu "${korean}"!`, 'success');
     renderDictMyWords();
-    handleDictFilterChange();
+    handleDictFilterChange(false);
   }
 }
 function removeSavedWord(korean) {
@@ -4323,7 +5605,7 @@ function removeSavedWord(korean) {
   saveState();
   showToast(`Đã bỏ lưu "${korean}"`, 'info');
   renderDictMyWords();
-  handleDictFilterChange();
+  handleDictFilterChange(false);
 }
 
 function renderDictMyWords() {
@@ -4332,23 +5614,23 @@ function renderDictMyWords() {
   const saved = (state.dict && state.dict.savedWords) || [];
   if (!saved.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">⭐</div><p>Chưa lưu từ nào. Tra từ và nhấn ⭐ để lưu.</p></div>';
+    mountListPagination(el, 'dictSaved', { totalItems:0, totalPages:1, start:0, end:0, pg:getListPaginationState('dictSaved') }, 'từ');
     return;
   }
-  const paged = legacyPageSlice('savedWords', saved, 12, renderDictMyWords);
-  el.innerHTML = paged.items.map(k => {
+  const meta = paginateList('dictSaved', saved, renderDictMyWords, 20);
+  el.innerHTML = meta.pageItems.map(k => {
     const w = state.words.find(x => x.korean === k) || VOCAB_DB[k] || {};
     const safeK = escStr(k);
-    return `
-      <div class="dict-saved-item">
-        <div style="font-family:'Noto Sans KR',sans-serif;font-weight:800;font-size:1.1rem;color:var(--accent-light)">${k}</div>
-        <div style="font-size:.82rem;color:var(--text-secondary)">${w.meaning || ''}</div>
-        <div class="dict-saved-actions">
-          <button class="mini-audio-btn" onclick="TTS.speak('${safeK}')">🔊</button>
-          <button class="mini-audio-btn" onclick="removeSavedWord('${safeK}')">🗑</button>
-        </div>
+    return `<div class="dict-saved-item">
+      <div style="font-family:'Noto Sans KR',sans-serif;font-weight:800;font-size:1.1rem;color:var(--accent-light)">${k}</div>
+      <div style="font-size:.82rem;color:var(--text-secondary)">${w.meaning || ''}</div>
+      <div class="dict-saved-actions">
+        <button class="mini-audio-btn" onclick="TTS.speak('${safeK}')">🔊</button>
+        <button class="mini-audio-btn" onclick="removeSavedWord('${safeK}')">🗑</button>
       </div>
-    `;
-  }).join('') + legacyPagerHtml(paged, 'từ đã lưu');
+    </div>`;
+  }).join('');
+  mountListPagination(el, 'dictSaved', meta, 'từ');
 }
 
 function renderDictHistory() {
@@ -4357,18 +5639,19 @@ function renderDictHistory() {
   const hist = (state.dict && state.dict.history) || [];
   if (!hist.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">🕐</div><p>Chưa có lịch sử tra từ</p></div>';
+    mountListPagination(el, 'dictHistory', { totalItems:0, totalPages:1, start:0, end:0, pg:getListPaginationState('dictHistory') }, 'lượt tra');
     return;
   }
-  const paged = legacyPageSlice('dictHistory', hist, 12, renderDictHistory);
-  el.innerHTML = paged.items.map(k => {
+  const meta = paginateList('dictHistory', hist, renderDictHistory, 20);
+  el.innerHTML = meta.pageItems.map((k, pageIndex) => {
     const safeK = escStr(k);
-    return `
-      <button class="dict-hist-item" onclick="document.getElementById('dictInput').value='${safeK}';dictSearch();switchDictTab('result')">
-        <span style="font-family:'Noto Sans KR',sans-serif;font-weight:700">${k}</span>
-        <span style="color:var(--text-muted);font-size:.75rem">${state.dict.history.indexOf(k) === 0 ? 'Vừa tra' : ''}</span>
-      </button>
-    `;
-  }).join('') + legacyPagerHtml(paged, 'lịch sử');
+    const originalIndex = meta.start + pageIndex;
+    return `<button class="dict-hist-item" onclick="document.getElementById('dictInput').value='${safeK}';dictSearch();switchDictTab('result')">
+      <span style="font-family:'Noto Sans KR',sans-serif;font-weight:700">${k}</span>
+      <span style="color:var(--text-muted);font-size:.75rem">${originalIndex === 0 ? 'Vừa tra' : ''}</span>
+    </button>`;
+  }).join('');
+  mountListPagination(el, 'dictHistory', meta, 'lượt tra');
 }
 
 async function dictAIAnalyze() {
@@ -4431,7 +5714,10 @@ Hãy liệt kê các dạng biến thể quan trọng nhất theo bảng JSON:
 Chỉ trả JSON.`;
 
   try {
-    const data = await GEMINI.callJSON(prompt, '', { temperature: 0.3, maxOutputTokens: 1800 });
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.3, maxOutputTokens: 1500 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    const data = JSON.parse(match[0]);
     el.innerHTML = `
       <div class="conj-card">
         <div class="conj-header">🔄 Biến thể của <span style="font-family:'Noto Sans KR',sans-serif;font-size:1.3rem;font-weight:900;color:var(--accent-light)">${data.base || verb}</span></div>
@@ -4561,7 +5847,10 @@ Trả về kết quả dưới định dạng JSON CHÍNH XÁC (không chứa b�
 }`;
 
   try {
-    const data = await GEMINI.callJSON(prompt, '', { temperature: 0.3, maxOutputTokens: 2400 });
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.3, maxOutputTokens: 2000 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Không tìm thấy JSON hợp lệ từ AI');
+    const data = JSON.parse(match[0]);
 
     lastSrcText = text;
     lastDestText = data.translatedText || "";
@@ -4688,7 +5977,7 @@ function speakTranslateText(type) {
 
 // ============ INDEXEDDB FOR PDF STORAGE ============
 const PDF_DB = {
-  dbName: classroomSession()?.user?.id ? `HQ_PDF_STORE_USER_${classroomSession().user.id}` : 'HQ_PDF_STORE',
+  dbName: 'HQ_PDF_STORE',
   storeName: 'pdfs',
   db: null,
   async init() {
@@ -4779,21 +6068,19 @@ async function renderPdfList() {
   if (!listEl) return;
   if (!pdfs.length) {
     listEl.innerHTML = `<p style="color:var(--text-muted);font-size:0.82rem;padding:10px">Chưa có file PDF nào trong tủ sách.</p>`;
+    mountListPagination(listEl, 'pdfList', { totalItems:0, totalPages:1, start:0, end:0, pg:getListPaginationState('pdfList') }, 'file');
     return;
   }
-  const paged = legacyPageSlice('pdfLibrary', pdfs, 8, renderPdfList);
-  listEl.innerHTML = paged.items.map(p => `
+  const meta = paginateList('pdfList', pdfs, renderPdfList, 10);
+  listEl.innerHTML = meta.pageItems.map(p => `
     <div class="pdf-item ${activePdfItem && activePdfItem.id === p.id ? 'active' : ''}" onclick="fetchAndOpenPdf('${p.id}')">
-      <div class="pdf-item-left">
-        <span class="pdf-item-icon">📄</span>
-        <div style="overflow:hidden">
-          <div class="pdf-item-title" title="${escStr(p.name)}">${p.name}</div>
-          <div class="pdf-item-meta">${p.size} • ${p.date}</div>
-        </div>
-      </div>
+      <div class="pdf-item-left"><span class="pdf-item-icon">📄</span><div style="overflow:hidden">
+        <div class="pdf-item-title" title="${escStr(p.name)}">${p.name}</div>
+        <div class="pdf-item-meta">${p.size} • ${p.date}</div>
+      </div></div>
       <button class="mini-audio-btn" onclick="event.stopPropagation(); deletePdfItem('${p.id}')" title="Xóa PDF">🗑</button>
-    </div>
-  `).join('') + legacyPagerHtml(paged, 'PDF');
+    </div>`).join('');
+  mountListPagination(listEl, 'pdfList', meta, 'file');
 }
 
 async function fetchAndOpenPdf(id) {
@@ -4861,7 +6148,10 @@ Trả về EXACT JSON:
 }`;
 
   try {
-    const data = await GEMINI.callJSON(prompt, '', { temperature: 0.5, maxOutputTokens: 2200 });
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.5, maxOutputTokens: 1800 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    const data = JSON.parse(match[0]);
 
     if (data.vocab && data.vocab.length) {
       let added = 0;
@@ -4967,7 +6257,10 @@ Trả lời EXACT JSON:
 }`;
 
     try {
-      const data = await GEMINI.callJSON(prompt, '', { temperature: 0.65, maxOutputTokens: 3000 });
+      const raw = await GEMINI.call(prompt, '', { temperature: 0.7, maxOutputTokens: 2500 });
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (!match) throw new Error('Invalid JSON');
+      const data = JSON.parse(match[0]);
 
       state.homework.current = {
         id: 'hw_' + Date.now(),
@@ -5045,6 +6338,40 @@ function renderActiveHomework() {
     `;
   }).join('');
 
+  const vocabList = (submitted && grading && grading.vocab) ? grading.vocab : [];
+  const vocabCardHtml = (submitted && grading) ? `
+    <div class="card hw-vocab-card" style="background:var(--bg-card); border:1px dashed var(--accent); padding:18px; margin-bottom:15px; border-radius:var(--radius);">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+        <div>
+          <h4 style="margin:0; font-size:1.05rem; font-weight:800; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+            <span>🎯</span> Ôn Tập & Kiểm Tra Từ Vựng Bài Tập Này ${vocabList.length ? `(${vocabList.length} từ)` : ''}
+          </h4>
+          <span style="font-size:0.8rem; color:var(--text-muted);">Các từ vựng cốt lõi được AI tự động tổng hợp từ đề bài và bài làm của bạn</span>
+        </div>
+        ${!vocabList.length ? `
+          <button class="btn btn-ghost btn-sm" onclick="extractHwVocabWithAI()">✨ AI Trích xuất từ vựng BTVN này</button>
+        ` : ''}
+      </div>
+
+      ${vocabList.length > 0 ? `
+        <div class="hw-vocab-chips" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;">
+          ${vocabList.map(v => `
+            <div class="hw-vocab-chip" style="background:var(--bg-input); border:1px solid var(--border); padding:6px 12px; border-radius:20px; font-size:0.85rem; display:flex; align-items:center; gap:6px;">
+              <span class="font-kr" style="font-weight:700; color:var(--accent-light);">${v.korean}</span>
+              <span style="color:var(--text-secondary);">(${v.meaning})</span>
+              <button class="mini-audio-btn" onclick="speakBilingual('${escStr(v.korean)}', '${escStr(v.meaning)}')">🔊</button>
+            </div>
+          `).join('')}
+        </div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-accent btn-md" onclick="startHwVocab10xPractice()">✏️ Luyện chép 10 lần các từ BTVN này</button>
+          <button class="btn btn-primary btn-md" onclick="startHwVocabQuiz()">❓ Kiểm tra Trắc nghiệm từ BTVN</button>
+          <button class="btn btn-ghost btn-sm" onclick="addHwVocabToWordList()">➕ Thêm vào Sổ từ vựng</button>
+        </div>
+      ` : ''}
+    </div>
+  ` : '';
+
   const gradeHeader = (submitted && grading) ? `
     <div class="card" style="background:linear-gradient(135deg, rgba(108,99,255,0.12), rgba(0,212,170,0.12)); border:1px solid var(--accent); padding:20px; margin-bottom:15px; text-align:center;">
       <div style="font-size:2rem; font-weight:900; color:var(--accent-light);">💯 Điểm số: ${grading.grade}</div>
@@ -5072,6 +6399,7 @@ function renderActiveHomework() {
         </div>
       </div>
       ${gradeHeader}
+      ${vocabCardHtml}
       <div style="display:flex; flex-direction:column; gap:16px;">${qsHtml}</div>
       ${actions}
     </div>
@@ -5117,6 +6445,7 @@ Yêu cầu chấm điểm:
 2. Cung cấp đáp án chuẩn ("correctAnswer") bằng tiếng Hàn hoặc tiếng Việt.
 3. Giải thích chi tiết ("explanation") tại sao đúng/sai, phân tích lỗi sai ngữ pháp, quy tắc chia động từ, từ vựng hoặc tiểu từ.
 4. Cho tổng điểm tổng quát (ví dụ "9.0 / 10" hoặc "85 / 100") và viết nhận xét chung ("feedback") khích lệ người học.
+5. TRÍCH XUẤT 4 TRẾN 8 TỪ VỰNG TIẾNG HÀN QUAN TRỌNG / MỚI NỔI BẬT ("vocab") xuất hiện trong bài tập, câu trả lời hoặc đáp án gợi ý để học sinh làm bài tập kiểm tra lại.
 
 Trả lời CHÍNH XÁC định dạng JSON (không thêm văn bản ngoài JSON):
 {
@@ -5130,11 +6459,22 @@ Trả lời CHÍNH XÁC định dạng JSON (không thêm văn bản ngoài JSON
       "correctAnswer": "câu trả lời chuẩn",
       "explanation": "giải thích chi tiết cách dùng từ & ngữ pháp"
     }
+  ],
+  "vocab": [
+    {
+      "korean": "từ_tiếng_Hàn",
+      "meaning": "nghĩa_tiếng_Việt",
+      "roman": "phiên_âm",
+      "example": "ví_dụ_ngắn"
+    }
   ]
 }`;
 
   try {
-    const grading = await GEMINI.callJSON(prompt, '', { temperature: 0.3, maxOutputTokens: 3400 });
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.3, maxOutputTokens: 3000 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('Invalid JSON');
+    const grading = JSON.parse(match[0]);
 
     hw.submitted = true;
     hw.grading = grading;
@@ -5153,24 +6493,132 @@ Trả lời CHÍNH XÁC định dạng JSON (không thêm văn bản ngoài JSON
   }
 }
 
+function addHwVocabToWordList() {
+  const hw = state.homework.current;
+  if (!hw || !hw.grading || !hw.grading.vocab || !hw.grading.vocab.length) {
+    showToast('⚠️ Không có từ vựng nào để thêm!', 'info');
+    return [];
+  }
+
+  const vocabList = hw.grading.vocab;
+  let addedCount = 0;
+  const addedWords = [];
+
+  vocabList.forEach(v => {
+    if (!v.korean) return;
+    const cleanKr = v.korean.trim();
+    let existing = state.words.find(w => w.korean.trim() === cleanKr);
+    if (!existing) {
+      existing = {
+        korean: cleanKr,
+        meaning: (v.meaning || '').trim(),
+        roman: (v.roman || cleanKr).trim(),
+        example: (v.example || '').trim(),
+        exampleViet: '',
+        pos: '명사',
+        lesson: 'Bài tập về nhà',
+        dateAdded: new Date().toISOString()
+      };
+      state.words.push(existing);
+      addedCount++;
+    }
+    addedWords.push(existing);
+  });
+
+  saveState();
+  if (typeof renderWordList === 'function') renderWordList();
+  if (addedCount > 0) {
+    showToast(`✅ Đã thêm ${addedCount} từ vựng BTVN vào Sổ từ vựng!`, 'success', 2500);
+  }
+  return addedWords;
+}
+
+function startHwVocab10xPractice() {
+  const addedWords = addHwVocabToWordList();
+  const hw = state.homework.current;
+  if (!hw || !hw.grading || !hw.grading.vocab || !hw.grading.vocab.length) return;
+
+  const firstKr = hw.grading.vocab[0].korean;
+  startQuick10xWord(firstKr);
+}
+
+function startHwVocabQuiz() {
+  const addedWords = addHwVocabToWordList();
+  const hw = state.homework.current;
+  if (!hw || !hw.grading || !hw.grading.vocab || !hw.grading.vocab.length) return;
+
+  if (state.words.length < 4) {
+    showToast('⚠️ Cần ít nhất 4 từ vựng trong hệ thống để mở Trắc nghiệm!', 'error');
+    return;
+  }
+
+  const firstKr = hw.grading.vocab[0].korean;
+  const words = getActiveWords();
+  const size = state.batchLearn.size || 20;
+  const batches = getBatches(words, size);
+  let foundBatchIdx = 0;
+  for (let i = 0; i < batches.length; i++) {
+    if (batches[i].some(w => w.korean === firstKr)) {
+      foundBatchIdx = i;
+      break;
+    }
+  }
+
+  setMode('batch');
+  startBatchTest(foundBatchIdx);
+}
+
+async function extractHwVocabWithAI() {
+  const hw = state.homework.current;
+  if (!hw) return;
+  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+
+  showToast('🤖 AI đang trích xuất danh sách từ vựng từ BTVN...', 'info');
+  const qaText = hw.questions.map((q, i) => `Câu ${i+1}: ${q.prompt}\nĐáp án: ${hw.userAnswers[i]||''}\n${hw.grading && hw.grading.results && hw.grading.results[i] ? 'Đáp án gợi ý: ' + (hw.grading.results[i].correctAnswer||'') : ''}`).join('\n\n');
+
+  const prompt = `Trích xuất 4 đến 8 từ vựng tiếng Hàn quan trọng/mới nhất có trong bài tập về nhà sau:
+${qaText}
+
+Trả lời CHÍNH XÁC định dạng JSON:
+{
+  "vocab": [
+    {"korean": "từ_Hàn", "meaning": "nghĩa_Việt", "roman": "phiên_âm", "example": "ví_dụ_ngắn"}
+  ]
+}`;
+
+  try {
+    const raw = await GEMINI.call(prompt, '', { temperature: 0.3 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const data = JSON.parse(match[0]);
+      if (!hw.grading) hw.grading = {};
+      hw.grading.vocab = data.vocab || [];
+      saveState();
+      renderActiveHomework();
+      showToast(`✅ Đã trích xuất ${hw.grading.vocab.length} từ vựng từ bài tập!`, 'success');
+    }
+  } catch(e) {
+    showToast('❌ Lỗi trích xuất từ vựng: ' + e.message, 'error');
+  }
+}
+
 function renderHomeworkHistory() {
   const listEl = document.getElementById('hwHistoryList');
   if (!listEl) return;
   const history = (state.homework && state.homework.history) || [];
   if (!history.length) {
     listEl.innerHTML = `<p style="color:var(--text-muted);font-size:0.82rem;padding:10px">Chưa có lịch sử làm BTVN.</p>`;
+    mountListPagination(listEl, 'homeworkHistory', { totalItems:0, totalPages:1, start:0, end:0, pg:getListPaginationState('homeworkHistory') }, 'bài');
     return;
   }
-  const paged = legacyPageSlice('homeworkHistory', history, 8, renderHomeworkHistory);
-  listEl.innerHTML = paged.items.map((item, idx) => `
-    <div class="hw-history-item" onclick="loadHistoryHomework(${paged.start + idx})">
-      <div class="hw-hist-top">
-        <span class="hw-hist-title">${item.title}</span>
-        ${item.grading ? `<span class="hw-hist-score">${item.grading.grade}</span>` : ''}
-      </div>
+  const entries = history.map((item, idx) => ({ item, idx }));
+  const meta = paginateList('homeworkHistory', entries, renderHomeworkHistory, 10);
+  listEl.innerHTML = meta.pageItems.map(({item, idx}) => `
+    <div class="hw-history-item" onclick="loadHistoryHomework(${idx})">
+      <div class="hw-hist-top"><span class="hw-hist-title">${item.title}</span>${item.grading ? `<span class="hw-hist-score">${item.grading.grade}</span>` : ''}</div>
       <span class="hw-hist-date">${item.date} • ${item.questions.length} câu</span>
-    </div>
-  `).join('') + legacyPagerHtml(paged, 'lần làm');
+    </div>`).join('');
+  mountListPagination(listEl, 'homeworkHistory', meta, 'bài');
 }
 
 function loadHistoryHomework(idx) {
@@ -5840,7 +7288,10 @@ QUY TẮC NGHIÊM NGẶT (PHẢI THỰC HIỆN ĐÚNG 100%):
 
 JSON trả về:
 {"questionText":"câu ${langFrom} chuẩn logic","answerText":"đáp án ${langTo} dịch sát nghĩa","hint":"gợi ý ngắn","vocabHints":["từ1","từ2"],"grammarNote":"cấu trúc ngữ pháp","explanation":"giải thích tiếng Việt"}`;
-  const p = await GEMINI.callJSON(prompt, '', { temperature:0.3, maxOutputTokens:900 });
+  const raw = await GEMINI.call(prompt, '', { temperature:0.3, maxOutputTokens:512 });
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('Bad JSON');
+  const p = JSON.parse(match[0]);
 
   if (p.questionText) {
     spState.recentQuestions.push(p.questionText);
@@ -5903,20 +7354,10 @@ async function spCheckAnswer() {
 async function spAIGrade(q, userAnswer) {
   const lesson = SP_BOOK_DATA[spState.lessonIdx];
   const dir = q.direction==='vn2kr'?'Tiếng Việt → Tiếng Hàn':'Tiếng Hàn → Tiếng Việt';
-  const prompt = `Bạn là giáo viên tiếng Hàn chấm bài dịch cho học sinh Việt Nam.
-NGUYÊN TẮC CHẤM:
-1. Chấm cởi mở, KHÔNG chấm quá gắt hay quá sát từng chữ. Nếu học sinh dịch đúng ý cốt lõi, diễn đạt tự nhiên và người Hàn có thể hiểu được thì cho ĐÚNG (score 80-100, verdict "correct").
-2. Nếu câu sai hoặc đúng một phần, phải GIẢI THÍCH KỸ TẠI SAO SAI bằng tiếng Việt (chỉ rõ sai ở điểm ngữ pháp nào, từ vựng nào hoặc tiểu từ nào) và cung cấp câu chuẩn.
-
-Bài học ${lesson.id}: ${lesson.title}
-Chiều dịch: ${dir}
-Câu gốc: "${q.questionText}"
-Đáp án chuẩn: "${q.answerText}"
-Bài của học sinh: "${userAnswer}"
-${q.grammarNote ? `Ngữ pháp bài: ${q.grammarNote}` : ''}
-
-Trả duy nhất JSON: {"score":<0-100>,"verdict":"<correct|partial|wrong>","note":"nhận xét động viên","corrected":"câu đúng chuẩn","explanation":"giải thích kỹ tại sao sai và cấu trúc đúng bằng tiếng Việt"}`;
-  return GEMINI.callJSON(prompt,'',{temperature:0.3,maxOutputTokens:800});
+  const prompt = `Chấm bài dịch tiếng Hàn cho học sinh Việt Nam.\nBài ${lesson.id}: ${lesson.title}\nChiều dịch: ${dir}\nCâu gốc: "${q.questionText}"\nĐáp án chuẩn: "${q.answerText}"\nCâu học sinh: "${userAnswer}"\n${q.grammarNote?`Ngữ pháp: ${q.grammarNote}`:''}\n\nJSON: {"score":<0-100>,"verdict":"<correct|partial|wrong>","note":"nhận xét 1-2 câu tiếng Việt","corrected":"câu đúng","explanation":"giải thích ngữ pháp tiếng Việt"}`;
+  const raw = await GEMINI.call(prompt,'',{temperature:0.3,maxOutputTokens:400});
+  const match = raw.match(/\{[\s\S]*\}/); if (!match) throw new Error('Bad JSON');
+  return JSON.parse(match[0]);
 }
 
 function spBasicCheck(user, correct) {
@@ -6321,7 +7762,7 @@ function initNumbersPage() {
 }
 
 function loadPersonalNumNotes() {
-  const saved = localStorage.getItem(classroomScopedStorageKey('hq_num_personal_notes')) || '';
+  const saved = localStorage.getItem('hq_num_personal_notes') || '';
   const textarea = document.getElementById('numPersonalNotes');
   if (textarea) textarea.value = saved;
 }
@@ -6332,7 +7773,7 @@ function savePersonalNumNotes(val) {
   if (status) status.textContent = '⏳ Đang lưu...';
   if (numNotesTimeout) clearTimeout(numNotesTimeout);
   numNotesTimeout = setTimeout(() => {
-    localStorage.setItem(classroomScopedStorageKey('hq_num_personal_notes'), val);
+    localStorage.setItem('hq_num_personal_notes', val);
     if (status) status.textContent = '✔ Đã lưu';
   }, 400);
 }
@@ -6340,8 +7781,8 @@ function savePersonalNumNotes(val) {
 function renderSinoTable() {
   const grid = document.getElementById('sinoTableGrid');
   if (!grid) return;
-  const paged = legacyPageSlice('sinoNumbers', SINO_NUMBERS_DATA, 12, renderSinoTable);
-  grid.innerHTML = paged.items.map(item => `
+  const meta = paginateList('sinoNumbers', SINO_NUMBERS_DATA, renderSinoTable, 20);
+  grid.innerHTML = meta.pageItems.map(item => `
     <div class="num-card-item">
       <div>
         <div class="num-val">${item.val.toLocaleString()}</div>
@@ -6350,14 +7791,15 @@ function renderSinoTable() {
       </div>
       <button class="mini-audio-btn" onclick="TTS.speak('${item.kr.split('/')[0].trim()}')" title="Nghe">🔊</button>
     </div>
-  `).join('') + legacyPagerHtml(paged, 'số');
+  `).join('');
+  mountListPagination(grid, 'sinoNumbers', meta, 'số');
 }
 
 function renderNativeTable() {
   const grid = document.getElementById('nativeTableGrid');
   if (!grid) return;
-  const paged = legacyPageSlice('nativeNumbers', NATIVE_NUMBERS_DATA, 12, renderNativeTable);
-  grid.innerHTML = paged.items.map(item => `
+  const meta = paginateList('nativeNumbers', NATIVE_NUMBERS_DATA, renderNativeTable, 20);
+  grid.innerHTML = meta.pageItems.map(item => `
     <div class="num-card-item">
       <div>
         <div class="num-val">${item.val}</div>
@@ -6367,7 +7809,8 @@ function renderNativeTable() {
       </div>
       <button class="mini-audio-btn" onclick="TTS.speak('${item.kr}')" title="Nghe">🔊</button>
     </div>
-  `).join('') + legacyPagerHtml(paged, 'số');
+  `).join('');
+  mountListPagination(grid, 'nativeNumbers', meta, 'số');
 }
 
 function switchNumTab(tab) {
@@ -6460,7 +7903,6 @@ function runNumConverter(val) {
 
 // ============ NOTEBOOK MODULE ============
 const NB_STORAGE_KEY = 'hq_notebook_v2';
-const notebookStorageKey = () => classroomScopedStorageKey(NB_STORAGE_KEY);
 const NB_DEFAULT_TABS = [
   { id: 'tab_1', name: '📒 Ghi chú chung', content: '' },
   { id: 'tab_2', name: '📘 Từ vựng', content: '' },
@@ -6480,7 +7922,7 @@ function initNotebook() {
 
 function loadNbState() {
   try {
-    const raw = localStorage.getItem(notebookStorageKey());
+    const raw = localStorage.getItem(NB_STORAGE_KEY);
     if (raw) {
       nbState = JSON.parse(raw);
       if (!nbState.tabs || nbState.tabs.length === 0) nbState.tabs = NB_DEFAULT_TABS.map(t => ({...t}));
@@ -6497,7 +7939,7 @@ function saveNbState() {
   if (status) status.textContent = '⏳ Đang lưu...';
   if (nbSaveTimer) clearTimeout(nbSaveTimer);
   nbSaveTimer = setTimeout(() => {
-    localStorage.setItem(notebookStorageKey(), JSON.stringify(nbState));
+    localStorage.setItem(NB_STORAGE_KEY, JSON.stringify(nbState));
     if (status) status.textContent = '✔ Đã lưu';
   }, 400);
 }
@@ -7155,8 +8597,8 @@ function renderIrregularsList() {
 
   const filtered = currentIrrFilter === 'all' ? IRREGULAR_DATA : IRREGULAR_DATA.filter(item => item.id === currentIrrFilter);
 
-  const paged = legacyPageSlice('irregularRules', filtered, 3, renderIrregularsList);
-  container.innerHTML = paged.items.map(item => `
+  const meta = paginateList('irregularRules', filtered, renderIrregularsList, 10);
+  container.innerHTML = meta.pageItems.map(item => `
     <div class="irr-card" id="irr-rule-${item.id}">
       <div class="irr-card-header">
         <div class="irr-card-title">
@@ -7211,7 +8653,8 @@ function renderIrregularsList() {
         </div>
       ` : ''}
     </div>
-  `).join('') + legacyPagerHtml(paged, 'quy tắc');
+  `).join('');
+  mountListPagination(container, 'irregularRules', meta, 'quy tắc');
 }
 
 function testIrrConjugate() {
