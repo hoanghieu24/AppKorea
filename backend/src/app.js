@@ -906,6 +906,49 @@ function gradeShortTextStrict(question, answer) {
   };
 }
 
+function shouldStrictCheckEssay(question) {
+  const reference = String(question.correct_answer || '').trim();
+  if (!reference) return false;
+
+  // Bài dịch/từ vựng/câu ngắn có đáp án mẫu thì 100% chỉ khi thật sự đúng.
+  // Không áp dụng cho bài tự luận dài không có đáp án chuẩn rõ ràng.
+  const normalizedReference = normalizeStrictAnswer(reference);
+  return normalizedReference.length > 0 && normalizedReference.length <= 120;
+}
+
+function capEssayScoreAgainstReference(question, answer, result) {
+  if (!shouldStrictCheckEssay(question)) return result;
+
+  const strict = gradeShortTextStrict(question, answer);
+  const maxPoints = Number(question.points || 0);
+
+  // Khớp đáp án chuẩn => được phép 100%.
+  if (strict.isCorrect) {
+    return {
+      ...result,
+      awarded: maxPoints,
+      isCorrect: true,
+      feedback: result.feedback || 'Chính xác.',
+    };
+  }
+
+  // Có lỗi chính tả/ký tự/trợ từ/... thì tuyệt đối không cho full điểm,
+  // dù AI có chấm dễ tay.
+  const strictAwarded = Number(strict.awarded || 0);
+  const aiAwarded = Math.max(0, Math.min(maxPoints, Number(result?.awarded || 0)));
+
+  // Với câu ngắn có đáp án chuẩn: lấy mức nghiêm hơn giữa rule và AI.
+  // Nhờ đó kiểu 안녕하세오 ≠ 안녕하세요 sẽ không còn 1/1.
+  const awarded = Math.min(aiAwarded, strictAwarded);
+
+  return {
+    ...result,
+    awarded,
+    isCorrect: false,
+    feedback: strict.feedback || result.feedback || 'Chưa chính xác.',
+  };
+}
+
 async function gradeAssignmentAnswers(questions, answers) {
   const useAi = await aiEnabled();
   const results = [];
@@ -921,6 +964,10 @@ async function gradeAssignmentAnswers(questions, answers) {
           result.feedback += ' AI tạm thời không phản hồi nên hệ thống dùng chấm dự phòng.';
         }
       } else result = gradeEssayFallback(question, answer);
+
+      // ESSAY trong app hiện cũng được dùng cho câu dịch/câu ngắn có đáp án mẫu.
+      // Hậu kiểm cứng để AI không thể cho 100% khi vẫn còn lỗi.
+      result = capEssayScoreAgainstReference(question, answer, result);
     } else if (question.type === 'SHORT_TEXT') {
       result = gradeShortTextStrict(question, answer);
     } else {
@@ -948,7 +995,7 @@ async function gradeAssignmentAnswers(questions, answers) {
     try {
       const compact = results.map((item) => ({ topic: item.topic, correct: item.isCorrect, score: item.awarded, max: item.points, feedback: item.feedback }));
       const aiSummary = await generateTextWithAI({
-        systemPrompt: 'Bạn là giáo viên tiếng Hàn ân cần nhưng chấm bài nghiêm túc. Điểm số và trạng thái đúng/sai trong dữ liệu là kết quả chính thức, tuyệt đối không được nâng điểm hoặc gọi một câu sai là hoàn hảo. Với lỗi chính tả, thừa ký tự, sai trợ từ, sai đuôi câu hoặc sai chia động từ, phải chỉ rõ lỗi và cách sửa. Chỉ khen 100% khi mọi câu thực sự đúng. Nhận xét bằng tiếng Việt, 3-4 câu ngắn gọn, rõ ràng, không dùng markdown.',
+        systemPrompt: 'Bạn là giáo viên tiếng Hàn ân cần nhưng chấm bài nghiêm túc. Tuyệt đối KHÔNG tự tính lại điểm. Trường score/max và correct trong dữ liệu là kết quả chính thức của hệ thống; nhận xét phải khớp chính xác với các con số đó. Nếu correct=false thì không được gọi câu đó là đúng. Nếu score < max thì không được nói học sinh đạt điểm tối đa. Với lỗi chính tả, thừa ký tự, sai trợ từ, sai đuôi câu hoặc sai chia động từ, phải chỉ rõ lỗi và cách sửa. Nhận xét bằng tiếng Việt, 3-4 câu ngắn gọn, rõ ràng, không dùng markdown.',
         prompt: `Kết quả bài làm: ${JSON.stringify(compact)}`,
         temperature: 0.25,
         maxOutputTokens: 400,
