@@ -384,12 +384,13 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .teacher-ai-input-row { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #ece9ff; background: #faf9ff; }
 .teacher-ai-input-row input { flex: 1; border: 1px solid #dcd8ff; border-radius: 10px; padding: 8px 12px; font-size: .84rem; background: #fff; }
 .teacher-ai-input-row input:focus { outline: none; border-color: var(--purple); }
-.report-list { display: grid; }
-.report-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); padding: 10px 0; }
+.report-list { display: grid; gap: 0; }
+.report-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); padding: 12px 0; }
 .report-row:last-child { border-bottom: 0; }
-.report-row .grow { display: grid; gap: 3px; }
+.report-row .grow { display: grid; gap: 3px; flex: 1; min-width: 0; }
 .report-row strong { font-size: .92rem; }
 .report-row span, .report-row small { color: var(--muted); font-size: .84rem; line-height: 1.5; }
+.report-row-header { display: flex; align-items: center; gap: 10px; }
 .submit-state { background: #f1f0f4; padding: 5px 7px; border-radius: 8px; }
 .submit-state.done { background: var(--green-soft); color: #18885b; }
 
@@ -879,8 +880,30 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
   .stats-inline { grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
   .stats-inline > div { padding: 8px 6px; display: grid; gap: 3px; justify-items: center; text-align: center; }
   .stats-inline span { font-size: .65rem; }
-  .report-row { align-items: flex-start; flex-wrap: wrap; }
-  .submit-state { margin-left: 44px; }
+  /* Teacher student review: full-width cards on mobile */
+  .report-list { gap: 12px; }
+  .report-row { flex-direction: column; align-items: stretch; border-bottom: 0; padding: 0; background: #fff; border: 1px solid #e8e5f0; border-radius: 16px; overflow: hidden; }
+  .report-row-attempts { align-items: stretch; }
+  .report-row-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px 10px; border-bottom: 1px solid #f0edf8; background: #faf9ff; }
+  .report-row-header strong { font-size: 1rem; font-weight: 700; flex: 1; color: #2d2b3e; }
+  .report-row .grow { padding: 12px 14px 14px; gap: 10px; }
+  .report-row .grow > span:first-child { font-size: .9rem !important; font-weight: 600; color: #4338ca !important; }
+  .report-row span, .report-row small { font-size: .88rem; line-height: 1.6; color: #555264; }
+  .submit-state { align-self: flex-start; margin-left: 0; margin-top: 0; flex-shrink: 0; font-size: .78rem; padding: 4px 10px; border-radius: 99px; }
+  /* Bigger font on mobile for AI feedback */
+  .student-ai-summary { font-size: .92rem !important; line-height: 1.7 !important; padding: 11px 13px; }
+  .attempt-history summary { font-size: .9rem; padding: 6px 0; }
+  .attempt-history article { padding: 14px 16px; }
+  .attempt-history article p { font-size: .92rem; line-height: 1.7; }
+  .attempt-history article > span { font-size: .8rem; }
+  .attempt-feedback { gap: 12px; margin-top: 12px; padding-top: 12px; }
+  .attempt-feedback li { padding: 12px 14px; border-radius: 12px; gap: 8px; }
+  .attempt-feedback strong { font-size: .9rem !important; }
+  .attempt-feedback span { font-size: .9rem !important; line-height: 1.65 !important; }
+  .student-ans-text { font-size: .92rem !important; padding: 9px 12px; line-height: 1.7; }
+  .student-ans-text b { font-size: .8rem; }
+  .ai-fb-text { font-size: .92rem !important; padding: 9px 12px; line-height: 1.7; }
+  .ai-fb-text b { font-size: .8rem; }
   .vocab-toolbar { align-items: stretch; flex-direction: column; gap: 10px; }
   .vocab-toolbar label { min-width: 0; }
   .vocab-teacher-grid { grid-template-columns: 1fr; }

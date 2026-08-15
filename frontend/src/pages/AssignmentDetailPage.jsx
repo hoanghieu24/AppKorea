@@ -295,9 +295,12 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
           <div className="report-list">
             {report.students.map((student) => (
               <div className="report-row report-row-attempts" key={student.id}>
-                <div className="avatar small">{student.fullName.slice(0, 1)}</div>
+                <div className="report-row-header">
+                  <div className="avatar small">{student.fullName.slice(0, 1)}</div>
+                  <strong style={{ flex: 1 }}>{student.fullName}</strong>
+                  <span className={`submit-state ${student.submitted ? 'done' : ''}`}>{student.submitted ? 'Đã nộp' : 'Chưa nộp'}</span>
+                </div>
                 <div className="grow">
-                  <strong>{student.fullName}</strong>
                   <span>{student.submitted ? `Đã nộp · ${Math.round(student.percentage)}%` : student.attemptCount ? `Đang làm · đã check AI ${student.attemptCount} lần` : 'Chưa làm bài'}</span>
                   {student.summary && <small className="student-ai-summary">AI: {student.summary}</small>}
                   {student.weakTopics?.length ? <small>Cần ôn: {student.weakTopics.map((t) => `${t.topic} (${t.mastery}%)`).join(', ')}</small> : null}
@@ -336,7 +339,6 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
                     );
                   })()}
                 </div>
-                <span className={`submit-state ${student.submitted ? 'done' : ''}`}>{student.submitted ? 'Đã nộp' : 'Chưa nộp'}</span>
               </div>
             ))}
           </div>
