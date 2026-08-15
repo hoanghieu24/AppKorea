@@ -436,6 +436,34 @@ app.delete('/api/admin/classes/:id/students/:studentId', requireAuth, requireRol
   res.json({ message: 'Đã gỡ học sinh khỏi lớp.' });
 });
 
+app.get('/api/tts', async (req, res) => {
+  const text = String(req.query.text || '').trim();
+  const lang = String(req.query.lang || 'ko').trim().toLowerCase().slice(0, 5);
+  if (!text) return res.status(400).send('Thiếu nội dung');
+  if (text.length > 500) return res.status(400).send('Văn bản quá dài');
+
+  try {
+    const langCode = lang.startsWith('vi') ? 'vi' : 'ko';
+    const googleUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode}&client=tw-ob&q=${encodeURIComponent(text)}`;
+    const resp = await fetch(googleUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Referer': 'https://translate.google.com/',
+      },
+    });
+    if (!resp.ok) {
+      return res.status(resp.status).send('Lỗi TTS nguồn');
+    }
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    const buffer = await resp.arrayBuffer();
+    return res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error('Lỗi TTS proxy:', err?.message);
+    return res.status(500).send('Lỗi máy chủ TTS');
+  }
+});
+
 const adminSettingsInput = z.object({
   apiKey: z.string().max(500).optional().default(''),
   clearApiKey: z.boolean().optional().default(false),

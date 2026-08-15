@@ -284,54 +284,55 @@ const TTS = {
   },
 
   speakOnlineHD(text, lang = 'ko-KR', onEnd = null) {
-    try {
-      const langCode = (lang || 'ko-KR').split('-')[0];
-      // Use Google Translate TTS endpoint with highest compatibility
-      const url = `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=${langCode}&q=${encodeURIComponent(text)}`;
+    const langCode = (lang || 'ko-KR').split('-')[0];
+    const encoded = encodeURIComponent(text);
+
+    // List of TTS audio sources to try in sequence
+    const sources = [
+      `/api/tts?text=${encoded}&lang=${langCode}`,
+      `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode}&client=tw-ob&q=${encoded}`,
+      `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=${langCode}&q=${encoded}`
+    ];
+
+    let currentSourceIndex = 0;
+
+    const tryPlayNext = () => {
+      if (currentSourceIndex >= sources.length) {
+        TTS.speakWebSpeech(text, lang, onEnd);
+        return;
+      }
+
+      const url = sources[currentSourceIndex++];
       const audio = new Audio(url);
-      audio.playbackRate = TTS.rate || 0.92;
+      audio.playbackRate = TTS.rate || 0.88;
       TTS.currentAudio = audio;
 
       audio.onended = () => {
         TTS.currentAudio = null;
         if (onEnd) onEnd();
       };
+
       audio.onerror = () => {
-        // Fallback to secondary Google endpoint before webspeech
-        const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode}&client=tw-ob&q=${encodeURIComponent(text)}`;
-        const fbAudio = new Audio(fallbackUrl);
-        fbAudio.playbackRate = TTS.rate || 0.92;
-        TTS.currentAudio = fbAudio;
-        fbAudio.onended = () => {
-          TTS.currentAudio = null;
-          if (onEnd) onEnd();
-        };
-        fbAudio.onerror = () => {
-          TTS.speakWebSpeech(text, lang, onEnd);
-        };
-        const p2 = fbAudio.play();
-        if (p2 !== undefined) {
-          p2.catch(() => TTS.speakWebSpeech(text, lang, onEnd));
-        }
+        tryPlayNext();
       };
 
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(() => {
-          TTS.speakWebSpeech(text, lang, onEnd);
+          tryPlayNext();
         });
       }
-    } catch(e) {
-      TTS.speakWebSpeech(text, lang, onEnd);
-    }
+    };
+
+    tryPlayNext();
   },
 
   speakWebSpeech(text, lang = 'ko-KR', onEnd = null) {
     if (!window.speechSynthesis) { if (onEnd) onEnd(); return; }
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
-    u.rate = TTS.rate || 0.9;
-    u.pitch = TTS.pitch || 1.0;
+    u.rate = TTS.rate || 0.85; // Tốc độ vừa vặn, dễ nghe, không bị dính chữ
+    u.pitch = TTS.pitch || 1.05; // Cao độ trong trẻo, tự nhiên
     if (lang.startsWith('vi')) {
       const viVoices = (TTS.voices || []).filter(v => v.lang && v.lang.toLowerCase().replace('_', '-').startsWith('vi'));
       if (viVoices.length > 0) u.voice = viVoices[0];

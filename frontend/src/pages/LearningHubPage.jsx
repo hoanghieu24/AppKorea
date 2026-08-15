@@ -99,7 +99,7 @@ export default function LearningHubPage({ user }) {
   }, [syncToLearningEngine]);
 
   useEffect(() => {
-    const allowedBridgePaths = new Set(['/learning/ai', '/learning/state', '/learning/settings']);
+    const allowedBridgePaths = new Set(['/learning/ai', '/learning/state', '/learning/settings', '/tts']);
 
     const handleBridge = async (event) => {
       if (event.origin !== window.location.origin || event.source !== frameRef.current?.contentWindow) return;
