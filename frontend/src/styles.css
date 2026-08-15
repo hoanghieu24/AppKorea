@@ -508,25 +508,27 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .preview-result small { color: #8d899b; }
 .submit-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .report-row-attempts { align-items: flex-start; }
-.student-ai-summary { color: #4338ca !important; font-size: .86rem !important; line-height: 1.55 !important; margin-top: 5px; display: block; background: #eeebff; padding: 7px 10px; border-radius: 8px; }
+.student-ai-summary { color: #1e1b30 !important; font-size: .86rem !important; line-height: 1.6 !important; margin-top: 6px; display: block; background: #f4f3f8; border: 1px solid #e2deec; padding: 9px 11px; border-radius: 10px; }
 .attempt-history { margin-top: 7px; }
-.attempt-history summary { cursor: pointer; color: var(--purple); font-size: .84rem; font-weight: 750; padding: 4px 0; }
+.attempt-history summary { cursor: pointer; color: #4338ca; font-size: .84rem; font-weight: 700; padding: 4px 0; list-style: none; display: flex; align-items: center; gap: 5px; }
+.attempt-history summary::before { content: '▼'; font-size: .7rem; transition: transform .2s; }
+.attempt-history:not([open]) summary::before { transform: rotate(-90deg); }
 .attempt-history > div { display: grid; gap: 8px; margin-top: 7px; }
-.attempt-history article { padding: 11px 13px; border: 1px solid #e2dedf; background: #faf9fd; border-radius: 11px; }
+.attempt-history article { padding: 12px 14px; border: 1px solid #ddd9e8; background: #fff; border-radius: 12px; margin-top: 8px; }
 .attempt-history article > div { display: flex; align-items: center; gap: 7px; justify-content: space-between; }
 .attempt-history article strong { font-size: .88rem; color: #3730a3; }
 .attempt-history article b { color: #17855a; background: var(--green-soft); padding: 4px 7px; border-radius: 6px; font-size: .72rem; }
 .attempt-history article > span { display: block; margin-top: 3px; font-size: .75rem; color: #888496; }
-.attempt-history article p { margin: 6px 0 0; font-size: .86rem; color: #444054; line-height: 1.55; }
-.attempt-feedback { list-style: none; display: grid; gap: 8px; margin: 9px 0 0; padding: 9px 0 0; border-top: 1px solid #e5e2f0; }
-.attempt-feedback li { display: grid; gap: 4px; background: #fff; border: 1px solid #e8e5f2; padding: 9px 11px; border-radius: 8px; }
-.attempt-feedback strong { color: #4338ca; font-size: .88rem !important; font-weight: 700 !important; }
-.attempt-feedback span { color: #2d2b38 !important; font-size: .86rem !important; line-height: 1.5 !important; }
-.attempt-ans-box { display: grid; gap: 4px; margin-top: 3px; }
-.student-ans-text { font-size: .88rem !important; color: #1e1b4b !important; font-family: "Noto Sans KR", sans-serif; line-height: 1.5; }
-.student-ans-text b { color: #4f46e5; font-size: .8rem; margin-right: 4px; }
-.ai-fb-text { font-size: .84rem !important; color: #4b5563 !important; line-height: 1.5; }
-.ai-fb-text b { color: #059669; font-size: .8rem; margin-right: 4px; }
+.attempt-history article p { margin: 6px 0 0; font-size: .86rem; color: #2d2a3e; line-height: 1.6; }
+.attempt-feedback { list-style: none; display: grid; gap: 10px; margin: 10px 0 0; padding: 10px 0 0; border-top: 1px solid #e5e2f0; }
+.attempt-feedback li { display: grid; gap: 5px; background: #f9f8fc; border: 1px solid #e5e2f0; padding: 10px 12px; border-radius: 10px; }
+.attempt-feedback strong { color: #312e52; font-size: .88rem !important; font-weight: 700 !important; }
+.attempt-feedback span { color: #1e1b30 !important; font-size: .86rem !important; line-height: 1.6 !important; }
+.attempt-ans-box { display: grid; gap: 6px; margin-top: 4px; }
+.student-ans-text { font-size: .88rem !important; color: #1e1b2e !important; font-family: "Noto Sans KR", sans-serif; line-height: 1.6; background: #f0eeff; border-radius: 7px; padding: 6px 9px; }
+.student-ans-text b { color: #4338ca; font-size: .78rem; font-weight: 700; margin-right: 5px; display: block; margin-bottom: 2px; }
+.ai-fb-text { font-size: .86rem !important; color: #1e293b !important; line-height: 1.65; background: #f0faf5; border-radius: 7px; padding: 6px 9px; }
+.ai-fb-text b { color: #059669; font-size: .78rem; font-weight: 700; margin-right: 5px; display: block; margin-bottom: 2px; }
 
 /* Toast for completed actions */
 .app-toast { position: fixed; right: 20px; top: 20px; z-index: 200; width: min(390px, calc(100vw - 32px)); min-height: 50px; display: flex; align-items: center; gap: 9px; padding: 11px 12px; border: 1px solid #cceedd; border-radius: 13px; color: #236c50; background: rgba(242,255,249,.98); box-shadow: 0 14px 38px rgba(32,70,55,.15); animation: toast-in .2s ease-out; }
