@@ -187,10 +187,11 @@ Hãy giải thích ngắn gọn (100-150 từ tiếng Việt):
 };
 
 // ============ VOICE / TTS (High Quality Audio Engine) ============
+// ============ VOICE / TTS (High Quality Audio Engine - Google Voice) ============
 const TTS = {
   voices: [],
   selectedVoice: null,
-  rate: 0.9,
+  rate: 0.92,
   pitch: 1.0,
   useOnlineAudio: true,
   currentAudio: null,
@@ -214,7 +215,11 @@ const TTS = {
     if (savedRate) TTS.rate = parseFloat(savedRate);
     if (savedPitch) TTS.pitch = parseFloat(savedPitch);
     if (savedVoice) TTS.savedVoiceName = savedVoice;
-    if (savedMode !== null) TTS.useOnlineAudio = savedMode === 'online';
+    if (savedMode !== null) {
+      TTS.useOnlineAudio = savedMode === 'online';
+    } else {
+      TTS.useOnlineAudio = true; // Default to Google Voice Online
+    }
   },
 
   findBestKoreanVoice() {
@@ -225,9 +230,9 @@ const TTS = {
       if (found) { TTS.selectedVoice = found; return; }
     }
     TTS.selectedVoice =
+      kr.find(v => v.name.includes('Google') || v.name.includes('한국')) ||
       kr.find(v => v.name.includes('Natural') || v.name.includes('Neural')) ||
       kr.find(v => v.name.includes('Sun-Hi') || v.name.includes('InJoon') || v.name.includes('Heami')) ||
-      kr.find(v => v.name.includes('Google')) ||
       kr.find(v => v.name.includes('Microsoft')) ||
       kr[0] || null;
   },
@@ -237,7 +242,7 @@ const TTS = {
     if (!sel) return;
     const kr = TTS.voices.filter(v => v.lang && v.lang.toLowerCase().replace('_', '-').startsWith('ko'));
 
-    let html = `<option value="ONLINE_HD" ${TTS.useOnlineAudio ? 'selected' : ''}>🌟 Giọng Hàn HD Tự Nhiên (Online - Chuẩn nhất)</option>`;
+    let html = `<option value="ONLINE_HD" ${TTS.useOnlineAudio ? 'selected' : ''}>🌟 Giọng Google Tiếng Hàn Chuẩn (Dễ nghe, tự nhiên)</option>`;
     if (kr.length > 0) {
       html += kr.map(v =>
         `<option value="${escStr(v.name)}" ${(!TTS.useOnlineAudio && TTS.selectedVoice?.name === v.name) ? 'selected' : ''}>${v.name} (${v.lang})</option>`
@@ -263,7 +268,10 @@ const TTS = {
     const cleanText = text.trim();
 
     if (TTS.currentAudio) {
-      TTS.currentAudio.pause();
+      try {
+        TTS.currentAudio.pause();
+        TTS.currentAudio.currentTime = 0;
+      } catch(e) {}
       TTS.currentAudio = null;
     }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
@@ -278,9 +286,10 @@ const TTS = {
   speakOnlineHD(text, lang = 'ko-KR', onEnd = null) {
     try {
       const langCode = (lang || 'ko-KR').split('-')[0];
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${langCode}&client=tw-ob`;
+      // Use Google Translate TTS endpoint with highest compatibility
+      const url = `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=${langCode}&q=${encodeURIComponent(text)}`;
       const audio = new Audio(url);
-      audio.playbackRate = TTS.rate || 0.9;
+      audio.playbackRate = TTS.rate || 0.92;
       TTS.currentAudio = audio;
 
       audio.onended = () => {
@@ -288,7 +297,22 @@ const TTS = {
         if (onEnd) onEnd();
       };
       audio.onerror = () => {
-        TTS.speakWebSpeech(text, lang, onEnd);
+        // Fallback to secondary Google endpoint before webspeech
+        const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode}&client=tw-ob&q=${encodeURIComponent(text)}`;
+        const fbAudio = new Audio(fallbackUrl);
+        fbAudio.playbackRate = TTS.rate || 0.92;
+        TTS.currentAudio = fbAudio;
+        fbAudio.onended = () => {
+          TTS.currentAudio = null;
+          if (onEnd) onEnd();
+        };
+        fbAudio.onerror = () => {
+          TTS.speakWebSpeech(text, lang, onEnd);
+        };
+        const p2 = fbAudio.play();
+        if (p2 !== undefined) {
+          p2.catch(() => TTS.speakWebSpeech(text, lang, onEnd));
+        }
       };
 
       const playPromise = audio.play();
@@ -311,20 +335,21 @@ const TTS = {
     if (lang.startsWith('vi')) {
       const viVoices = (TTS.voices || []).filter(v => v.lang && v.lang.toLowerCase().replace('_', '-').startsWith('vi'));
       if (viVoices.length > 0) u.voice = viVoices[0];
-    } else if (TTS.selectedVoice) {
-      u.voice = TTS.selectedVoice;
+    } else {
+      if (!TTS.selectedVoice) TTS.findBestKoreanVoice();
+      if (TTS.selectedVoice) u.voice = TTS.selectedVoice;
     }
     if (onEnd) u.onend = onEnd;
 
     setTimeout(() => {
       if (speechSynthesis.paused) speechSynthesis.resume();
-    }, 50);
+    }, 40);
 
     window.speechSynthesis.speak(u);
   },
 
   test() {
-    TTS.speak('안녕하세요! 음성이 맑고 자연스럽나요?');
+    TTS.speak('안녕하세요! 한국어 발음이 맑고 듣기 편한가요?');
   }
 };
 

@@ -160,7 +160,35 @@ function StudentVocabulary({ words, query, setQuery, pagination, loading, setPag
     return map;
   }, {}), [words]);
 
-  const speak = (text) => { if (!window.speechSynthesis) return; window.speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(text); utterance.lang = 'ko-KR'; utterance.rate = 0.85; window.speechSynthesis.speak(utterance); };
+  const speak = (text) => {
+    if (!text || !text.trim()) return;
+    const cleanText = text.trim();
+    try {
+      const url = `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=ko&q=${encodeURIComponent(cleanText)}`;
+      const audio = new Audio(url);
+      audio.playbackRate = 0.92;
+      const playPromise = audio.play();
+      if (playPromise) {
+        playPromise.catch(() => fallbackSpeak(cleanText));
+      }
+    } catch {
+      fallbackSpeak(cleanText);
+    }
+  };
+
+  const fallbackSpeak = (cleanText) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'ko-KR';
+    utterance.rate = 0.88;
+    const voices = window.speechSynthesis.getVoices().filter((v) => v.lang?.toLowerCase().replace('_', '-').startsWith('ko'));
+    const bestVoice = voices.find((v) => v.name.includes('Google') || v.name.includes('한국')) ||
+      voices.find((v) => v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Sun-Hi') || v.name.includes('InJoon')) ||
+      voices[0];
+    if (bestVoice) utterance.voice = bestVoice;
+    window.speechSynthesis.speak(utterance);
+  };
   return <section className="panel">
     <div className="student-vocab-head">
       <div className="vocab-search"><Search size={18} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm từ vựng hoặc nghĩa tiếng Hàn..." /></div>
