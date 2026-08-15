@@ -50,6 +50,8 @@ const fromMap = (map) => ({
   voiceName: map.get('voice_name') || defaults.voiceName,
   personality: map.get('ai_personality') || defaults.personality,
   theme: map.get('learning_theme') || defaults.theme,
+  announcementText: map.get('announcement_text') || '',
+  announcementEnabled: map.get('announcement_enabled') === '1',
 });
 
 export async function getAiRuntimeSettings() {
@@ -82,6 +84,8 @@ export async function saveAdminSettings(input, userId) {
     ['voice_name', input.voiceName || ''],
     ['ai_personality', input.personality],
     ['learning_theme', input.theme],
+    ['announcement_text', input.announcementText || ''],
+    ['announcement_enabled', input.announcementEnabled ? '1' : '0'],
   ]);
   if (input.clearApiKey) updates.set('gemini_api_key', '');
   else if (input.apiKey?.trim()) updates.set('gemini_api_key', encryptSecret(input.apiKey.trim()));

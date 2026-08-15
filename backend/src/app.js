@@ -474,6 +474,16 @@ const adminSettingsInput = z.object({
   voiceName: z.string().max(160).optional().default(''),
   personality: z.enum(['hana', 'minho', 'yuri']),
   theme: z.enum(['light', 'dark']),
+  announcementText: z.string().max(2000).optional().default(''),
+  announcementEnabled: z.boolean().optional().default(false),
+});
+
+app.get('/api/announcement', async (_req, res) => {
+  const settings = await getSafeLearningSettings();
+  res.json({
+    text: settings.announcementEnabled ? settings.announcementText : '',
+    enabled: Boolean(settings.announcementEnabled && settings.announcementText?.trim()),
+  });
 });
 
 app.get('/api/admin/settings', requireAuth, requireRole('ADMIN'), async (_req, res) => {
@@ -484,7 +494,7 @@ app.put('/api/admin/settings', requireAuth, requireRole('ADMIN'), async (req, re
   const input = adminSettingsInput.safeParse(req.body);
   if (!input.success) return badRequest(res, 'Cấu hình hệ thống chưa hợp lệ.');
   const settings = await saveAdminSettings(input.data, req.user.id);
-  res.json({ message: 'Đã lưu cấu hình AI & Phòng tự học.', settings });
+  res.json({ message: 'Đã lưu cấu hình hệ thống & thông báo toàn trang.', settings });
 });
 
 app.post('/api/admin/settings/ai/test', requireAuth, requireRole('ADMIN'), async (req, res) => {

@@ -775,4 +775,95 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .student-grammar-card strong { display: block; font-size: .88rem; color: #312e81; font-weight: 800; }
 .student-grammar-card p { margin: 2px 0 0; font-size: .7rem; color: var(--muted); line-height: 1.35; }
 
+/* ===== Global Running Announcement Bar ===== */
+.global-announcement-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(90deg, #fff7ed 0%, #ffedd5 50%, #fef3c7 100%);
+  border-bottom: 1px solid #fed7aa;
+  padding: 8px 16px;
+  color: #9a3412;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  font-size: .84rem;
+  overflow: hidden;
+}
+
+.global-announcement-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ea580c;
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(234, 88, 12, 0.25);
+  animation: announcement-pulse 2s infinite ease-in-out;
+}
+
+@keyframes announcement-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+.global-announcement-track {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  white-space: nowrap;
+  mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 20px), transparent);
+}
+
+.global-announcement-marquee {
+  display: inline-flex;
+  align-items: center;
+  gap: 24px;
+  white-space: nowrap;
+  animation: marquee-scroll 25s linear infinite;
+}
+
+.global-announcement-marquee:hover {
+  animation-play-state: paused;
+}
+
+.global-announcement-marquee span {
+  font-weight: 700;
+  color: #7c2d12;
+}
+
+.marquee-separator {
+  color: #ea580c;
+  font-size: .75rem;
+  opacity: .8;
+}
+
+@keyframes marquee-scroll {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.announcement-marquee-preview {
+  background: linear-gradient(90deg, #fff7ed, #ffedd5);
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: #9a3412;
+  overflow: hidden;
+}
+
+.announcement-marquee-content {
+  display: flex;
+  align-items: center;
+  font-size: .84rem;
+  color: #7c2d12;
+}
+
+
 

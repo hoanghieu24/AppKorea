@@ -1,22 +1,38 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, BookOpen, BrainCircuit, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, ClipboardList, GraduationCap, Home, LogOut, Menu, PanelLeftClose, PanelLeftOpen, School, Settings2, ShieldCheck, Smartphone, Users, X } from 'lucide-react';
+import { Bell, BookOpen, BrainCircuit, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, ClipboardList, GraduationCap, Home, LogOut, Megaphone, Menu, PanelLeftClose, PanelLeftOpen, School, Settings2, ShieldCheck, Smartphone, Users, X } from 'lucide-react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { api, clearSession, roleLabel } from '../api.js';
 export default function Shell({ user, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('hanquoc_classroom_sidebar_collapsed') === '1');
   const [unread, setUnread] = useState(0);
+  const [announcement, setAnnouncement] = useState({ text: '', enabled: false });
   const [installPrompt, setInstallPrompt] = useState(null);
   const [toast, setToast] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
+
   useEffect(() => {
     const refreshUnread = () => api('/notifications?page=1&pageSize=1').then((data) => setUnread(data.unreadCount || 0)).catch(() => {});
+    const refreshAnnouncement = () => api('/announcement', { toast: false }).then((data) => setAnnouncement({ text: data.text || '', enabled: Boolean(data.enabled) })).catch(() => {});
+
     refreshUnread();
+    refreshAnnouncement();
+
     const unreadTimer = window.setInterval(refreshUnread, 25000);
+    const annTimer = window.setInterval(refreshAnnouncement, 20000);
+
+    const onAnnUpdate = () => refreshAnnouncement();
+    window.addEventListener('app-announcement-updated', onAnnUpdate);
+
     const handler = (event) => { event.preventDefault(); setInstallPrompt(event); };
     window.addEventListener('beforeinstallprompt', handler);
-    return () => { window.clearInterval(unreadTimer); window.removeEventListener('beforeinstallprompt', handler); };
+    return () => {
+      window.clearInterval(unreadTimer);
+      window.clearInterval(annTimer);
+      window.removeEventListener('app-announcement-updated', onAnnUpdate);
+      window.removeEventListener('beforeinstallprompt', handler);
+    };
   }, []);
   useEffect(() => {
     let timer;
@@ -70,6 +86,24 @@ export default function Shell({ user, onLogout, children }) {
       </aside>
       {mobileOpen && <button className="sidebar-overlay" onClick={() => setMobileOpen(false)} aria-label="Đóng menu" />}
       <main className="main-area">
+        {/* THANH THÔNG BÁO TOÀN TRANG CHẠY TRÊN WEB */}
+        {announcement.enabled && announcement.text && (
+          <div className="global-announcement-bar" role="alert" aria-live="assertive">
+            <div className="global-announcement-badge">
+              <Megaphone size={15} />
+              <span>THÔNG BÁO</span>
+            </div>
+            <div className="global-announcement-track">
+              <div className="global-announcement-marquee">
+                <span>{announcement.text}</span>
+                <span className="marquee-separator">✦</span>
+                <span>{announcement.text}</span>
+                <span className="marquee-separator">✦</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <header className="mobile-header">
           <button className="icon-button" onClick={() => setMobileOpen(true)}><Menu /></button>
           <div className="brand-mini"><GraduationCap size={20} /> HanQuoc</div>

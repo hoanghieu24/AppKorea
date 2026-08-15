@@ -106,7 +106,11 @@ const GEMINI = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `HTTP ${res.status}`);
+      const msg = err?.error?.message || '';
+      if (res.status === 429 || res.status === 503 || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('overloaded') || msg.includes('UNAVAILABLE')) {
+        throw new Error('Hệ thống AI hiện đang quá tải. Bạn vui lòng chờ trong 2-3 phút rồi thử lại nhé!');
+      }
+      throw new Error(msg || `HTTP ${res.status}`);
     }
     const data = await res.json();
     const parts = data.candidates?.[0]?.content?.parts || [];
@@ -139,7 +143,11 @@ const GEMINI = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `HTTP ${res.status}`);
+      const msg = err?.error?.message || '';
+      if (res.status === 429 || res.status === 503 || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('overloaded') || msg.includes('UNAVAILABLE')) {
+        throw new Error('Hệ thống AI hiện đang quá tải. Bạn vui lòng chờ trong 2-3 phút rồi thử lại nhé!');
+      }
+      throw new Error(msg || `HTTP ${res.status}`);
     }
     const data = await res.json();
     const parts = data.candidates?.[0]?.content?.parts || [];

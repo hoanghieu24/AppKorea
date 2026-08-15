@@ -42,7 +42,27 @@ export async function generateTextWithAI({ prompt = '', systemPrompt = '', histo
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`AI_HTTP_${response.status}`);
+  if (!response.ok) {
+    const status = response.status;
+    let errDetail = '';
+    try {
+      const errJson = await response.json();
+      errDetail = JSON.stringify(errJson);
+    } catch {
+      try { errDetail = await response.text(); } catch {}
+    }
+    if (
+      status === 429 ||
+      status === 503 ||
+      errDetail.includes('RESOURCE_EXHAUSTED') ||
+      errDetail.includes('overloaded') ||
+      errDetail.includes('UNAVAILABLE') ||
+      errDetail.includes('quota')
+    ) {
+      throw new Error('Hệ thống AI hiện đang quá tải. Bạn vui lòng chờ trong 2-3 phút rồi thử lại nhé!');
+    }
+    throw new Error(`AI_HTTP_${status}`);
+  }
   const data = await response.json();
   const candidate = data.candidates?.[0];
   const parts = candidate?.content?.parts || [];
