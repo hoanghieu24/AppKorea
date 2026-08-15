@@ -460,7 +460,7 @@ export default function AssignmentsPage({ user }) {
         throw new Error('Không đọc được chữ trong ảnh. Hãy dùng ảnh rõ, thẳng và đủ sáng.');
       }
 
-      setMessage('OCR xong ✅ Gemini đang phục dựng lại chữ bị đọc sai trước khi tách câu...');
+      setMessage('Đang nhận diện và trích xuất câu hỏi từ ảnh...');
 
       const allQuestions = [];
       const failures = [];
@@ -543,16 +543,16 @@ export default function AssignmentsPage({ user }) {
       }
 
       if (!allQuestions.length) {
-        throw new Error('Ảnh đọc chưa đủ chắc để tạo câu. Hệ thống đã chặn OCR rác thay vì tự nhét chữ sai vào bài. Thử ảnh rõ hơn hoặc cắt sát vùng đề.');
+        throw new Error('Ảnh chưa đủ rõ để nhận diện câu hỏi. Vui lòng thử ảnh rõ nét hơn hoặc cắt sát vùng đề bài.');
       }
 
       appendQuestions(allQuestions, `${files.length} ảnh AI quét`);
       setOcrProgress(100);
 
       if (failures.length) {
-        setMessage(`Đã thêm ${allQuestions.length} câu sạch ✅ Bỏ qua ${failures.length} phần chưa đọc chắc để tránh nhét OCR rác vào bài.`);
+        setMessage(`Đã thêm ${allQuestions.length} câu hỏi thành công (bỏ qua ${failures.length} phần ảnh không rõ nội dung).`);
       } else {
-        setMessage(`Đã phục dựng và thêm ${allQuestions.length} câu ✅ Không còn vụ "0000 16103" giả làm tiếng Việt nữa 😭`);
+        setMessage(`Đã nhận diện và thêm thành công ${allQuestions.length} câu hỏi từ ảnh.`);
       }
     } catch (err) {
       console.error('Import ảnh bài tập lỗi:', err);

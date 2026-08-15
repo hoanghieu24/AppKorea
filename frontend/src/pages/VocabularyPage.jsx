@@ -93,10 +93,10 @@ export default function VocabularyPage({ user }) {
 }
 
 const VOCAB_LOADING_LINES = [
-  'Đang lục từ vựng trong giáo trình... 📚',
-  'Khoan, có mấy từ đang trốn sau trang sách 😭',
-  'Đang gọi từ vựng từ Seoul về... 🇰🇷',
-  'Gần xong rồi, đừng F5 nha bro 😆'
+  'Đang tải danh mục từ vựng từ giáo trình... 📚',
+  'Đang xử lý dữ liệu bài học...',
+  'Đang đồng bộ từ vựng tiếng Hàn... 🇰🇷',
+  'Đang chuẩn bị học liệu, vui lòng đợi trong giây lát...'
 ];
 
 function VocabularyLoader({ compact = false, hint = 'Đang đồng bộ dữ liệu học liệu...' }) {
