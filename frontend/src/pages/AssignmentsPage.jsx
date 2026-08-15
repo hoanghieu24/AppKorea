@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   CheckCircle2, ChevronDown, ClipboardCheck, ClipboardList, Clock3, FilePlus2,
-  FileSpreadsheet, ImagePlus, ListPlus, LoaderCircle, Plus, School, Send, Trash2, Type,
+  FileSpreadsheet, ImagePlus, ListPlus, LoaderCircle, Plus, ScanLine, School, Send, Sparkles, Trash2, Type,
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatDate } from '../api.js';
@@ -185,6 +185,18 @@ function looksLikeBrokenOcr(text) {
   return digitInsideWord || repeatedZeros || (suspiciousLongNumber && digitRatio > 0.08) || digitRatio > 0.18;
 }
 
+function shouldRunEnhancedOcr(text) {
+  const value = String(text || '').trim();
+  if (!value) return true;
+  const compact = value.replace(/\s+/g, '');
+  const letters = (compact.match(/[A-Za-zÀ-ỹ가-힣]/g) || []).length;
+  const readableRatio = letters / Math.max(1, compact.length);
+  const unknownGlyphs = (compact.match(/[�□]/g) || []).length;
+  return value.length < 55 || letters < 28 || readableRatio < 0.34 || unknownGlyphs >= 3;
+}
+
+const OCR_STAGE_ORDER = ['prepare', 'scan', 'ai', 'done'];
+
 function imageQuestionPrompt({ rawOcr, enhancedOcr, retry = false, previousQuestions = [] }) {
   const previous = previousQuestions.length
     ? `\nKẾT QUẢ LẦN TRƯỚC CÓ THỂ ĐANG SAI OCR:\n${JSON.stringify(previousQuestions)}\n`
@@ -303,6 +315,8 @@ export default function AssignmentsPage({ user }) {
   const [bulkText, setBulkText] = useState('');
   const [importing, setImporting] = useState('');
   const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrStatus, setOcrStatus] = useState({ stage: 'prepare', title: '', detail: '' });
+  const [ocrSeconds, setOcrSeconds] = useState(0);
   const [form, setForm] = useState({ classId: '', type: 'HOMEWORK', title: '', instructions: '', dueAt: '', timeLimitMinutes: '', questions: [freshQuestion()], publishNow: true });
 
   const load = async () => {
@@ -317,6 +331,13 @@ export default function AssignmentsPage({ user }) {
     setListLoading(false);
   };
   useEffect(() => { load().catch((err) => { setMessage(err.message); setListLoading(false); }); }, [selectedClassId, page, studentFilter]);
+  useEffect(() => {
+    if (importing !== 'image') { setOcrSeconds(0); return undefined; }
+    const startedAt = Date.now();
+    setOcrSeconds(0);
+    const timer = window.setInterval(() => setOcrSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [importing]);
 
   const updateQuestion = (index, patch) => setForm((old) => ({ ...old, questions: old.questions.map((question, i) => i === index ? { ...question, ...patch } : question) }));
   const removeQuestion = (index) => setForm((old) => ({ ...old, questions: old.questions.filter((_, i) => i !== index) }));
@@ -394,19 +415,42 @@ export default function AssignmentsPage({ user }) {
     if (!files.length) return;
 
     setImporting('image');
-    setOcrProgress(1);
-    setMessage(`Đang soi ${files.length} ảnh... lần này không cho OCR nói tiếng người ngoài hành tinh nữa 👽`);
+    setOcrProgress(4);
+    setOcrStatus({
+      stage: 'prepare',
+      title: 'Đang khởi động bộ đọc ảnh',
+      detail: 'Lần đầu trên máy này có thể chậm hơn một chút vì trình duyệt cần nạp OCR.',
+    });
+    setMessage('Đang chuẩn bị OCR...');
 
     try {
       const Tesseract = await import('tesseract.js');
-      let activeStep = 0;
-      const totalOcrSteps = Math.max(1, files.length * 2);
+      setOcrProgress(8);
+      setOcrStatus({
+        stage: 'prepare',
+        title: 'Đang nạp tiếng Việt + tiếng Hàn',
+        detail: 'Bộ OCR sẽ được trình duyệt cache để những lần quét sau nhanh hơn.',
+      });
 
-      const worker = await Tesseract.createWorker(['vie', 'kor', 'eng'], 1, {
+      let activeFileIndex = 0;
+      const worker = await Tesseract.createWorker(['vie', 'kor'], 1, {
         logger: (info) => {
-          if (info.status === 'recognizing text') {
-            const overall = (activeStep + Number(info.progress || 0)) / totalOcrSteps;
-            setOcrProgress(Math.max(1, Math.min(64, Math.round(overall * 64))));
+          const status = String(info?.status || '');
+          const progress = Number(info?.progress || 0);
+
+          if (status === 'recognizing text') {
+            const fileProgress = (activeFileIndex + progress) / Math.max(1, files.length);
+            setOcrProgress(Math.max(18, Math.min(60, 18 + Math.round(fileProgress * 42))));
+            setOcrStatus((old) => ({
+              ...old,
+              stage: old.stage === 'enhance' ? 'enhance' : 'scan',
+              title: old.stage === 'enhance' ? 'Đang đọc lại vùng chữ khó' : `Đang đọc ảnh ${activeFileIndex + 1}/${files.length}`,
+              detail: old.stage === 'enhance'
+                ? 'Ảnh này hơi khó đọc nên hệ thống đang tăng nét một lần duy nhất.'
+                : 'OCR đang nhận diện chữ Việt/Hàn ngay trên máy của bạn.',
+            }));
+          } else if (/loading|initializing/i.test(status)) {
+            setOcrProgress((old) => Math.max(old, Math.min(17, 8 + Math.round(progress * 9))));
           }
         },
       });
@@ -419,7 +463,7 @@ export default function AssignmentsPage({ user }) {
           });
         }
       } catch {
-        // Tesseract version cũ có thể không nhận tất cả parameter; bỏ qua an toàn.
+        // Một số bản Tesseract không nhận đủ parameter; OCR vẫn chạy bình thường.
       }
 
       const ocrPages = [];
@@ -427,29 +471,38 @@ export default function AssignmentsPage({ user }) {
       try {
         for (let i = 0; i < files.length; i += 1) {
           const file = files[i];
+          activeFileIndex = i;
+          setOcrStatus({
+            stage: 'scan',
+            title: `Đang đọc ảnh ${i + 1}/${files.length}`,
+            detail: 'Giữ tab này mở; hệ thống đang nhận diện chữ, không bị treo đâu 👀',
+          });
+          setMessage(`OCR ảnh ${i + 1}/${files.length}...`);
 
-          setMessage(`OCR ảnh ${i + 1}/${files.length} · đọc bản gốc 👀`);
-          activeStep = i * 2;
           const rawResult = await worker.recognize(file);
           const raw = String(rawResult?.data?.text || '').trim();
+          let enhanced = raw;
 
-          setMessage(`OCR ảnh ${i + 1}/${files.length} · tăng nét rồi đọc lại 🔍`);
-          activeStep = i * 2 + 1;
-          let enhanced = '';
-          try {
-            const canvas = await preprocessImageForOcr(file);
-            const enhancedResult = await worker.recognize(canvas);
-            enhanced = String(enhancedResult?.data?.text || '').trim();
-          } catch (error) {
-            console.warn('Preprocess OCR fallback:', error);
+          // Bản cũ luôn OCR hai lần. Bản này chỉ tăng nét + đọc lại khi lượt đầu thật sự kém,
+          // nên ảnh rõ sẽ nhanh gần gấp đôi.
+          if (shouldRunEnhancedOcr(raw)) {
+            setOcrStatus({
+              stage: 'enhance',
+              title: `Ảnh ${i + 1} hơi khó đọc · đang tăng nét`,
+              detail: 'Chỉ ảnh chưa rõ mới chạy lượt OCR thứ hai để tránh chờ thừa.',
+            });
+            setOcrProgress((old) => Math.max(old, 52));
+            try {
+              const canvas = await preprocessImageForOcr(file);
+              const enhancedResult = await worker.recognize(canvas);
+              enhanced = String(enhancedResult?.data?.text || '').trim() || raw;
+            } catch (error) {
+              console.warn('Preprocess OCR fallback:', error);
+            }
           }
 
           if (raw.length >= 4 || enhanced.length >= 4) {
-            ocrPages.push({
-              fileName: file.name,
-              raw: raw || enhanced,
-              enhanced: enhanced || raw,
-            });
+            ocrPages.push({ fileName: file.name, raw: raw || enhanced, enhanced: enhanced || raw });
           }
         }
       } finally {
@@ -460,16 +513,19 @@ export default function AssignmentsPage({ user }) {
         throw new Error('Không đọc được chữ trong ảnh. Hãy dùng ảnh rõ, thẳng và đủ sáng.');
       }
 
-      setMessage('Đang nhận diện và trích xuất câu hỏi từ ảnh...');
+      setOcrProgress(66);
+      setOcrStatus({
+        stage: 'ai',
+        title: 'OCR xong · AI đang tách câu hỏi',
+        detail: 'Gemini đang sửa lỗi nhận dạng, phân loại câu và dựng đáp án/lựa chọn.',
+      });
+      setMessage('Đã đọc xong ảnh. AI đang tách câu hỏi...');
 
       const allQuestions = [];
       const failures = [];
 
       for (let pageIndex = 0; pageIndex < ocrPages.length; pageIndex += 1) {
         const page = ocrPages[pageIndex];
-
-        // Chunk theo bản OCR dài hơn để tránh cắt output.
-        const baseText = page.enhanced.length >= page.raw.length ? page.enhanced : page.raw;
         const rawChunks = splitOcrIntoChunks(page.raw);
         const enhancedChunks = splitOcrIntoChunks(page.enhanced);
         const chunkCount = Math.max(rawChunks.length, enhancedChunks.length, 1);
@@ -480,7 +536,12 @@ export default function AssignmentsPage({ user }) {
           const enhancedChunk = enhancedChunks[chunkIndex] || enhancedChunks.at(-1) || '';
 
           const itemProgress = pageIndex + (chunkIndex + 1) / chunkCount;
-          setOcrProgress(Math.min(96, 65 + Math.round((itemProgress / ocrPages.length) * 31)));
+          setOcrProgress(Math.min(96, 66 + Math.round((itemProgress / ocrPages.length) * 30)));
+          setOcrStatus({
+            stage: 'ai',
+            title: `AI đang dựng câu hỏi · ${pageIndex + 1}/${ocrPages.length}`,
+            detail: chunkCount > 1 ? `Đang xử lý phần ${chunkIndex + 1}/${chunkCount} của ${page.fileName}` : `Đang xử lý ${page.fileName}`,
+          });
           setMessage(`Gemini đang sửa OCR + tách câu: ${label} 🧠`);
 
           let questions = [];
@@ -507,16 +568,15 @@ export default function AssignmentsPage({ user }) {
               questions = aiQuestionList(parsed)
                 .map((q) => typeof q === 'string' ? { prompt: q, type: 'ESSAY' } : q)
                 .filter((q) => String(
-                  q?.prompt ??
-                  q?.question ??
-                  q?.cauHoi ??
-                  q?.cauhoi ??
-                  q?.noiDung ??
-                  q?.noidung ??
-                  ''
+                  q?.prompt ?? q?.question ?? q?.cauHoi ?? q?.cauhoi ?? q?.noiDung ?? q?.noidung ?? ''
                 ).trim().length >= 2);
 
               if (questions.length && questions.some((q) => looksLikeBrokenOcr(q?.prompt))) {
+                setOcrStatus({
+                  stage: 'ai',
+                  title: 'AI đang sửa vài câu OCR chưa đẹp',
+                  detail: 'Sắp xong rồi — hệ thống đang loại ký tự rác trước khi đưa vào bài.',
+                });
                 questions = await repairBrokenQuestionsWithAI(
                   api,
                   { raw: rawChunk, enhanced: enhancedChunk },
@@ -524,13 +584,9 @@ export default function AssignmentsPage({ user }) {
                 );
               }
 
-              // Nếu sau vòng repair vẫn toàn rác thì không tự thêm vào form.
               const usable = questions.filter((q) => !looksLikeBrokenOcr(q?.prompt));
-              if (usable.length) {
-                questions = usable;
-              } else if (questions.length && attempt === 0) {
-                questions = [];
-              }
+              if (usable.length) questions = usable;
+              else if (questions.length && attempt === 0) questions = [];
             } catch (error) {
               console.warn(`Image OCR/AI attempt ${attempt + 1} lỗi:`, error);
               questions = [];
@@ -548,6 +604,11 @@ export default function AssignmentsPage({ user }) {
 
       appendQuestions(allQuestions, `${files.length} ảnh AI quét`);
       setOcrProgress(100);
+      setOcrStatus({
+        stage: 'done',
+        title: `Xong rồi · đã dựng ${allQuestions.length} câu`,
+        detail: failures.length ? `Có ${failures.length} phần ảnh quá mờ đã được bỏ qua.` : 'Câu hỏi đã được thêm xuống dưới để giáo viên kiểm tra lại.',
+      });
 
       if (failures.length) {
         setMessage(`Đã thêm ${allQuestions.length} câu hỏi thành công (bỏ qua ${failures.length} phần ảnh không rõ nội dung).`);
@@ -556,10 +617,13 @@ export default function AssignmentsPage({ user }) {
       }
     } catch (err) {
       console.error('Import ảnh bài tập lỗi:', err);
+      setOcrStatus({ stage: 'prepare', title: 'Quét ảnh chưa thành công', detail: err?.message || 'Không quét được ảnh.' });
       setMessage(err?.message || 'Không quét được ảnh.');
     } finally {
-      setImporting('');
-      window.setTimeout(() => setOcrProgress(0), 900);
+      window.setTimeout(() => {
+        setImporting('');
+        setOcrProgress(0);
+      }, 1200);
     }
   };
 
@@ -617,7 +681,7 @@ export default function AssignmentsPage({ user }) {
         </div>
         {inputMode === 'single' && <div className="question-source-action single"><span>Thêm một câu trống rồi nhập nội dung ở danh sách bên dưới.</span><button type="button" className="btn secondary small" onClick={() => setForm((old) => ({ ...old, questions: [...old.questions, freshQuestion()] }))}><Plus size={16} /> Thêm từng câu</button></div>}
         {inputMode === 'excel' && <div className="question-source-action"><div><strong>Nhập từ Excel</strong><p>Hỗ trợ cột: Câu hỏi, Loại, Lựa chọn, Đáp án, Giải thích, Chủ đề, Điểm. Nếu file chỉ có một cột thì mỗi dòng sẽ thành một câu tự luận.</p></div><div className="source-buttons"><button type="button" className="btn ghost small" onClick={downloadExcelTemplate}><FileSpreadsheet size={16} /> Tải file mẫu</button><label className={`btn secondary small file-button ${importing === 'excel' ? 'disabled' : ''}`}>{importing === 'excel' ? <LoaderCircle className="spin" size={16} /> : <FileSpreadsheet size={16} />} Chọn Excel<input type="file" accept=".xlsx,.xls" onChange={importExcel} disabled={Boolean(importing)} /></label></div></div>}
-        {inputMode === 'image' && <div className="question-source-action"><div><strong>Ảnh → OCR → AI tách câu</strong><p>Chụp thẳng, đủ sáng. Ảnh được OCR trên trình duyệt; phần chữ sau đó gửi tới AI hệ thống để tách câu. Không cần nhập API key ở máy giáo viên.</p>{importing === 'image' && <div className="ocr-progress"><i style={{ width: `${ocrProgress}%` }} /><span>{ocrProgress ? `${ocrProgress}%` : 'AI đang xử lý...'}</span></div>}</div><label className={`btn secondary small file-button ${importing ? 'disabled' : ''}`}>{importing === 'image' ? <LoaderCircle className="spin" size={16} /> : <ImagePlus size={16} />} Chọn ảnh<input type="file" accept="image/*" multiple onChange={importImagesWithAI} disabled={Boolean(importing)} /></label></div>}
+        {inputMode === 'image' && <div className={`question-source-action ${importing === 'image' ? 'ocr-running' : ''}`}><div><strong>Ảnh → OCR → AI tách câu</strong><p>Ảnh rõ sẽ chỉ OCR một lượt cho nhanh; ảnh khó đọc mới tự tăng nét và quét lại. Không cần nhập API key ở máy giáo viên.</p>{importing === 'image' && <div className="ocr-processing-card"><div className="ocr-processing-head"><div className={`ocr-orb ${ocrStatus.stage}`}><ScanLine size={18} /></div><div className="ocr-status-copy"><strong>{ocrStatus.title || 'Đang xử lý ảnh...'}</strong><small>{ocrStatus.detail || 'Hệ thống vẫn đang chạy.'}</small></div><div className="ocr-time"><b>{ocrProgress}%</b><span>{ocrSeconds}s</span></div></div><div className="ocr-progress"><i style={{ width: `${ocrProgress}%` }} /><em /></div><div className="ocr-stepper four">{[['prepare', 'Khởi động'], ['scan', 'Đọc ảnh'], ['ai', 'AI tách câu'], ['done', 'Hoàn tất']].map(([stage, label]) => { const normalizedStage = ocrStatus.stage === 'enhance' ? 'scan' : ocrStatus.stage; const current = OCR_STAGE_ORDER.indexOf(normalizedStage); const index = OCR_STAGE_ORDER.indexOf(stage); const done = current > index || normalizedStage === 'done'; const active = current === index && normalizedStage !== 'done'; return <span key={stage} className={`${done ? 'done' : ''} ${active ? 'active' : ''}`}><i>{done ? '✓' : active ? <Sparkles size={11} /> : '•'}</i>{label}</span>; })}</div><div className="ocr-wait-note"><span className="ocr-live-dot" />Trang không bị treo · cứ để tab mở, hệ thống đang xử lý thật.</div></div>}</div><label className={`btn secondary small file-button ${importing ? 'disabled' : ''}`}>{importing === 'image' ? <LoaderCircle className="spin" size={16} /> : <ImagePlus size={16} />} {importing === 'image' ? 'Đang quét...' : 'Chọn ảnh'}<input type="file" accept="image/*" multiple onChange={importImagesWithAI} disabled={Boolean(importing)} /></label></div>}
         {inputMode === 'bulk' && <div className="question-source-action bulk"><div><strong>Dán nhiều câu vào một ô</strong><p>Mỗi câu chỉ cần xuống dòng. Hệ thống thêm thành câu tự luận; sau đó có thể đổi từng câu sang trắc nghiệm/điền từ và thêm đáp án.</p></div><textarea rows="7" value={bulkText} onChange={(e) => setBulkText(e.target.value)} placeholder={'Câu 1: Dịch câu sau sang tiếng Hàn...\nCâu 2: Viết 3 câu về cuối tuần...\nCâu 3: Hãy đặt câu với -고 싶다...'} /><button type="button" className="btn secondary small" onClick={addBulkQuestions} disabled={!bulkText.trim()}><ListPlus size={16} /> Thêm các dòng</button></div>}
       </div>
 
