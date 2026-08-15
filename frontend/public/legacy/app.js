@@ -287,11 +287,11 @@ const TTS = {
     const langCode = (lang || 'ko-KR').split('-')[0];
     const encoded = encodeURIComponent(text);
 
-    // List of TTS audio sources to try in sequence
+    // List of TTS audio sources to try in sequence (Google Translate Direct first)
     const sources = [
-      `/api/tts?text=${encoded}&lang=${langCode}`,
       `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode}&client=tw-ob&q=${encoded}`,
-      `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=${langCode}&q=${encoded}`
+      `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=${langCode}&q=${encoded}`,
+      `/api/tts?text=${encoded}&lang=${langCode}`
     ];
 
     let currentSourceIndex = 0;
@@ -304,7 +304,7 @@ const TTS = {
 
       const url = sources[currentSourceIndex++];
       const audio = new Audio(url);
-      audio.playbackRate = TTS.rate || 0.88;
+      audio.playbackRate = TTS.rate || 0.85;
       TTS.currentAudio = audio;
 
       audio.onended = () => {

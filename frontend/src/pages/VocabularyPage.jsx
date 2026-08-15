@@ -164,9 +164,9 @@ function StudentVocabulary({ words, query, setQuery, pagination, loading, setPag
     if (!text || !text.trim()) return;
     const cleanText = text.trim();
     try {
-      const url = `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=ko&q=${encodeURIComponent(cleanText)}`;
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=ko&client=tw-ob&q=${encodeURIComponent(cleanText)}`;
       const audio = new Audio(url);
-      audio.playbackRate = 0.92;
+      audio.playbackRate = 0.85;
       const playPromise = audio.play();
       if (playPromise) {
         playPromise.catch(() => fallbackSpeak(cleanText));
@@ -181,7 +181,7 @@ function StudentVocabulary({ words, query, setQuery, pagination, loading, setPag
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = 'ko-KR';
-    utterance.rate = 0.88;
+    utterance.rate = 0.82;
     const voices = window.speechSynthesis.getVoices().filter((v) => v.lang?.toLowerCase().replace('_', '-').startsWith('ko'));
     const bestVoice = voices.find((v) => v.name.includes('Google') || v.name.includes('한국')) ||
       voices.find((v) => v.name.includes('Natural') || v.name.includes('Neural') || v.name.includes('Sun-Hi') || v.name.includes('InJoon')) ||
