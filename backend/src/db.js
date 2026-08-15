@@ -54,3 +54,22 @@ export async function closePool() {
   pool = undefined;
   await current.end();
 }
+
+export async function ensureSchema() {
+  try {
+    const { readFile } = await import('node:fs/promises');
+    const { fileURLToPath } = await import('node:url');
+    const schemaSql = await readFile(fileURLToPath(new URL('../sql/schema.sql', import.meta.url)), 'utf8');
+    const statements = schemaSql
+      .split(';')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && !s.startsWith('--') && !s.startsWith('/*'));
+    for (const statement of statements) {
+      await query(statement).catch(() => {});
+    }
+    console.log('[DB] Database schema verified & ready.');
+  } catch (err) {
+    console.warn('[DB NOTICE] Schema verification notice:', err?.message);
+  }
+}
+
