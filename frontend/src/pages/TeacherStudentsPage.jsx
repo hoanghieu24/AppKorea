@@ -51,8 +51,8 @@ export default function TeacherStudentsPage({ user }) {
       {message && <div className="notice">{message}</div>}
 
       <div className="management-toolbar">
-        <div style={{ display: 'flex', gap: 10, flex: 1, flexWrap: 'wrap' }}>
-          <label className="management-search" style={{ flex: 1, minWidth: 220 }}>
+        <div className="teacher-students-filter-row">
+          <label className="management-search">
             <Search size={17} />
             <input
               value={queryText}
@@ -63,7 +63,7 @@ export default function TeacherStudentsPage({ user }) {
           <select
             value={selectedClassId}
             onChange={(e) => { setSelectedClassId(e.target.value); setPage(1); }}
-            style={{ padding: '0 12px', borderRadius: 10, border: '1px solid var(--line)', background: '#fff', fontSize: '.84rem', fontWeight: 600, color: '#3730a3' }}
+            className="teacher-class-select"
           >
             <option value="">🏫 Tất cả các lớp của tôi</option>
             {classes.map((c) => (
@@ -71,7 +71,7 @@ export default function TeacherStudentsPage({ user }) {
             ))}
           </select>
         </div>
-        <span>{pagination?.total ?? students.length} học sinh</span>
+        <span className="teacher-students-count">{pagination?.total ?? students.length} học sinh</span>
       </div>
 
       <section className="panel management-table-panel">
