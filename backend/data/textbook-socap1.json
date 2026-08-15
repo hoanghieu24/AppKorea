@@ -3,330 +3,3297 @@
     "id": 1,
     "title": "소개",
     "topic": "Giới thiệu",
-    "grammar": ["N이에요/예요", "N은/는"],
+    "grammar": [
+      "N이에요/예요",
+      "N은/는"
+    ],
     "vocab": [
-      { "kr": "이름", "vn": "tên" },
-      { "kr": "사람", "vn": "người" },
-      { "kr": "학생", "vn": "học sinh, sinh viên" },
-      { "kr": "선생님", "vn": "giáo viên" },
-      { "kr": "학교", "vn": "trường học" },
-      { "kr": "대학교", "vn": "trường đại học" },
-      { "kr": "한국", "vn": "Hàn Quốc" },
-      { "kr": "베트남", "vn": "Việt Nam" },
-      { "kr": "국적", "vn": "quốc tịch" },
-      { "kr": "직업", "vn": "nghề nghiệp" },
-      { "kr": "주소", "vn": "địa chỉ" },
-      { "kr": "전화번호", "vn": "số điện thoại" },
-      { "kr": "이메일", "vn": "email" },
-      { "kr": "한국어", "vn": "tiếng Hàn" }
+      {
+        "kr": "한국",
+        "vn": "Hàn Quốc"
+      },
+      {
+        "kr": "베트남",
+        "vn": "Việt Nam"
+      },
+      {
+        "kr": "말레이시아",
+        "vn": "Malaysia"
+      },
+      {
+        "kr": "일본",
+        "vn": "Nhật"
+      },
+      {
+        "kr": "미국",
+        "vn": "Mỹ"
+      },
+      {
+        "kr": "중국",
+        "vn": "Trung Quốc"
+      },
+      {
+        "kr": "태국",
+        "vn": "Thái Lan"
+      },
+      {
+        "kr": "호주",
+        "vn": "Úc"
+      },
+      {
+        "kr": "몽골",
+        "vn": "Mông Cổ"
+      },
+      {
+        "kr": "인도네시아",
+        "vn": "Indonesia"
+      },
+      {
+        "kr": "필리핀",
+        "vn": "Philippin"
+      },
+      {
+        "kr": "인도",
+        "vn": "Ấn Độ"
+      },
+      {
+        "kr": "영국",
+        "vn": "Anh"
+      },
+      {
+        "kr": "독일",
+        "vn": "Đức"
+      },
+      {
+        "kr": "프랑스",
+        "vn": "Pháp"
+      },
+      {
+        "kr": "러시아",
+        "vn": "Nga"
+      },
+      {
+        "kr": "학생",
+        "vn": "học sinh"
+      },
+      {
+        "kr": "회사원",
+        "vn": "nhân viên công ty"
+      },
+      {
+        "kr": "은행원",
+        "vn": "nhân viên ngân hàng"
+      },
+      {
+        "kr": "선생님",
+        "vn": "giáo viên"
+      },
+      {
+        "kr": "의사",
+        "vn": "bác sĩ"
+      },
+      {
+        "kr": "공무원",
+        "vn": "công chức"
+      },
+      {
+        "kr": "관광 가이드",
+        "vn": "hướng dẫn viên du lịch"
+      },
+      {
+        "kr": "주부",
+        "vn": "nội trợ"
+      },
+      {
+        "kr": "약사",
+        "vn": "dược sĩ"
+      },
+      {
+        "kr": "운전기사",
+        "vn": "lái xe"
+      },
+      {
+        "kr": "안녕하세요?",
+        "vn": "Xin chào?"
+      },
+      {
+        "kr": "안녕하십니까?",
+        "vn": "Xin chào?"
+      },
+      {
+        "kr": "안녕히 가세요.",
+        "vn": "Xin tạm biệt. (Đi về bình an)"
+      },
+      {
+        "kr": "안녕히 계세요.",
+        "vn": "Xin tạm biệt. (Ở lại bình an)"
+      },
+      {
+        "kr": "처음 뵙겠습니다.",
+        "vn": "Rất hân hạnh."
+      },
+      {
+        "kr": "반갑습니다.",
+        "vn": "Rất vui được gặp."
+      },
+      {
+        "kr": "국어국문학과",
+        "vn": "khoa ngữ văn"
+      },
+      {
+        "kr": "국적",
+        "vn": "quốc tịch"
+      },
+      {
+        "kr": "네",
+        "vn": "vâng"
+      },
+      {
+        "kr": "대학교",
+        "vn": "trường đại học"
+      },
+      {
+        "kr": "대학생",
+        "vn": "sinh viên"
+      },
+      {
+        "kr": "보기",
+        "vn": "mẫu, ví dụ"
+      },
+      {
+        "kr": "씨",
+        "vn": "bạn--"
+      },
+      {
+        "kr": "아니요",
+        "vn": "không"
+      },
+      {
+        "kr": "이",
+        "vn": "này"
+      },
+      {
+        "kr": "이름",
+        "vn": "tên"
+      },
+      {
+        "kr": "이메일",
+        "vn": "email, thư điện tử"
+      },
+      {
+        "kr": "저",
+        "vn": "tôi"
+      },
+      {
+        "kr": "전화",
+        "vn": "điện thoại"
+      },
+      {
+        "kr": "제",
+        "vn": "của tôi"
+      },
+      {
+        "kr": "주소",
+        "vn": "địa chỉ"
+      },
+      {
+        "kr": "직업",
+        "vn": "nghề nghiệp"
+      },
+      {
+        "kr": "학과",
+        "vn": "bộ môn"
+      },
+      {
+        "kr": "학번",
+        "vn": "mã số sinh viên"
+      },
+      {
+        "kr": "학생증",
+        "vn": "thẻ sinh viên"
+      },
+      {
+        "kr": "한국어",
+        "vn": "tiếng Hàn"
+      },
+      {
+        "kr": "한국어과",
+        "vn": "khoa Hàn ngữ"
+      }
     ]
   },
   {
     "id": 2,
     "title": "학교",
     "topic": "Trường học",
-    "grammar": ["이/그/저", "N이/가 있어요/없어요"],
+    "grammar": [
+      "이/그/저",
+      "N이/가 있어요/없어요"
+    ],
     "vocab": [
-      { "kr": "교실", "vn": "phòng học" },
-      { "kr": "도서관", "vn": "thư viện" },
-      { "kr": "책", "vn": "sách" },
-      { "kr": "공책", "vn": "vở" },
-      { "kr": "연필", "vn": "bút chì" },
-      { "kr": "볼펜", "vn": "bút bi" },
-      { "kr": "가방", "vn": "cặp, túi" },
-      { "kr": "책상", "vn": "bàn học" },
-      { "kr": "의자", "vn": "ghế" },
-      { "kr": "컴퓨터", "vn": "máy tính" },
-      { "kr": "화장실", "vn": "nhà vệ sinh" },
-      { "kr": "여기", "vn": "ở đây" },
-      { "kr": "거기", "vn": "ở đó" },
-      { "kr": "어디", "vn": "ở đâu" }
+      {
+        "kr": "학교",
+        "vn": "trường học"
+      },
+      {
+        "kr": "도서관",
+        "vn": "thư viện"
+      },
+      {
+        "kr": "식당",
+        "vn": "nhà ăn, nhà hàng"
+      },
+      {
+        "kr": "호텔",
+        "vn": "khách sạn"
+      },
+      {
+        "kr": "극장",
+        "vn": "nhà hát"
+      },
+      {
+        "kr": "우체국",
+        "vn": "bưu điện"
+      },
+      {
+        "kr": "병원",
+        "vn": "bệnh viện"
+      },
+      {
+        "kr": "은행",
+        "vn": "ngân hàng"
+      },
+      {
+        "kr": "백화점",
+        "vn": "cửa hàng bách hóa"
+      },
+      {
+        "kr": "약국",
+        "vn": "hiệu thuốc"
+      },
+      {
+        "kr": "가게",
+        "vn": "cửa tiệm, cửa hàng"
+      },
+      {
+        "kr": "사무실",
+        "vn": "văn phòng"
+      },
+      {
+        "kr": "강의실",
+        "vn": "giảng đường, phòng học"
+      },
+      {
+        "kr": "교실",
+        "vn": "phòng học"
+      },
+      {
+        "kr": "화장실",
+        "vn": "phòng vệ sinh"
+      },
+      {
+        "kr": "휴게실",
+        "vn": "phòng nghỉ"
+      },
+      {
+        "kr": "랩실(어학실)",
+        "vn": "phòng lab"
+      },
+      {
+        "kr": "동아리방",
+        "vn": "phòng sinh hoạt câu lạc bộ"
+      },
+      {
+        "kr": "체육관",
+        "vn": "nhà thi đấu thể thao"
+      },
+      {
+        "kr": "운동장",
+        "vn": "sân vận động"
+      },
+      {
+        "kr": "강당",
+        "vn": "giảng đường lớn, hội trường"
+      },
+      {
+        "kr": "학생 식당",
+        "vn": "nhà ăn học sinh"
+      },
+      {
+        "kr": "세미나실",
+        "vn": "phòng hội thảo"
+      },
+      {
+        "kr": "서점",
+        "vn": "hiệu sách"
+      },
+      {
+        "kr": "책상",
+        "vn": "cái bàn"
+      },
+      {
+        "kr": "의자",
+        "vn": "cái ghế"
+      },
+      {
+        "kr": "칠판",
+        "vn": "bảng"
+      },
+      {
+        "kr": "문",
+        "vn": "cửa"
+      },
+      {
+        "kr": "창문",
+        "vn": "cửa sổ"
+      },
+      {
+        "kr": "시계",
+        "vn": "đồng hồ"
+      },
+      {
+        "kr": "가방",
+        "vn": "cặp sách"
+      },
+      {
+        "kr": "컴퓨터",
+        "vn": "máy vi tính"
+      },
+      {
+        "kr": "책",
+        "vn": "sách"
+      },
+      {
+        "kr": "공책",
+        "vn": "vở"
+      },
+      {
+        "kr": "사전",
+        "vn": "từ điển"
+      },
+      {
+        "kr": "지우개",
+        "vn": "hòn tẩy, cục tẩy"
+      },
+      {
+        "kr": "지도",
+        "vn": "bản đồ"
+      },
+      {
+        "kr": "펜",
+        "vn": "bút, viết"
+      },
+      {
+        "kr": "필통",
+        "vn": "hộp bút"
+      },
+      {
+        "kr": "거기",
+        "vn": "ở đó"
+      },
+      {
+        "kr": "그것",
+        "vn": "cái đó"
+      },
+      {
+        "kr": "라디오",
+        "vn": "đài, radio"
+      },
+      {
+        "kr": "많이",
+        "vn": "nhiều"
+      },
+      {
+        "kr": "명동",
+        "vn": "khu Myeongdong"
+      },
+      {
+        "kr": "없다",
+        "vn": "không có"
+      },
+      {
+        "kr": "여기",
+        "vn": "ở đây"
+      },
+      {
+        "kr": "이것",
+        "vn": "cái này"
+      },
+      {
+        "kr": "있다",
+        "vn": "có"
+      },
+      {
+        "kr": "저것",
+        "vn": "cái kia"
+      },
+      {
+        "kr": "저기",
+        "vn": "ở kia"
+      },
+      {
+        "kr": "텔레비전",
+        "vn": "ti vi"
+      }
     ]
   },
   {
     "id": 3,
     "title": "일상생활",
     "topic": "Sinh hoạt hàng ngày",
-    "grammar": ["N을/를", "N에서"],
+    "grammar": [
+      "N을/를",
+      "N에서"
+    ],
     "vocab": [
-      { "kr": "일어나다", "vn": "thức dậy" },
-      { "kr": "씻다", "vn": "rửa, tắm" },
-      { "kr": "먹다", "vn": "ăn" },
-      { "kr": "마시다", "vn": "uống" },
-      { "kr": "공부하다", "vn": "học" },
-      { "kr": "일하다", "vn": "làm việc" },
-      { "kr": "전화하다", "vn": "gọi điện" },
-      { "kr": "운동하다", "vn": "tập thể dục" },
-      { "kr": "쇼핑하다", "vn": "mua sắm" },
-      { "kr": "산책하다", "vn": "đi dạo" },
-      { "kr": "신문", "vn": "báo" },
-      { "kr": "음악", "vn": "âm nhạc" },
-      { "kr": "카페", "vn": "quán cà phê" },
-      { "kr": "시장", "vn": "chợ" }
+      {
+        "kr": "가다",
+        "vn": "đi"
+      },
+      {
+        "kr": "오다",
+        "vn": "đến"
+      },
+      {
+        "kr": "자다",
+        "vn": "ngủ"
+      },
+      {
+        "kr": "먹다",
+        "vn": "ăn"
+      },
+      {
+        "kr": "마시다",
+        "vn": "uống"
+      },
+      {
+        "kr": "이야기하다",
+        "vn": "nói chuyện"
+      },
+      {
+        "kr": "읽다",
+        "vn": "đọc"
+      },
+      {
+        "kr": "듣다",
+        "vn": "nghe"
+      },
+      {
+        "kr": "보다",
+        "vn": "nhìn, xem"
+      },
+      {
+        "kr": "일하다",
+        "vn": "làm việc"
+      },
+      {
+        "kr": "공부하다",
+        "vn": "học"
+      },
+      {
+        "kr": "운동하다",
+        "vn": "luyện tập thể thao"
+      },
+      {
+        "kr": "쉬다",
+        "vn": "nghỉ, nghỉ ngơi"
+      },
+      {
+        "kr": "만나다",
+        "vn": "gặp gỡ"
+      },
+      {
+        "kr": "사다",
+        "vn": "mua"
+      },
+      {
+        "kr": "좋아하다",
+        "vn": "thích"
+      },
+      {
+        "kr": "크다",
+        "vn": "to, lớn"
+      },
+      {
+        "kr": "작다",
+        "vn": "nhỏ"
+      },
+      {
+        "kr": "많다",
+        "vn": "nhiều"
+      },
+      {
+        "kr": "적다",
+        "vn": "ít"
+      },
+      {
+        "kr": "좋다",
+        "vn": "tốt"
+      },
+      {
+        "kr": "나쁘다",
+        "vn": "xấu, tồi"
+      },
+      {
+        "kr": "재미있다",
+        "vn": "hay, thú vị"
+      },
+      {
+        "kr": "재미없다",
+        "vn": "không hay"
+      },
+      {
+        "kr": "차",
+        "vn": "trà"
+      },
+      {
+        "kr": "커피",
+        "vn": "cà phê"
+      },
+      {
+        "kr": "빵",
+        "vn": "bánh mì"
+      },
+      {
+        "kr": "우유",
+        "vn": "sữa"
+      },
+      {
+        "kr": "영화",
+        "vn": "phim"
+      },
+      {
+        "kr": "음악",
+        "vn": "âm nhạc"
+      },
+      {
+        "kr": "신문",
+        "vn": "báo"
+      },
+      {
+        "kr": "친구",
+        "vn": "bạn, bạn bè"
+      },
+      {
+        "kr": "무엇",
+        "vn": "cái gì"
+      },
+      {
+        "kr": "어디",
+        "vn": "đâu"
+      },
+      {
+        "kr": "누구",
+        "vn": "ai"
+      },
+      {
+        "kr": "언제",
+        "vn": "khi nào, bao giờ"
+      },
+      {
+        "kr": "공원",
+        "vn": "công viên"
+      },
+      {
+        "kr": "노래",
+        "vn": "bài hát"
+      },
+      {
+        "kr": "대한빌딩",
+        "vn": "tòa nhà Dae Han"
+      },
+      {
+        "kr": "방",
+        "vn": "phòng"
+      },
+      {
+        "kr": "사과",
+        "vn": "táo"
+      },
+      {
+        "kr": "시내",
+        "vn": "trung tâm thành phố"
+      },
+      {
+        "kr": "시장",
+        "vn": "chợ"
+      },
+      {
+        "kr": "식사하다",
+        "vn": "dùng bữa"
+      },
+      {
+        "kr": "아이스크림",
+        "vn": "kem"
+      },
+      {
+        "kr": "아주",
+        "vn": "rất"
+      },
+      {
+        "kr": "여행",
+        "vn": "du lịch"
+      },
+      {
+        "kr": "전화하다",
+        "vn": "gọi điện thoại"
+      },
+      {
+        "kr": "지금",
+        "vn": "bây giờ"
+      },
+      {
+        "kr": "축구를 하다",
+        "vn": "đá bóng"
+      },
+      {
+        "kr": "카페",
+        "vn": "quán cà phê"
+      },
+      {
+        "kr": "헬스클럽",
+        "vn": "câu lạc bộ thể dục thể thao"
+      }
     ]
   },
   {
     "id": 4,
     "title": "날짜와 요일",
     "topic": "Ngày và thứ",
-    "grammar": ["N에", "부터/까지"],
+    "grammar": [
+      "N에",
+      "부터/까지"
+    ],
     "vocab": [
-      { "kr": "오늘", "vn": "hôm nay" },
-      { "kr": "내일", "vn": "ngày mai" },
-      { "kr": "어제", "vn": "hôm qua" },
-      { "kr": "월요일", "vn": "thứ Hai" },
-      { "kr": "화요일", "vn": "thứ Ba" },
-      { "kr": "수요일", "vn": "thứ Tư" },
-      { "kr": "목요일", "vn": "thứ Năm" },
-      { "kr": "금요일", "vn": "thứ Sáu" },
-      { "kr": "토요일", "vn": "thứ Bảy" },
-      { "kr": "일요일", "vn": "Chủ nhật" },
-      { "kr": "주말", "vn": "cuối tuần" },
-      { "kr": "생일", "vn": "sinh nhật" },
-      { "kr": "시험", "vn": "kỳ thi" },
-      { "kr": "방학", "vn": "kỳ nghỉ" }
+      {
+        "kr": "월요일",
+        "vn": "thứ hai"
+      },
+      {
+        "kr": "화요일",
+        "vn": "thứ ba"
+      },
+      {
+        "kr": "수요일",
+        "vn": "thứ tư"
+      },
+      {
+        "kr": "목요일",
+        "vn": "thứ năm"
+      },
+      {
+        "kr": "금요일",
+        "vn": "thứ sáu"
+      },
+      {
+        "kr": "토요일",
+        "vn": "thứ bảy"
+      },
+      {
+        "kr": "일요일",
+        "vn": "chủ nhật"
+      },
+      {
+        "kr": "년",
+        "vn": "năm"
+      },
+      {
+        "kr": "월",
+        "vn": "tháng"
+      },
+      {
+        "kr": "일",
+        "vn": "ngày"
+      },
+      {
+        "kr": "시",
+        "vn": "giờ"
+      },
+      {
+        "kr": "일월",
+        "vn": "tháng giêng (một)"
+      },
+      {
+        "kr": "이월",
+        "vn": "tháng hai"
+      },
+      {
+        "kr": "삼월",
+        "vn": "tháng ba"
+      },
+      {
+        "kr": "사월",
+        "vn": "tháng tư"
+      },
+      {
+        "kr": "오월",
+        "vn": "tháng năm"
+      },
+      {
+        "kr": "유월",
+        "vn": "tháng sáu"
+      },
+      {
+        "kr": "칠월",
+        "vn": "tháng bảy"
+      },
+      {
+        "kr": "팔월",
+        "vn": "tháng tám"
+      },
+      {
+        "kr": "구월",
+        "vn": "tháng chín"
+      },
+      {
+        "kr": "시월",
+        "vn": "tháng mười"
+      },
+      {
+        "kr": "십일월",
+        "vn": "tháng mười một"
+      },
+      {
+        "kr": "십이월",
+        "vn": "tháng mười hai"
+      },
+      {
+        "kr": "그저께",
+        "vn": "hôm kia"
+      },
+      {
+        "kr": "어제",
+        "vn": "hôm qua"
+      },
+      {
+        "kr": "오늘",
+        "vn": "hôm nay"
+      },
+      {
+        "kr": "내일",
+        "vn": "ngày mai"
+      },
+      {
+        "kr": "모레",
+        "vn": "ngày kia"
+      },
+      {
+        "kr": "지난해(작년)",
+        "vn": "năm trước, năm ngoái"
+      },
+      {
+        "kr": "올해(금년)",
+        "vn": "năm nay"
+      },
+      {
+        "kr": "다음 해(내년)",
+        "vn": "năm sau"
+      },
+      {
+        "kr": "지난달",
+        "vn": "tháng trước"
+      },
+      {
+        "kr": "이번 달",
+        "vn": "tháng này"
+      },
+      {
+        "kr": "다음 달",
+        "vn": "tháng sau"
+      },
+      {
+        "kr": "지난주",
+        "vn": "tuần trước"
+      },
+      {
+        "kr": "이번 주",
+        "vn": "tuần này"
+      },
+      {
+        "kr": "다음 주",
+        "vn": "tuần sau"
+      },
+      {
+        "kr": "평일(주중)",
+        "vn": "ngày thường (trong tuần)"
+      },
+      {
+        "kr": "주말",
+        "vn": "cuối tuần"
+      },
+      {
+        "kr": "강사",
+        "vn": "giảng viên"
+      },
+      {
+        "kr": "계획표",
+        "vn": "bảng kế hoạch"
+      },
+      {
+        "kr": "구경하다",
+        "vn": "ngắm, xem"
+      },
+      {
+        "kr": "그리고",
+        "vn": "và"
+      },
+      {
+        "kr": "등산",
+        "vn": "việc leo núi"
+      },
+      {
+        "kr": "명절",
+        "vn": "ngày lễ"
+      },
+      {
+        "kr": "방학",
+        "vn": "kỳ nghỉ (của học sinh)"
+      },
+      {
+        "kr": "산",
+        "vn": "núi"
+      },
+      {
+        "kr": "생일 파티",
+        "vn": "tiệc sinh nhật"
+      },
+      {
+        "kr": "설날",
+        "vn": "ngày Tết"
+      },
+      {
+        "kr": "숙제",
+        "vn": "bài tập"
+      },
+      {
+        "kr": "시험",
+        "vn": "kỳ thi, kỳ kiểm tra"
+      },
+      {
+        "kr": "아르바이트",
+        "vn": "sự làm thêm"
+      },
+      {
+        "kr": "아름답다",
+        "vn": "đẹp"
+      },
+      {
+        "kr": "안내",
+        "vn": "sự hướng dẫn"
+      },
+      {
+        "kr": "졸업하다",
+        "vn": "tốt nghiệp"
+      },
+      {
+        "kr": "층",
+        "vn": "tầng"
+      },
+      {
+        "kr": "커피숍",
+        "vn": "quán cà phê"
+      },
+      {
+        "kr": "크리스마스",
+        "vn": "Giáng sinh"
+      },
+      {
+        "kr": "파티를 하다",
+        "vn": "tổ chức tiệc"
+      },
+      {
+        "kr": "한글날",
+        "vn": "ngày kỷ niệm chữ Hangeul"
+      },
+      {
+        "kr": "호",
+        "vn": "số (phòng)"
+      },
+      {
+        "kr": "회의하다",
+        "vn": "họp, hội nghị"
+      },
+      {
+        "kr": "휴가",
+        "vn": "kỳ nghỉ"
+      }
     ]
   },
   {
     "id": 5,
     "title": "하루 일과",
     "topic": "Công việc trong ngày",
-    "grammar": ["A/V-고", "몇 시에"],
+    "grammar": [
+      "A/V-고",
+      "몇 시에"
+    ],
     "vocab": [
-      { "kr": "아침", "vn": "buổi sáng" },
-      { "kr": "점심", "vn": "buổi trưa, bữa trưa" },
-      { "kr": "저녁", "vn": "buổi tối, bữa tối" },
-      { "kr": "출근하다", "vn": "đi làm" },
-      { "kr": "퇴근하다", "vn": "tan làm" },
-      { "kr": "수업", "vn": "giờ học" },
-      { "kr": "숙제", "vn": "bài tập về nhà" },
-      { "kr": "회사", "vn": "công ty" },
-      { "kr": "집", "vn": "nhà" },
-      { "kr": "운전하다", "vn": "lái xe" },
-      { "kr": "인터넷", "vn": "internet" },
-      { "kr": "일기", "vn": "nhật ký" },
-      { "kr": "부모님", "vn": "bố mẹ" },
-      { "kr": "고향", "vn": "quê hương" }
+      {
+        "kr": "오전",
+        "vn": "buổi sáng"
+      },
+      {
+        "kr": "오후",
+        "vn": "buổi chiều"
+      },
+      {
+        "kr": "낮",
+        "vn": "ban ngày"
+      },
+      {
+        "kr": "밤",
+        "vn": "ban đêm"
+      },
+      {
+        "kr": "아침",
+        "vn": "sáng"
+      },
+      {
+        "kr": "점심",
+        "vn": "trưa"
+      },
+      {
+        "kr": "저녁",
+        "vn": "tối"
+      },
+      {
+        "kr": "새벽",
+        "vn": "sáng sớm"
+      },
+      {
+        "kr": "분",
+        "vn": "phút"
+      },
+      {
+        "kr": "초",
+        "vn": "giây"
+      },
+      {
+        "kr": "일어나다",
+        "vn": "thức dậy"
+      },
+      {
+        "kr": "이를 닦다",
+        "vn": "đánh răng"
+      },
+      {
+        "kr": "세수하다",
+        "vn": "rửa mặt"
+      },
+      {
+        "kr": "다니다",
+        "vn": "đi lại (có tính thường xuyên)"
+      },
+      {
+        "kr": "배우다",
+        "vn": "học"
+      },
+      {
+        "kr": "숙제하다",
+        "vn": "làm bài tập"
+      },
+      {
+        "kr": "청소하다",
+        "vn": "dọn vệ sinh"
+      },
+      {
+        "kr": "목욕하다",
+        "vn": "tắm"
+      },
+      {
+        "kr": "출근하다",
+        "vn": "đi làm"
+      },
+      {
+        "kr": "퇴근하다",
+        "vn": "tan tầm"
+      },
+      {
+        "kr": "시작하다",
+        "vn": "bắt đầu"
+      },
+      {
+        "kr": "끝나다",
+        "vn": "xong, kết thúc"
+      },
+      {
+        "kr": "고향",
+        "vn": "quê hương"
+      },
+      {
+        "kr": "날",
+        "vn": "ngày"
+      },
+      {
+        "kr": "남자",
+        "vn": "nam giới"
+      },
+      {
+        "kr": "노래방",
+        "vn": "quán karaoke"
+      },
+      {
+        "kr": "받다",
+        "vn": "nhận"
+      },
+      {
+        "kr": "부모님",
+        "vn": "bố mẹ"
+      },
+      {
+        "kr": "수업",
+        "vn": "giờ học, buổi học"
+      },
+      {
+        "kr": "시험을 보다",
+        "vn": "thi"
+      },
+      {
+        "kr": "여자",
+        "vn": "phụ nữ"
+      },
+      {
+        "kr": "영문과",
+        "vn": "khoa Ngữ văn Anh"
+      },
+      {
+        "kr": "영어",
+        "vn": "tiếng Anh"
+      },
+      {
+        "kr": "운전하다",
+        "vn": "lái xe"
+      },
+      {
+        "kr": "인터넷",
+        "vn": "internet"
+      },
+      {
+        "kr": "일기",
+        "vn": "nhật kí"
+      },
+      {
+        "kr": "집",
+        "vn": "nhà"
+      },
+      {
+        "kr": "출근",
+        "vn": "đi làm"
+      },
+      {
+        "kr": "출발하다",
+        "vn": "xuất phát"
+      },
+      {
+        "kr": "후",
+        "vn": "sau, sau khi"
+      },
+      {
+        "kr": "회사",
+        "vn": "công ty"
+      },
+      {
+        "kr": "회의",
+        "vn": "họp, hội thảo"
+      },
+      {
+        "kr": "PC방",
+        "vn": "dịch vụ vi tính, quán internet"
+      }
     ]
   },
   {
     "id": 6,
     "title": "주말",
     "topic": "Cuối tuần",
-    "grammar": ["V-고 싶어요", "V-(으)ㄹ 거예요"],
+    "grammar": [
+      "V-고 싶어요",
+      "V-(으)ㄹ 거예요"
+    ],
     "vocab": [
-      { "kr": "여행", "vn": "du lịch" },
-      { "kr": "영화", "vn": "phim" },
-      { "kr": "드라마", "vn": "phim truyền hình" },
-      { "kr": "축구", "vn": "bóng đá" },
-      { "kr": "농구", "vn": "bóng rổ" },
-      { "kr": "배구", "vn": "bóng chuyền" },
-      { "kr": "테니스", "vn": "quần vợt" },
-      { "kr": "요리하다", "vn": "nấu ăn" },
-      { "kr": "낚시", "vn": "câu cá" },
-      { "kr": "바다", "vn": "biển" },
-      { "kr": "공원", "vn": "công viên" },
-      { "kr": "친구", "vn": "bạn bè" },
-      { "kr": "사진", "vn": "ảnh" },
-      { "kr": "피곤하다", "vn": "mệt" }
+      {
+        "kr": "무슨",
+        "vn": "gì"
+      },
+      {
+        "kr": "어떤",
+        "vn": "(thế) nào"
+      },
+      {
+        "kr": "어느",
+        "vn": "nào"
+      },
+      {
+        "kr": "등산하다",
+        "vn": "leo núi"
+      },
+      {
+        "kr": "영화를 보다",
+        "vn": "xem phim"
+      },
+      {
+        "kr": "여행하다",
+        "vn": "du lịch"
+      },
+      {
+        "kr": "쇼핑하다",
+        "vn": "mua sắm"
+      },
+      {
+        "kr": "수영하다",
+        "vn": "bơi"
+      },
+      {
+        "kr": "외식하다",
+        "vn": "ăn ngoài"
+      },
+      {
+        "kr": "친구를 만나다",
+        "vn": "gặp bạn"
+      },
+      {
+        "kr": "산책하다",
+        "vn": "đi dạo bộ"
+      },
+      {
+        "kr": "소풍가다",
+        "vn": "đi dã ngoại"
+      },
+      {
+        "kr": "책을 읽다",
+        "vn": "đọc sách"
+      },
+      {
+        "kr": "가수",
+        "vn": "ca sĩ"
+      },
+      {
+        "kr": "개",
+        "vn": "con chó"
+      },
+      {
+        "kr": "고양이",
+        "vn": "con mèo"
+      },
+      {
+        "kr": "공포 영화",
+        "vn": "phim kinh dị"
+      },
+      {
+        "kr": "김밥",
+        "vn": "món Kimbap (cơm cuốn lá kim)"
+      },
+      {
+        "kr": "나무",
+        "vn": "cây"
+      },
+      {
+        "kr": "낚시",
+        "vn": "câu cá"
+      },
+      {
+        "kr": "동물",
+        "vn": "động vật"
+      },
+      {
+        "kr": "드라마",
+        "vn": "phim truyền hình"
+      },
+      {
+        "kr": "딸기",
+        "vn": "quả dâu"
+      },
+      {
+        "kr": "바다",
+        "vn": "biển"
+      },
+      {
+        "kr": "배",
+        "vn": "quả lê"
+      },
+      {
+        "kr": "보내다",
+        "vn": "trải qua"
+      },
+      {
+        "kr": "빨래하다",
+        "vn": "giặt đồ"
+      },
+      {
+        "kr": "새",
+        "vn": "chim"
+      },
+      {
+        "kr": "선물",
+        "vn": "quà tặng"
+      },
+      {
+        "kr": "싫어하다",
+        "vn": "ghét"
+      },
+      {
+        "kr": "액션 영화",
+        "vn": "phim hành động"
+      },
+      {
+        "kr": "요리하다",
+        "vn": "nấu ăn"
+      },
+      {
+        "kr": "일찍",
+        "vn": "sớm"
+      },
+      {
+        "kr": "춤을 추다",
+        "vn": "nhảy múa"
+      },
+      {
+        "kr": "치다",
+        "vn": "đánh, chơi (cầu)"
+      },
+      {
+        "kr": "포도",
+        "vn": "quả nho"
+      },
+      {
+        "kr": "피곤하다",
+        "vn": "mệt nhọc"
+      }
     ]
   },
   {
     "id": 7,
     "title": "물건 사기 (1)",
     "topic": "Mua sắm (1)",
-    "grammar": ["N 주세요", "얼마예요?"],
+    "grammar": [
+      "N 주세요",
+      "얼마예요?"
+    ],
     "vocab": [
-      { "kr": "가게", "vn": "cửa hàng" },
-      { "kr": "마트", "vn": "siêu thị" },
-      { "kr": "백화점", "vn": "trung tâm bách hóa" },
-      { "kr": "서점", "vn": "hiệu sách" },
-      { "kr": "문구점", "vn": "cửa hàng văn phòng phẩm" },
-      { "kr": "옷", "vn": "quần áo" },
-      { "kr": "티셔츠", "vn": "áo thun" },
-      { "kr": "카메라", "vn": "máy ảnh" },
-      { "kr": "과자", "vn": "bánh kẹo" },
-      { "kr": "과일", "vn": "trái cây" },
-      { "kr": "싸다", "vn": "rẻ" },
-      { "kr": "비싸다", "vn": "đắt" },
-      { "kr": "세일", "vn": "giảm giá" },
-      { "kr": "얼마", "vn": "bao nhiêu tiền" }
+      {
+        "kr": "개",
+        "vn": "cái"
+      },
+      {
+        "kr": "명",
+        "vn": "người"
+      },
+      {
+        "kr": "사람",
+        "vn": "người"
+      },
+      {
+        "kr": "마리",
+        "vn": "con"
+      },
+      {
+        "kr": "잔",
+        "vn": "chén, cốc, ly"
+      },
+      {
+        "kr": "대",
+        "vn": "chiếc"
+      },
+      {
+        "kr": "병",
+        "vn": "bình, chai"
+      },
+      {
+        "kr": "켤레",
+        "vn": "đôi"
+      },
+      {
+        "kr": "권",
+        "vn": "quyển"
+      },
+      {
+        "kr": "장",
+        "vn": "trang"
+      },
+      {
+        "kr": "하나",
+        "vn": "một"
+      },
+      {
+        "kr": "둘",
+        "vn": "hai"
+      },
+      {
+        "kr": "셋",
+        "vn": "ba"
+      },
+      {
+        "kr": "넷",
+        "vn": "bốn"
+      },
+      {
+        "kr": "다섯",
+        "vn": "năm"
+      },
+      {
+        "kr": "스물",
+        "vn": "hai mươi"
+      },
+      {
+        "kr": "스물하나",
+        "vn": "hai mươi mốt"
+      },
+      {
+        "kr": "여러",
+        "vn": "nhiều"
+      },
+      {
+        "kr": "과일",
+        "vn": "hoa quả"
+      },
+      {
+        "kr": "채소",
+        "vn": "rau"
+      },
+      {
+        "kr": "음료수",
+        "vn": "thức uống"
+      },
+      {
+        "kr": "옷",
+        "vn": "quần áo"
+      },
+      {
+        "kr": "바지",
+        "vn": "quần"
+      },
+      {
+        "kr": "치마",
+        "vn": "váy"
+      },
+      {
+        "kr": "구두",
+        "vn": "giày"
+      },
+      {
+        "kr": "모자",
+        "vn": "mũ"
+      },
+      {
+        "kr": "과자",
+        "vn": "bánh, kẹo"
+      },
+      {
+        "kr": "귤",
+        "vn": "quả quýt"
+      },
+      {
+        "kr": "디자인",
+        "vn": "thiết kế"
+      },
+      {
+        "kr": "마트",
+        "vn": "siêu thị nhỏ"
+      },
+      {
+        "kr": "망고",
+        "vn": "xoài"
+      },
+      {
+        "kr": "문구점",
+        "vn": "cửa hàng văn phòng phẩm"
+      },
+      {
+        "kr": "생선",
+        "vn": "cá"
+      },
+      {
+        "kr": "세일",
+        "vn": "hạ giá"
+      },
+      {
+        "kr": "소설책",
+        "vn": "sách tiểu thuyết"
+      },
+      {
+        "kr": "수박",
+        "vn": "dưa hấu"
+      },
+      {
+        "kr": "전자상가",
+        "vn": "khu bán hàng điện tử"
+      },
+      {
+        "kr": "주스",
+        "vn": "nước hoa quả, sinh tố"
+      },
+      {
+        "kr": "카메라",
+        "vn": "máy ảnh"
+      },
+      {
+        "kr": "티셔츠",
+        "vn": "áo sơ mi"
+      }
     ]
   },
   {
     "id": 8,
     "title": "음식",
     "topic": "Thức ăn",
-    "grammar": ["N하고/N과/와", "V-(으)세요"],
+    "grammar": [
+      "N하고/N과/와",
+      "V-(으)세요"
+    ],
     "vocab": [
-      { "kr": "음식", "vn": "thức ăn" },
-      { "kr": "밥", "vn": "cơm" },
-      { "kr": "김치", "vn": "kimchi" },
-      { "kr": "불고기", "vn": "thịt nướng bulgogi" },
-      { "kr": "비빔밥", "vn": "cơm trộn" },
-      { "kr": "라면", "vn": "mì ăn liền" },
-      { "kr": "빵", "vn": "bánh mì, bánh" },
-      { "kr": "물", "vn": "nước" },
-      { "kr": "우유", "vn": "sữa" },
-      { "kr": "커피", "vn": "cà phê" },
-      { "kr": "차", "vn": "trà" },
-      { "kr": "채소", "vn": "rau củ" },
-      { "kr": "맛있다", "vn": "ngon" },
-      { "kr": "반찬", "vn": "món ăn kèm" }
+      {
+        "kr": "밥",
+        "vn": "cơm"
+      },
+      {
+        "kr": "국",
+        "vn": "canh"
+      },
+      {
+        "kr": "김치",
+        "vn": "Kim chi"
+      },
+      {
+        "kr": "불고기",
+        "vn": "món bulgogi"
+      },
+      {
+        "kr": "된장찌개",
+        "vn": "canh Doen-jang, canh tương"
+      },
+      {
+        "kr": "비빔밥",
+        "vn": "Bibimbap (món cơm trộn)"
+      },
+      {
+        "kr": "냉면",
+        "vn": "naeng-myeon (món mì lạnh)"
+      },
+      {
+        "kr": "떡",
+        "vn": "bánh tteok"
+      },
+      {
+        "kr": "라면",
+        "vn": "mì gói"
+      },
+      {
+        "kr": "삼겹살",
+        "vn": "món thịt ba chỉ nướng"
+      },
+      {
+        "kr": "김치찌개",
+        "vn": "canh kim chi"
+      },
+      {
+        "kr": "갈비탕",
+        "vn": "súp sườn bò"
+      },
+      {
+        "kr": "삼계탕",
+        "vn": "gà tần sâm"
+      },
+      {
+        "kr": "볶음밥",
+        "vn": "cơm chiên, cơm rang"
+      },
+      {
+        "kr": "갈비",
+        "vn": "món sườn nướng"
+      },
+      {
+        "kr": "국수",
+        "vn": "mì, bún"
+      },
+      {
+        "kr": "맛있다",
+        "vn": "ngon"
+      },
+      {
+        "kr": "맛없다",
+        "vn": "không ngon"
+      },
+      {
+        "kr": "달다",
+        "vn": "ngọt"
+      },
+      {
+        "kr": "쓰다",
+        "vn": "đắng"
+      },
+      {
+        "kr": "짜다",
+        "vn": "mặn"
+      },
+      {
+        "kr": "시다",
+        "vn": "chua"
+      },
+      {
+        "kr": "맵다",
+        "vn": "cay"
+      },
+      {
+        "kr": "싱겁다",
+        "vn": "nhạt"
+      },
+      {
+        "kr": "숟가락",
+        "vn": "thìa, muỗng"
+      },
+      {
+        "kr": "젓가락",
+        "vn": "đũa"
+      },
+      {
+        "kr": "메뉴",
+        "vn": "thực đơn"
+      },
+      {
+        "kr": "컵",
+        "vn": "cốc, ly"
+      },
+      {
+        "kr": "테이블",
+        "vn": "bàn ăn"
+      },
+      {
+        "kr": "종업원",
+        "vn": "người phục vụ nhà hàng"
+      },
+      {
+        "kr": "손님",
+        "vn": "khách"
+      },
+      {
+        "kr": "흡연석",
+        "vn": "chỗ được hút thuốc lá"
+      },
+      {
+        "kr": "금연석",
+        "vn": "chỗ cấm hút thuốc lá"
+      },
+      {
+        "kr": "영수증",
+        "vn": "hóa đơn"
+      },
+      {
+        "kr": "주문하다",
+        "vn": "gọi món"
+      },
+      {
+        "kr": "계산하다",
+        "vn": "tính toán, tính tiền"
+      },
+      {
+        "kr": "계산서",
+        "vn": "phiếu tính tiền"
+      },
+      {
+        "kr": "가지",
+        "vn": "cà tím"
+      },
+      {
+        "kr": "고추",
+        "vn": "ớt"
+      },
+      {
+        "kr": "그래서",
+        "vn": "vì vậy"
+      },
+      {
+        "kr": "기다리다",
+        "vn": "chờ đợi"
+      },
+      {
+        "kr": "남편",
+        "vn": "chồng"
+      },
+      {
+        "kr": "녹차",
+        "vn": "trà xanh"
+      },
+      {
+        "kr": "더",
+        "vn": "thêm, nữa, càng"
+      },
+      {
+        "kr": "드시다",
+        "vn": "dùng bữa (dạng kính ngữ của '먹다')"
+      },
+      {
+        "kr": "레몬",
+        "vn": "chanh"
+      },
+      {
+        "kr": "만들다",
+        "vn": "làm, tạo nên"
+      },
+      {
+        "kr": "맛있게",
+        "vn": "một cách ngon lành"
+      },
+      {
+        "kr": "물",
+        "vn": "nước"
+      },
+      {
+        "kr": "반찬",
+        "vn": "món ăn phụ"
+      },
+      {
+        "kr": "보통",
+        "vn": "bình thường"
+      },
+      {
+        "kr": "소금",
+        "vn": "muối"
+      },
+      {
+        "kr": "앉다",
+        "vn": "ngồi"
+      },
+      {
+        "kr": "어서",
+        "vn": "xin mời"
+      },
+      {
+        "kr": "음식",
+        "vn": "thức ăn"
+      },
+      {
+        "kr": "인삼차",
+        "vn": "trà sâm"
+      },
+      {
+        "kr": "잠깐만",
+        "vn": "chỉ một lát"
+      },
+      {
+        "kr": "좀",
+        "vn": "một chút"
+      },
+      {
+        "kr": "주다",
+        "vn": "cho"
+      },
+      {
+        "kr": "콜라",
+        "vn": "Coca cola"
+      },
+      {
+        "kr": "특히",
+        "vn": "đặc biệt"
+      }
     ]
   },
   {
     "id": 9,
     "title": "집",
     "topic": "Nhà cửa",
-    "grammar": ["N 앞/뒤/옆에", "A/V-아서/어서"],
+    "grammar": [
+      "N 앞/뒤/옆에",
+      "A/V-아서/어서"
+    ],
     "vocab": [
-      { "kr": "아파트", "vn": "chung cư" },
-      { "kr": "기숙사", "vn": "ký túc xá" },
-      { "kr": "방", "vn": "phòng" },
-      { "kr": "거실", "vn": "phòng khách" },
-      { "kr": "부엌", "vn": "bếp" },
-      { "kr": "침실", "vn": "phòng ngủ" },
-      { "kr": "정원", "vn": "vườn" },
-      { "kr": "문", "vn": "cửa" },
-      { "kr": "창문", "vn": "cửa sổ" },
-      { "kr": "편하다", "vn": "thoải mái" },
-      { "kr": "편리하다", "vn": "tiện lợi" },
-      { "kr": "불편하다", "vn": "bất tiện" },
-      { "kr": "깨끗하다", "vn": "sạch sẽ" },
-      { "kr": "혼자", "vn": "một mình" }
+      {
+        "kr": "위",
+        "vn": "trên"
+      },
+      {
+        "kr": "아래",
+        "vn": "dưới"
+      },
+      {
+        "kr": "안",
+        "vn": "trong"
+      },
+      {
+        "kr": "밖",
+        "vn": "ngoài"
+      },
+      {
+        "kr": "옆",
+        "vn": "bên cạnh"
+      },
+      {
+        "kr": "사이",
+        "vn": "giữa"
+      },
+      {
+        "kr": "앞",
+        "vn": "trước"
+      },
+      {
+        "kr": "뒤",
+        "vn": "sau"
+      },
+      {
+        "kr": "왼쪽",
+        "vn": "bên trái"
+      },
+      {
+        "kr": "오른쪽",
+        "vn": "bên phải"
+      },
+      {
+        "kr": "양쪽",
+        "vn": "hai phía"
+      },
+      {
+        "kr": "건너편",
+        "vn": "đối diện"
+      },
+      {
+        "kr": "맞은편",
+        "vn": "đối diện"
+      },
+      {
+        "kr": "똑바로",
+        "vn": "thẳng"
+      },
+      {
+        "kr": "쭉",
+        "vn": "thẳng"
+      },
+      {
+        "kr": "동",
+        "vn": "đông"
+      },
+      {
+        "kr": "서",
+        "vn": "tây"
+      },
+      {
+        "kr": "남",
+        "vn": "nam"
+      },
+      {
+        "kr": "북",
+        "vn": "bắc"
+      },
+      {
+        "kr": "주택",
+        "vn": "nhà riêng"
+      },
+      {
+        "kr": "아파트",
+        "vn": "nhà chung cư"
+      },
+      {
+        "kr": "안방",
+        "vn": "phòng trung"
+      },
+      {
+        "kr": "공부방",
+        "vn": "phòng học"
+      },
+      {
+        "kr": "거실",
+        "vn": "phòng khách"
+      },
+      {
+        "kr": "부엌",
+        "vn": "bếp"
+      },
+      {
+        "kr": "현관",
+        "vn": "lối vào, cổng vào"
+      },
+      {
+        "kr": "베란다",
+        "vn": "ban công"
+      },
+      {
+        "kr": "오피스텔",
+        "vn": "nhà văn phòng"
+      },
+      {
+        "kr": "세탁실",
+        "vn": "phòng giặt đồ"
+      },
+      {
+        "kr": "침실",
+        "vn": "phòng ngủ"
+      },
+      {
+        "kr": "침대",
+        "vn": "giường"
+      },
+      {
+        "kr": "책장",
+        "vn": "tủ sách"
+      },
+      {
+        "kr": "옷장",
+        "vn": "tủ quần áo"
+      },
+      {
+        "kr": "소파",
+        "vn": "sa-lông, ghế sofa"
+      },
+      {
+        "kr": "탁자",
+        "vn": "bàn"
+      },
+      {
+        "kr": "식탁",
+        "vn": "bàn ăn"
+      },
+      {
+        "kr": "화장대",
+        "vn": "bàn trang điểm"
+      },
+      {
+        "kr": "신발장",
+        "vn": "tủ giày"
+      },
+      {
+        "kr": "경찰서",
+        "vn": "sở cảnh sát"
+      },
+      {
+        "kr": "세탁소",
+        "vn": "tiệm giặt ủi"
+      },
+      {
+        "kr": "박물관",
+        "vn": "viện bảo tàng"
+      },
+      {
+        "kr": "슈퍼마켓",
+        "vn": "siêu thị"
+      },
+      {
+        "kr": "지하철역",
+        "vn": "ga tàu điện ngầm"
+      },
+      {
+        "kr": "버스 정류장",
+        "vn": "trạm xe buýt"
+      },
+      {
+        "kr": "빵집",
+        "vn": "tiệm bánh"
+      },
+      {
+        "kr": "꽃집",
+        "vn": "tiệm bán hoa"
+      },
+      {
+        "kr": "미용실",
+        "vn": "tiệm làm tóc nữ"
+      },
+      {
+        "kr": "기숙사",
+        "vn": "ký túc xá"
+      },
+      {
+        "kr": "단독주택",
+        "vn": "nhà đơn lập"
+      },
+      {
+        "kr": "복잡하다",
+        "vn": "phức tạp"
+      },
+      {
+        "kr": "불편하다",
+        "vn": "bất tiện"
+      },
+      {
+        "kr": "사용하다",
+        "vn": "sử dụng, dùng"
+      },
+      {
+        "kr": "자취 집",
+        "vn": "nhà thuê"
+      },
+      {
+        "kr": "정원",
+        "vn": "vườn"
+      },
+      {
+        "kr": "지내다",
+        "vn": "sống, trải qua"
+      },
+      {
+        "kr": "지하",
+        "vn": "hầm, dưới lòng đất"
+      },
+      {
+        "kr": "친절하다",
+        "vn": "thân thiện, tử tế"
+      },
+      {
+        "kr": "편리하다",
+        "vn": "tiện lợi"
+      },
+      {
+        "kr": "편하다",
+        "vn": "thoải mái"
+      },
+      {
+        "kr": "하숙비",
+        "vn": "tiền thuê nhà trọ"
+      },
+      {
+        "kr": "하숙집",
+        "vn": "nhà trọ"
+      },
+      {
+        "kr": "혼자",
+        "vn": "một mình"
+      }
     ]
   },
   {
     "id": 10,
     "title": "가족",
     "topic": "Gia đình",
-    "grammar": ["N의", "V-(으)세요 (kính ngữ)"],
+    "grammar": [
+      "N의",
+      "V-(으)세요 (kính ngữ)"
+    ],
     "vocab": [
-      { "kr": "가족", "vn": "gia đình" },
-      { "kr": "아버지", "vn": "bố" },
-      { "kr": "어머니", "vn": "mẹ" },
-      { "kr": "부모님", "vn": "bố mẹ" },
-      { "kr": "형", "vn": "anh trai (nam gọi)" },
-      { "kr": "오빠", "vn": "anh trai (nữ gọi)" },
-      { "kr": "누나", "vn": "chị gái (nam gọi)" },
-      { "kr": "언니", "vn": "chị gái (nữ gọi)" },
-      { "kr": "동생", "vn": "em" },
-      { "kr": "아들", "vn": "con trai" },
-      { "kr": "딸", "vn": "con gái" },
-      { "kr": "할아버지", "vn": "ông" },
-      { "kr": "할머니", "vn": "bà" },
-      { "kr": "결혼하다", "vn": "kết hôn" }
+      {
+        "kr": "할아버지",
+        "vn": "ông nội"
+      },
+      {
+        "kr": "할머니",
+        "vn": "bà nội"
+      },
+      {
+        "kr": "외할아버지",
+        "vn": "ông ngoại"
+      },
+      {
+        "kr": "외할머니",
+        "vn": "bà ngoại"
+      },
+      {
+        "kr": "아버지",
+        "vn": "bố"
+      },
+      {
+        "kr": "어머니",
+        "vn": "mẹ"
+      },
+      {
+        "kr": "오빠",
+        "vn": "anh trai"
+      },
+      {
+        "kr": "언니",
+        "vn": "chị gái"
+      },
+      {
+        "kr": "나",
+        "vn": "tôi"
+      },
+      {
+        "kr": "남동생",
+        "vn": "em trai"
+      },
+      {
+        "kr": "누나",
+        "vn": "chị gái"
+      },
+      {
+        "kr": "형",
+        "vn": "anh trai"
+      },
+      {
+        "kr": "여동생",
+        "vn": "em gái"
+      },
+      {
+        "kr": "교수",
+        "vn": "giáo sư"
+      },
+      {
+        "kr": "연구원",
+        "vn": "người nghiên cứu"
+      },
+      {
+        "kr": "군인",
+        "vn": "bộ đội"
+      },
+      {
+        "kr": "사업가",
+        "vn": "doanh nhân"
+      },
+      {
+        "kr": "변호사",
+        "vn": "luật sư"
+      },
+      {
+        "kr": "경찰관",
+        "vn": "cảnh sát"
+      },
+      {
+        "kr": "통역사",
+        "vn": "người thông dịch"
+      },
+      {
+        "kr": "농부",
+        "vn": "nông dân"
+      },
+      {
+        "kr": "사업을 하다",
+        "vn": "kinh doanh"
+      },
+      {
+        "kr": "장사를 하다",
+        "vn": "buôn bán"
+      },
+      {
+        "kr": "출장을 가다",
+        "vn": "đi công tác"
+      },
+      {
+        "kr": "강아지",
+        "vn": "chó con, cún con"
+      },
+      {
+        "kr": "결혼식",
+        "vn": "lễ cưới"
+      },
+      {
+        "kr": "계시다",
+        "vn": "có, ở (kính ngữ)"
+      },
+      {
+        "kr": "고모",
+        "vn": "cô"
+      },
+      {
+        "kr": "고모부",
+        "vn": "dượng (chồng của cô)"
+      },
+      {
+        "kr": "근무",
+        "vn": "làm việc"
+      },
+      {
+        "kr": "근처",
+        "vn": "gần"
+      },
+      {
+        "kr": "나중에",
+        "vn": "sau này"
+      },
+      {
+        "kr": "대가족",
+        "vn": "đại gia đình"
+      },
+      {
+        "kr": "댁",
+        "vn": "nhà (kính ngữ)"
+      },
+      {
+        "kr": "돌아가시다",
+        "vn": "qua đời, trở về quá cố"
+      },
+      {
+        "kr": "되다",
+        "vn": "trở thành"
+      },
+      {
+        "kr": "딸",
+        "vn": "con gái"
+      },
+      {
+        "kr": "말씀",
+        "vn": "lời nói"
+      },
+      {
+        "kr": "말씀하시다",
+        "vn": "nói (kính ngữ)"
+      },
+      {
+        "kr": "분",
+        "vn": "vị, người (kính ngữ)"
+      },
+      {
+        "kr": "사촌",
+        "vn": "anh chị em họ"
+      },
+      {
+        "kr": "삼촌",
+        "vn": "chú, cậu"
+      },
+      {
+        "kr": "성함",
+        "vn": "tên, danh tính (kính ngữ)"
+      },
+      {
+        "kr": "술",
+        "vn": "rượu"
+      },
+      {
+        "kr": "아내",
+        "vn": "vợ"
+      },
+      {
+        "kr": "아들",
+        "vn": "con trai"
+      },
+      {
+        "kr": "열심히",
+        "vn": "một cách chăm chỉ"
+      },
+      {
+        "kr": "올해",
+        "vn": "năm nay"
+      },
+      {
+        "kr": "외동딸",
+        "vn": "con gái duy nhất"
+      },
+      {
+        "kr": "외아들",
+        "vn": "con trai duy nhất"
+      },
+      {
+        "kr": "유치원생",
+        "vn": "trẻ mẫu giáo"
+      },
+      {
+        "kr": "잡수시다",
+        "vn": "ăn, dùng (kính ngữ)"
+      },
+      {
+        "kr": "전공하다",
+        "vn": "học chuyên ngành"
+      },
+      {
+        "kr": "주무시다",
+        "vn": "ngủ (kính ngữ)"
+      },
+      {
+        "kr": "진지",
+        "vn": "cơm (kính ngữ)"
+      },
+      {
+        "kr": "초등학생",
+        "vn": "học sinh tiểu học"
+      },
+      {
+        "kr": "큰아버지",
+        "vn": "bác trai"
+      },
+      {
+        "kr": "큰어머니",
+        "vn": "bác gái"
+      }
     ]
   },
   {
     "id": 11,
     "title": "날씨",
     "topic": "Thời tiết",
-    "grammar": ["A/V-지만", "A/V-네요"],
+    "grammar": [
+      "A/V-지만",
+      "A/V-네요"
+    ],
     "vocab": [
-      { "kr": "날씨", "vn": "thời tiết" },
-      { "kr": "봄", "vn": "mùa xuân" },
-      { "kr": "여름", "vn": "mùa hè" },
-      { "kr": "가을", "vn": "mùa thu" },
-      { "kr": "겨울", "vn": "mùa đông" },
-      { "kr": "덥다", "vn": "nóng" },
-      { "kr": "춥다", "vn": "lạnh" },
-      { "kr": "따뜻하다", "vn": "ấm áp" },
-      { "kr": "시원하다", "vn": "mát mẻ" },
-      { "kr": "비", "vn": "mưa" },
-      { "kr": "눈", "vn": "tuyết" },
-      { "kr": "바람", "vn": "gió" },
-      { "kr": "우산", "vn": "ô, dù" },
-      { "kr": "하늘", "vn": "bầu trời" }
+      {
+        "kr": "봄",
+        "vn": "mùa xuân"
+      },
+      {
+        "kr": "여름",
+        "vn": "mùa hè"
+      },
+      {
+        "kr": "가을",
+        "vn": "mùa thu"
+      },
+      {
+        "kr": "겨울",
+        "vn": "mùa đông"
+      },
+      {
+        "kr": "따뜻하다",
+        "vn": "ấm áp"
+      },
+      {
+        "kr": "덥다",
+        "vn": "nóng"
+      },
+      {
+        "kr": "쌀쌀하다",
+        "vn": "se se lạnh"
+      },
+      {
+        "kr": "춥다",
+        "vn": "lạnh"
+      },
+      {
+        "kr": "비가 오다",
+        "vn": "trời mưa"
+      },
+      {
+        "kr": "비가 내리다",
+        "vn": "trời mưa"
+      },
+      {
+        "kr": "비가 그치다",
+        "vn": "mưa tạnh"
+      },
+      {
+        "kr": "눈이 오다",
+        "vn": "tuyết rơi"
+      },
+      {
+        "kr": "눈이 내리다",
+        "vn": "tuyết rơi"
+      },
+      {
+        "kr": "눈이 그치다",
+        "vn": "tuyết ngừng rơi"
+      },
+      {
+        "kr": "맑다",
+        "vn": "trong"
+      },
+      {
+        "kr": "흐리다",
+        "vn": "âm u"
+      },
+      {
+        "kr": "바람이 불다",
+        "vn": "gió thổi"
+      },
+      {
+        "kr": "구름이 끼다",
+        "vn": "nhiều mây"
+      },
+      {
+        "kr": "해(태양)",
+        "vn": "mặt trời"
+      },
+      {
+        "kr": "비",
+        "vn": "mưa"
+      },
+      {
+        "kr": "눈",
+        "vn": "tuyết"
+      },
+      {
+        "kr": "구름",
+        "vn": "mây"
+      },
+      {
+        "kr": "기온",
+        "vn": "nhiệt độ không khí"
+      },
+      {
+        "kr": "영상",
+        "vn": "trên không (độ), độ dương"
+      },
+      {
+        "kr": "영하",
+        "vn": "dưới không (độ), độ âm"
+      },
+      {
+        "kr": "도",
+        "vn": "độ"
+      },
+      {
+        "kr": "가장",
+        "vn": "nhất"
+      },
+      {
+        "kr": "곱다",
+        "vn": "đẹp, xinh xắn"
+      },
+      {
+        "kr": "긴팔 옷",
+        "vn": "áo dài tay"
+      },
+      {
+        "kr": "깨끗하다",
+        "vn": "sạch sẽ"
+      },
+      {
+        "kr": "노란색",
+        "vn": "màu vàng"
+      },
+      {
+        "kr": "단풍",
+        "vn": "lá phong, lá mùa thu"
+      },
+      {
+        "kr": "답장",
+        "vn": "thư hồi âm"
+      },
+      {
+        "kr": "도와주다",
+        "vn": "giúp đỡ cho"
+      },
+      {
+        "kr": "돕다",
+        "vn": "giúp đỡ"
+      },
+      {
+        "kr": "목도리",
+        "vn": "khăn quàng cổ"
+      },
+      {
+        "kr": "반바지",
+        "vn": "quần soóc"
+      },
+      {
+        "kr": "반팔 옷",
+        "vn": "áo cộc tay"
+      },
+      {
+        "kr": "부츠",
+        "vn": "giày bốt, giày ống"
+      },
+      {
+        "kr": "비슷하다",
+        "vn": "tương tự, giống"
+      },
+      {
+        "kr": "스노보드",
+        "vn": "ván trượt tuyết"
+      },
+      {
+        "kr": "스키장",
+        "vn": "sân trượt tuyết, khu trượt tuyết"
+      },
+      {
+        "kr": "시끄럽다",
+        "vn": "ồn ào, ầm ĩ"
+      },
+      {
+        "kr": "우산",
+        "vn": "ô/dù che mưa"
+      },
+      {
+        "kr": "입다",
+        "vn": "mặc"
+      },
+      {
+        "kr": "장갑",
+        "vn": "găng tay, bao tay"
+      },
+      {
+        "kr": "좁다",
+        "vn": "hẹp"
+      },
+      {
+        "kr": "추억",
+        "vn": "kỷ niệm, ký ức"
+      },
+      {
+        "kr": "필요하다",
+        "vn": "cần thiết"
+      },
+      {
+        "kr": "하늘",
+        "vn": "trời, bầu trời"
+      },
+      {
+        "kr": "하얀 눈",
+        "vn": "tuyết trắng"
+      },
+      {
+        "kr": "호수",
+        "vn": "hồ"
+      }
     ]
   },
   {
     "id": 12,
     "title": "전화 (1)",
     "topic": "Điện thoại (1)",
-    "grammar": ["V-아/어 주세요", "N한테/에게"],
+    "grammar": [
+      "V-아/어 주세요",
+      "N한테/에게"
+    ],
     "vocab": [
-      { "kr": "전화", "vn": "điện thoại" },
-      { "kr": "휴대전화", "vn": "điện thoại di động" },
-      { "kr": "전화하다", "vn": "gọi điện" },
-      { "kr": "전화번호", "vn": "số điện thoại" },
-      { "kr": "받다", "vn": "nhận, nghe máy" },
-      { "kr": "끊다", "vn": "ngắt, cúp máy" },
-      { "kr": "연락하다", "vn": "liên lạc" },
-      { "kr": "말씀", "vn": "lời nói (kính ngữ)" },
-      { "kr": "약속", "vn": "cuộc hẹn, lời hẹn" },
-      { "kr": "소리", "vn": "âm thanh" },
-      { "kr": "늦다", "vn": "muộn" },
-      { "kr": "남기다", "vn": "để lại" },
-      { "kr": "대사관", "vn": "đại sứ quán" },
-      { "kr": "출발하다", "vn": "khởi hành" }
+      {
+        "kr": "집 전화",
+        "vn": "điện thoại nhà riêng"
+      },
+      {
+        "kr": "공중전화",
+        "vn": "điện thoại công cộng"
+      },
+      {
+        "kr": "휴대전화",
+        "vn": "điện thoại di động"
+      },
+      {
+        "kr": "전화번호",
+        "vn": "số điện thoại"
+      },
+      {
+        "kr": "연락처",
+        "vn": "nơi liên lạc, số liên lạc"
+      },
+      {
+        "kr": "전화 요금",
+        "vn": "phí điện thoại"
+      },
+      {
+        "kr": "전화 카드",
+        "vn": "thẻ điện thoại"
+      },
+      {
+        "kr": "국내 전화",
+        "vn": "điện thoại quốc nội"
+      },
+      {
+        "kr": "국제전화",
+        "vn": "điện thoại quốc tế"
+      },
+      {
+        "kr": "수신자 부담",
+        "vn": "điện thoại người nhận trả tiền"
+      },
+      {
+        "kr": "인터넷 전화",
+        "vn": "điện thoại internet"
+      },
+      {
+        "kr": "전화를 걸다",
+        "vn": "gọi điện thoại"
+      },
+      {
+        "kr": "전화를 하다",
+        "vn": "gọi điện thoại"
+      },
+      {
+        "kr": "전화가 오다",
+        "vn": "cuộc gọi đến"
+      },
+      {
+        "kr": "전화를 받다",
+        "vn": "nhận điện thoại"
+      },
+      {
+        "kr": "전화를 바꾸다",
+        "vn": "chuyển điện thoại (cho ai đó)"
+      },
+      {
+        "kr": "전화를 끊다",
+        "vn": "kết thúc cuộc gọi"
+      },
+      {
+        "kr": "통화 중이다",
+        "vn": "điện thoại bận, đang bận máy"
+      },
+      {
+        "kr": "문자메시지를 보내다",
+        "vn": "gửi tin nhắn"
+      },
+      {
+        "kr": "문자메시지를 받다",
+        "vn": "nhận tin nhắn"
+      },
+      {
+        "kr": "답장을 보내다",
+        "vn": "gửi tin trả lời"
+      },
+      {
+        "kr": "답장을 받다",
+        "vn": "nhận tin trả lời"
+      },
+      {
+        "kr": "그분",
+        "vn": "vị ấy, người ấy"
+      },
+      {
+        "kr": "깨우다",
+        "vn": "đánh thức"
+      },
+      {
+        "kr": "남기다",
+        "vn": "để lại, còn lại"
+      },
+      {
+        "kr": "내다",
+        "vn": "đưa ra"
+      },
+      {
+        "kr": "늦게",
+        "vn": "muộn, trễ"
+      },
+      {
+        "kr": "대사관",
+        "vn": "đại sứ quán"
+      },
+      {
+        "kr": "들어오다",
+        "vn": "đi vào"
+      },
+      {
+        "kr": "말씀 드리다",
+        "vn": "thưa chuyện, nói (kính ngữ)"
+      },
+      {
+        "kr": "맞다",
+        "vn": "đúng"
+      },
+      {
+        "kr": "사장님",
+        "vn": "giám đốc"
+      },
+      {
+        "kr": "소리",
+        "vn": "âm thanh, tiếng"
+      },
+      {
+        "kr": "약속",
+        "vn": "cuộc hẹn"
+      },
+      {
+        "kr": "역사",
+        "vn": "lịch sử"
+      },
+      {
+        "kr": "정하다",
+        "vn": "quyết định"
+      },
+      {
+        "kr": "짐",
+        "vn": "hành lý"
+      }
     ]
   },
   {
     "id": 13,
     "title": "생일",
     "topic": "Sinh nhật",
-    "grammar": ["V-(으)ㄹ까요?", "A/V-아서/어서"],
+    "grammar": [
+      "V-(으)ㄹ까요?",
+      "A/V-아서/어서"
+    ],
     "vocab": [
-      { "kr": "생일", "vn": "sinh nhật" },
-      { "kr": "생일 파티", "vn": "tiệc sinh nhật" },
-      { "kr": "선물", "vn": "quà tặng" },
-      { "kr": "케이크", "vn": "bánh kem" },
-      { "kr": "꽃", "vn": "hoa" },
-      { "kr": "장미", "vn": "hoa hồng" },
-      { "kr": "향수", "vn": "nước hoa" },
-      { "kr": "초대하다", "vn": "mời" },
-      { "kr": "축하하다", "vn": "chúc mừng" },
-      { "kr": "웃다", "vn": "cười" },
-      { "kr": "행복하다", "vn": "hạnh phúc" },
-      { "kr": "레스토랑", "vn": "nhà hàng" },
-      { "kr": "오래간만", "vn": "lâu rồi không gặp" },
-      { "kr": "먼저", "vn": "trước tiên" }
+      {
+        "kr": "생일",
+        "vn": "sinh nhật"
+      },
+      {
+        "kr": "케이크",
+        "vn": "bánh kem"
+      },
+      {
+        "kr": "축하 노래",
+        "vn": "bài hát chúc mừng"
+      },
+      {
+        "kr": "잔치",
+        "vn": "tiệc"
+      },
+      {
+        "kr": "카드",
+        "vn": "thiệp"
+      },
+      {
+        "kr": "초대",
+        "vn": "mời"
+      },
+      {
+        "kr": "나이",
+        "vn": "tuổi"
+      },
+      {
+        "kr": "살",
+        "vn": "tuổi"
+      },
+      {
+        "kr": "생신",
+        "vn": "kính ngữ của sinh nhật"
+      },
+      {
+        "kr": "연세",
+        "vn": "kính ngữ của tuổi"
+      },
+      {
+        "kr": "세",
+        "vn": "kính ngữ của tuổi"
+      },
+      {
+        "kr": "지갑",
+        "vn": "cái ví"
+      },
+      {
+        "kr": "화장품",
+        "vn": "mỹ phẩm"
+      },
+      {
+        "kr": "손수건",
+        "vn": "khăn tay"
+      },
+      {
+        "kr": "넥타이",
+        "vn": "cà vạt"
+      },
+      {
+        "kr": "귀걸이",
+        "vn": "hoa tai, bông tai"
+      },
+      {
+        "kr": "목걸이",
+        "vn": "dây chuyền"
+      },
+      {
+        "kr": "반지",
+        "vn": "nhẫn"
+      },
+      {
+        "kr": "꽃다발",
+        "vn": "lẵng hoa, bó hoa"
+      },
+      {
+        "kr": "선물을 주다",
+        "vn": "tặng quà"
+      },
+      {
+        "kr": "선물을 드리다",
+        "vn": "kính tặng quà"
+      },
+      {
+        "kr": "선물을 받다",
+        "vn": "nhận quà"
+      },
+      {
+        "kr": "선물을 고르다",
+        "vn": "chọn quà"
+      },
+      {
+        "kr": "가볍다",
+        "vn": "nhẹ"
+      },
+      {
+        "kr": "금반지",
+        "vn": "nhẫn vàng"
+      },
+      {
+        "kr": "길다",
+        "vn": "dài"
+      },
+      {
+        "kr": "꼭",
+        "vn": "nhất định"
+      },
+      {
+        "kr": "레스토랑",
+        "vn": "restaurant, nhà hàng"
+      },
+      {
+        "kr": "먼저",
+        "vn": "trước"
+      },
+      {
+        "kr": "무겁다",
+        "vn": "nặng"
+      },
+      {
+        "kr": "번째",
+        "vn": "lần"
+      },
+      {
+        "kr": "부르다",
+        "vn": "gọi, hát"
+      },
+      {
+        "kr": "생활",
+        "vn": "sinh hoạt"
+      },
+      {
+        "kr": "스웨터",
+        "vn": "áo len"
+      },
+      {
+        "kr": "스파게티",
+        "vn": "mì Ý"
+      },
+      {
+        "kr": "시청",
+        "vn": "tòa thị chính"
+      },
+      {
+        "kr": "아빠",
+        "vn": "ba, bố"
+      },
+      {
+        "kr": "엄마",
+        "vn": "mẹ, má"
+      },
+      {
+        "kr": "오래간만",
+        "vn": "lâu ngày không gặp"
+      },
+      {
+        "kr": "웃다",
+        "vn": "cười"
+      },
+      {
+        "kr": "이탈리아",
+        "vn": "Italy, Ý"
+      },
+      {
+        "kr": "장미",
+        "vn": "hoa hồng"
+      },
+      {
+        "kr": "짧다",
+        "vn": "ngắn"
+      },
+      {
+        "kr": "참",
+        "vn": "rất"
+      },
+      {
+        "kr": "첫",
+        "vn": "đầu tiên, thứ nhất"
+      },
+      {
+        "kr": "피자",
+        "vn": "bánh pizza"
+      },
+      {
+        "kr": "한식당",
+        "vn": "nhà hàng Hàn"
+      },
+      {
+        "kr": "행복하다",
+        "vn": "hạnh phúc"
+      },
+      {
+        "kr": "향수",
+        "vn": "nước hoa"
+      },
+      {
+        "kr": "화장하다",
+        "vn": "trang điểm"
+      },
+      {
+        "kr": "환갑",
+        "vn": "tiệc mừng thọ 60 tuổi"
+      }
     ]
   },
   {
     "id": 14,
     "title": "취미",
     "topic": "Sở thích",
-    "grammar": ["V-(으)ㄹ 수 있어요", "N을/를 좋아해요"],
+    "grammar": [
+      "V-(으)ㄹ 수 있어요",
+      "N을/를 좋아해요"
+    ],
     "vocab": [
-      { "kr": "취미", "vn": "sở thích" },
-      { "kr": "독서", "vn": "đọc sách" },
-      { "kr": "운동", "vn": "thể thao, vận động" },
-      { "kr": "사진을 찍다", "vn": "chụp ảnh" },
-      { "kr": "피아노", "vn": "đàn piano" },
-      { "kr": "탁구", "vn": "bóng bàn" },
-      { "kr": "여행하다", "vn": "đi du lịch" },
-      { "kr": "영화를 보다", "vn": "xem phim" },
-      { "kr": "음악을 듣다", "vn": "nghe nhạc" },
-      { "kr": "걷다", "vn": "đi bộ" },
-      { "kr": "자전거", "vn": "xe đạp" },
-      { "kr": "동아리", "vn": "câu lạc bộ" },
-      { "kr": "좋아하다", "vn": "thích" },
-      { "kr": "잘하다", "vn": "làm giỏi" }
+      {
+        "kr": "축구",
+        "vn": "bóng đá"
+      },
+      {
+        "kr": "농구",
+        "vn": "bóng rổ"
+      },
+      {
+        "kr": "배구",
+        "vn": "bóng chuyền"
+      },
+      {
+        "kr": "야구",
+        "vn": "bóng chày"
+      },
+      {
+        "kr": "족구",
+        "vn": "bóng chuyền bằng chân"
+      },
+      {
+        "kr": "탁구",
+        "vn": "bóng bàn"
+      },
+      {
+        "kr": "배드민턴",
+        "vn": "cầu lông"
+      },
+      {
+        "kr": "테니스",
+        "vn": "tennis"
+      },
+      {
+        "kr": "태권도",
+        "vn": "Taekwondo"
+      },
+      {
+        "kr": "골프",
+        "vn": "gôn"
+      },
+      {
+        "kr": "스키",
+        "vn": "trượt tuyết"
+      },
+      {
+        "kr": "요가",
+        "vn": "yoga"
+      },
+      {
+        "kr": "마라톤",
+        "vn": "chạy ma-ra-tông"
+      },
+      {
+        "kr": "스케이트",
+        "vn": "trượt băng"
+      },
+      {
+        "kr": "볼링",
+        "vn": "bowling"
+      },
+      {
+        "kr": "조깅",
+        "vn": "chạy bộ"
+      },
+      {
+        "kr": "수영",
+        "vn": "bơi"
+      },
+      {
+        "kr": "책 읽기",
+        "vn": "đọc sách"
+      },
+      {
+        "kr": "독서",
+        "vn": "đọc sách"
+      },
+      {
+        "kr": "사진 찍기",
+        "vn": "chụp ảnh"
+      },
+      {
+        "kr": "그림 그리기",
+        "vn": "vẽ tranh"
+      },
+      {
+        "kr": "음악 감상(하기)",
+        "vn": "nghe nhạc"
+      },
+      {
+        "kr": "여행(하기)",
+        "vn": "đi du lịch"
+      },
+      {
+        "kr": "운동(하기)",
+        "vn": "tập thể thao"
+      },
+      {
+        "kr": "영화 보기",
+        "vn": "xem phim"
+      },
+      {
+        "kr": "우표 수집",
+        "vn": "sưu tập tem"
+      },
+      {
+        "kr": "우표 모으기",
+        "vn": "sưu tập tem"
+      },
+      {
+        "kr": "컴퓨터 게임(하기)",
+        "vn": "chơi trò chơi điện tử"
+      },
+      {
+        "kr": "항상",
+        "vn": "luôn luôn"
+      },
+      {
+        "kr": "언제나",
+        "vn": "luôn luôn"
+      },
+      {
+        "kr": "자주",
+        "vn": "thường xuyên"
+      },
+      {
+        "kr": "가끔",
+        "vn": "thỉnh thoảng"
+      },
+      {
+        "kr": "거의 안 ~",
+        "vn": "hầu như không..."
+      },
+      {
+        "kr": "전혀",
+        "vn": "hoàn toàn"
+      },
+      {
+        "kr": "잘하다",
+        "vn": "làm tốt"
+      },
+      {
+        "kr": "못하다",
+        "vn": "không thể làm được"
+      },
+      {
+        "kr": "보통이다",
+        "vn": "bình thường"
+      },
+      {
+        "kr": "조금 하다",
+        "vn": "làm được một chút"
+      },
+      {
+        "kr": "가곡",
+        "vn": "ca khúc, bài hát"
+      },
+      {
+        "kr": "가요",
+        "vn": "dân ca"
+      },
+      {
+        "kr": "걱정하다",
+        "vn": "lo lắng"
+      },
+      {
+        "kr": "건강",
+        "vn": "sức khỏe"
+      },
+      {
+        "kr": "걷다",
+        "vn": "đi bộ"
+      },
+      {
+        "kr": "경기",
+        "vn": "trận đấu"
+      },
+      {
+        "kr": "경치",
+        "vn": "cảnh vật, phong cảnh"
+      },
+      {
+        "kr": "고등학교",
+        "vn": "trường trung học phổ thông"
+      },
+      {
+        "kr": "기초",
+        "vn": "cơ sở, cơ bản"
+      },
+      {
+        "kr": "도시락",
+        "vn": "cơm hộp"
+      },
+      {
+        "kr": "동아리",
+        "vn": "câu lạc bộ"
+      },
+      {
+        "kr": "디지털카메라",
+        "vn": "máy ảnh kỹ thuật số, digital camera"
+      },
+      {
+        "kr": "만화책",
+        "vn": "truyện tranh"
+      },
+      {
+        "kr": "묻다",
+        "vn": "hỏi"
+      },
+      {
+        "kr": "믿다",
+        "vn": "tin, tin tưởng"
+      },
+      {
+        "kr": "사진을 찍다",
+        "vn": "chụp ảnh"
+      },
+      {
+        "kr": "아침마다",
+        "vn": "mỗi sáng"
+      },
+      {
+        "kr": "앞으로",
+        "vn": "sau này, phía trước"
+      },
+      {
+        "kr": "어렵다",
+        "vn": "khó"
+      },
+      {
+        "kr": "유럽",
+        "vn": "châu Âu"
+      },
+      {
+        "kr": "자막",
+        "vn": "phụ đề"
+      },
+      {
+        "kr": "정도",
+        "vn": "mức độ, khoảng"
+      },
+      {
+        "kr": "주로",
+        "vn": "chủ yếu"
+      },
+      {
+        "kr": "준비물",
+        "vn": "đồ chuẩn bị"
+      },
+      {
+        "kr": "채팅하다",
+        "vn": "chat"
+      },
+      {
+        "kr": "취미",
+        "vn": "thú vui, sở thích"
+      },
+      {
+        "kr": "통역하다",
+        "vn": "thông dịch"
+      },
+      {
+        "kr": "특기",
+        "vn": "đặc biệt"
+      },
+      {
+        "kr": "피아노",
+        "vn": "piano, đàn dương cầm"
+      },
+      {
+        "kr": "한글",
+        "vn": "chữ Hangeul"
+      },
+      {
+        "kr": "해외여행",
+        "vn": "du lịch nước ngoài"
+      }
     ]
   },
   {
     "id": 15,
     "title": "교통 (1)",
     "topic": "Giao thông (1)",
-    "grammar": ["N(으)로", "N에서 N까지"],
+    "grammar": [
+      "N(으)로",
+      "N에서 N까지"
+    ],
     "vocab": [
-      { "kr": "교통", "vn": "giao thông" },
-      { "kr": "버스", "vn": "xe buýt" },
-      { "kr": "지하철", "vn": "tàu điện ngầm" },
-      { "kr": "택시", "vn": "taxi" },
-      { "kr": "기차", "vn": "tàu hỏa" },
-      { "kr": "KTX", "vn": "tàu cao tốc KTX" },
-      { "kr": "비행기", "vn": "máy bay" },
-      { "kr": "정류장", "vn": "trạm xe" },
-      { "kr": "역", "vn": "ga" },
-      { "kr": "공항", "vn": "sân bay" },
-      { "kr": "타다", "vn": "đi, lên phương tiện" },
-      { "kr": "내리다", "vn": "xuống phương tiện" },
-      { "kr": "갈아타다", "vn": "chuyển tuyến" },
-      { "kr": "도착하다", "vn": "đến nơi" }
+      {
+        "kr": "버스",
+        "vn": "xe buýt"
+      },
+      {
+        "kr": "기차",
+        "vn": "tàu hỏa"
+      },
+      {
+        "kr": "택시",
+        "vn": "taxi"
+      },
+      {
+        "kr": "지하철",
+        "vn": "tàu điện ngầm"
+      },
+      {
+        "kr": "오토바이",
+        "vn": "xe máy"
+      },
+      {
+        "kr": "자동차",
+        "vn": "ô tô"
+      },
+      {
+        "kr": "배",
+        "vn": "thuyền"
+      },
+      {
+        "kr": "비행기",
+        "vn": "máy bay"
+      },
+      {
+        "kr": "자전거",
+        "vn": "xe đạp"
+      },
+      {
+        "kr": "전차",
+        "vn": "tàu điện"
+      },
+      {
+        "kr": "세옴",
+        "vn": "xe ôm"
+      },
+      {
+        "kr": "시클로",
+        "vn": "xích lô"
+      },
+      {
+        "kr": "어떻게",
+        "vn": "như thế nào"
+      },
+      {
+        "kr": "얼마나",
+        "vn": "bao nhiêu, bao lâu"
+      },
+      {
+        "kr": "왜",
+        "vn": "tại sao"
+      },
+      {
+        "kr": "모범택시",
+        "vn": "taxi cao cấp"
+      },
+      {
+        "kr": "개인택시",
+        "vn": "taxi cá nhân"
+      },
+      {
+        "kr": "요금",
+        "vn": "tiền vé, cước phí"
+      },
+      {
+        "kr": "버스 정거장",
+        "vn": "điểm dừng xe buýt, trạm xe buýt"
+      },
+      {
+        "kr": "고속버스",
+        "vn": "xe buýt cao tốc"
+      },
+      {
+        "kr": "시내버스",
+        "vn": "xe buýt nội thành"
+      },
+      {
+        "kr": "버스 터미널",
+        "vn": "bến xe khách"
+      },
+      {
+        "kr": "교통 카드",
+        "vn": "thẻ giao thông"
+      },
+      {
+        "kr": "마을버스",
+        "vn": "xe buýt tuyến ngắn"
+      },
+      {
+        "kr": "매표소",
+        "vn": "quầy vé"
+      },
+      {
+        "kr": "지하철 노선도",
+        "vn": "bản đồ tuyến tàu điện ngầm"
+      },
+      {
+        "kr": "기차역",
+        "vn": "ga tàu hỏa"
+      },
+      {
+        "kr": "공항",
+        "vn": "sân bay"
+      },
+      {
+        "kr": "주차장",
+        "vn": "bãi đỗ xe"
+      },
+      {
+        "kr": "주유소",
+        "vn": "trạm xăng"
+      },
+      {
+        "kr": "횡단보도",
+        "vn": "vạch/lối băng sang đường"
+      },
+      {
+        "kr": "육교",
+        "vn": "cầu vượt"
+      },
+      {
+        "kr": "지하도",
+        "vn": "đường hầm"
+      },
+      {
+        "kr": "신호등",
+        "vn": "đèn tín hiệu giao thông"
+      },
+      {
+        "kr": "고속도로",
+        "vn": "đường cao tốc"
+      },
+      {
+        "kr": "도로",
+        "vn": "đường, đại lộ"
+      },
+      {
+        "kr": "타다",
+        "vn": "lên, đi (phương tiện giao thông)"
+      },
+      {
+        "kr": "내리다",
+        "vn": "xuống"
+      },
+      {
+        "kr": "갈아타다",
+        "vn": "đổi (phương tiện giao thông)"
+      },
+      {
+        "kr": "길이 막히다",
+        "vn": "tắc đường"
+      },
+      {
+        "kr": "시간이 걸리다",
+        "vn": "mất thời gian"
+      },
+      {
+        "kr": "교통사고가 나다",
+        "vn": "xảy ra tai nạn giao thông"
+      },
+      {
+        "kr": "간식",
+        "vn": "bữa phụ, quà vặt"
+      },
+      {
+        "kr": "남산",
+        "vn": "núi Namsan"
+      },
+      {
+        "kr": "노랗다",
+        "vn": "màu vàng"
+      },
+      {
+        "kr": "리무진 버스",
+        "vn": "xe buýt cao cấp thường là xe buýt đi sân bay, xe đưa đón ở khách sạn cao cấp, xe buýt lớn hạng sang"
+      },
+      {
+        "kr": "빨갛다",
+        "vn": "đỏ"
+      },
+      {
+        "kr": "야경",
+        "vn": "quang cảnh buổi tối"
+      },
+      {
+        "kr": "요리 학원",
+        "vn": "trung tâm dạy nấu ăn"
+      },
+      {
+        "kr": "지각하다",
+        "vn": "muộn, trễ"
+      },
+      {
+        "kr": "파랗다",
+        "vn": "xanh da trời"
+      },
+      {
+        "kr": "편의점",
+        "vn": "cửa hàng tiện lợi"
+      },
+      {
+        "kr": "학생회관",
+        "vn": "hội quán sinh viên"
+      },
+      {
+        "kr": "KTX",
+        "vn": "tàu cao tốc"
+      }
     ]
   }
 ]
