@@ -1,6 +1,20 @@
+import crypto from 'node:crypto';
+import { config } from '../src/config.js';
 import { hashPassword } from '../src/auth.js';
 import { query, withTransaction } from '../src/db.js';
 import { seedTextbookCatalog, textbookStats } from '../src/textbook.js';
+
+
+if (config.isProduction && process.env.ALLOW_PRODUCTION_DEMO_SEED !== 'I_UNDERSTAND') {
+  throw new Error('Đã chặn db:seed trên production. Không được nạp tài khoản demo vào DB thật.');
+}
+
+const randomPassword = () => `Demo-${crypto.randomBytes(12).toString('base64url')}!`;
+const demoPasswords = {
+  admin: process.env.DEMO_ADMIN_PASSWORD || randomPassword(),
+  teacher: process.env.DEMO_TEACHER_PASSWORD || randomPassword(),
+  student: process.env.DEMO_STUDENT_PASSWORD || randomPassword(),
+};
 
 async function upsertUser(email, fullName, role, password) {
   const passwordHash = await hashPassword(password);
@@ -17,10 +31,10 @@ console.log(`Đang nạp ${textbookStats.lessonCount} bài học và ${textbookS
 await seedTextbookCatalog();
 
 console.log('Đang tạo dữ liệu demo...');
-const adminId = await upsertUser('admin@hanquoc.local', 'Admin HanQuoc', 'ADMIN', 'Admin@123');
-const teacherId = await upsertUser('teacher@hanquoc.local', 'Cô Hana', 'TEACHER', 'Teacher@123');
-const studentId = await upsertUser('student@hanquoc.local', 'Nguyễn Minh Anh', 'STUDENT', 'Student@123');
-const student2Id = await upsertUser('student2@hanquoc.local', 'Trần Gia Huy', 'STUDENT', 'Student@123');
+const adminId = await upsertUser('admin@hanquoc.local', 'Admin HanQuoc', 'ADMIN', demoPasswords.admin);
+const teacherId = await upsertUser('teacher@hanquoc.local', 'Cô Hana', 'TEACHER', demoPasswords.teacher);
+const studentId = await upsertUser('student@hanquoc.local', 'Nguyễn Minh Anh', 'STUDENT', demoPasswords.student);
+const student2Id = await upsertUser('student2@hanquoc.local', 'Trần Gia Huy', 'STUDENT', demoPasswords.student);
 
 await query(
   `INSERT INTO classes (name, code, description, created_by) VALUES ('Sơ cấp 1 - K01', 'K01', 'Lớp demo để test đủ luồng', ?)
@@ -68,6 +82,7 @@ if (!existing[0]) {
 }
 
 console.log('Seed hoàn tất.');
-console.log('Demo: admin@hanquoc.local / Admin@123');
-console.log('Demo: teacher@hanquoc.local / Teacher@123');
-console.log('Demo: student@hanquoc.local / Student@123');
+console.log(`Demo Admin: admin@hanquoc.local / ${demoPasswords.admin}`);
+console.log(`Demo Teacher: teacher@hanquoc.local / ${demoPasswords.teacher}`);
+console.log(`Demo Student: student@hanquoc.local / ${demoPasswords.student}`);
+console.log('Mật khẩu demo được sinh ngẫu nhiên nếu bạn không cấu hình DEMO_*_PASSWORD.');

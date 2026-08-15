@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, KeyRound, Megaphone, Radio, Save, Settings2, Sparkles, SunMoon, Volume2, Wifi } from 'lucide-react';
+import { Activity, AlertTriangle, Bot, KeyRound, Megaphone, RefreshCw, Save, Settings2, SunMoon, Volume2, Wifi } from 'lucide-react';
 import { api } from '../api.js';
 import { PageHeader } from '../components/Shell.jsx';
 
 const MODELS = [
-  ['gemini-2.5-flash', 'Gemini 2.5 Flash · ổn định, nhanh'],
+  ['gemini-3.7-flash', 'Gemini 3.7 Flash · mới, mạnh và nhanh'],
+  ['gemini-3.6-flash', 'Gemini 3.6 Flash · mạnh, cân bằng'],
+  ['gemini-3.5-flash', 'Gemini 3.5 Flash · ổn định, tốc độ cao'],
+  ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite · tiết kiệm, tải cao'],
+  ['gemini-3.1-flash-lite', 'Gemini 3.1 Flash-Lite · nhẹ, chi phí thấp'],
+  ['gemini-2.5-flash', 'Gemini 2.5 Flash · tương thích tốt'],
   ['gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite · tiết kiệm'],
   ['gemini-2.5-pro', 'Gemini 2.5 Pro · chấm bài sâu hơn'],
-  ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
-  ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite'],
-  ['gemini-3.6-flash', 'Gemini 3.6 Flash'],
 ];
 
 const defaults = {
@@ -22,20 +24,47 @@ const defaults = {
   theme: 'light',
   aiConfigured: false,
   apiKeyMasked: '',
+  apiKeyCount: 0,
+  apiKeys: [],
   announcementText: '',
   announcementEnabled: false,
 };
 
 export default function AdminSettingsPage() {
   const [settings, setSettings] = useState(defaults);
-  const [apiKey, setApiKey] = useState('');
+  const [apiKeysText, setApiKeysText] = useState('');
   const [voices, setVoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [monitoring, setMonitoring] = useState({ totals: {}, users: [], keys: [], errors: [] });
+  const [monitoringBusy, setMonitoringBusy] = useState(false);
+
+  const loadMonitoring = async () => {
+    setMonitoringBusy(true);
+    try {
+      const [aiData, errorData] = await Promise.all([
+        api('/admin/monitoring/ai?days=1'),
+        api('/admin/monitoring/errors?limit=15'),
+      ]);
+      setMonitoring({
+        totals: aiData.totals || {},
+        users: aiData.users || [],
+        keys: aiData.keys || [],
+        errors: errorData.errors || [],
+      });
+    } catch (err) {
+      setMessage((current) => current || err.message);
+    } finally {
+      setMonitoringBusy(false);
+    }
+  };
 
   useEffect(() => {
-    api('/admin/settings').then(({ settings: data }) => setSettings({ ...defaults, ...data })).catch((err) => setMessage(err.message)).finally(() => setLoading(false));
+    Promise.all([
+      api('/admin/settings').then(({ settings: data }) => setSettings({ ...defaults, ...data })),
+      loadMonitoring(),
+    ]).catch((err) => setMessage(err.message)).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -46,7 +75,8 @@ export default function AdminSettingsPage() {
   }, []);
 
   const payload = useMemo(() => ({
-    apiKey,
+    apiKey: '',
+    apiKeysText: '',
     geminiModel: settings.geminiModel,
     speechRate: Number(settings.speechRate),
     speechPitch: Number(settings.speechPitch),
@@ -56,14 +86,13 @@ export default function AdminSettingsPage() {
     theme: settings.theme,
     announcementText: settings.announcementText || '',
     announcementEnabled: Boolean(settings.announcementEnabled),
-  }), [apiKey, settings]);
+  }), [settings]);
 
   const save = async (event) => {
     event.preventDefault(); setBusy(true); setMessage('');
     try {
       const data = await api('/admin/settings', { method: 'PUT', body: JSON.stringify(payload) });
       setSettings({ ...defaults, ...data.settings });
-      setApiKey('');
       setMessage('Cấu hình và thông báo toàn trang đã được lưu & áp dụng ngay cho tất cả người dùng!');
       // Dispatch custom event để Shell cập nhật ngay lập tức nếu đang mở
       window.dispatchEvent(new CustomEvent('app-announcement-updated'));
@@ -71,21 +100,62 @@ export default function AdminSettingsPage() {
     finally { setBusy(false); }
   };
 
-  const testAi = async () => {
+  const addAiKeys = async () => {
+    const text = apiKeysText.trim();
+    if (!text) return setMessage('Hãy dán ít nhất 1 Gemini API key.');
+    setBusy(true); setMessage('Đang thêm API key...');
+    try {
+      const data = await api('/admin/settings/ai/keys', { method: 'POST', body: JSON.stringify({ apiKeysText: text }) });
+      setSettings({ ...defaults, ...data.settings });
+      setApiKeysText('');
+      setMessage(data.message);
+    } catch (err) { setMessage(err.message); }
+    finally { setBusy(false); }
+  };
+
+  const testAi = async (keyId = null) => {
     setBusy(true); setMessage('Đang thử kết nối Gemini...');
     try {
-      const data = await api('/admin/settings/ai/test', { method: 'POST', body: JSON.stringify({ apiKey, geminiModel: settings.geminiModel }) });
+      const unsavedKey = !keyId ? apiKeysText.split(/[\n,;]+/).map((item) => item.trim()).find(Boolean) || '' : '';
+      const data = await api('/admin/settings/ai/test', {
+        method: 'POST',
+        body: JSON.stringify({ apiKey: unsavedKey, keyId: keyId || undefined, geminiModel: settings.geminiModel }),
+      });
+      setMessage(data.message);
+    } catch (err) { setMessage(err.message); }
+    finally { setBusy(false); }
+  };
+
+  const toggleAiKey = async (key) => {
+    if (!key.managed || !key.id) return;
+    setBusy(true);
+    try {
+      const data = await api(`/admin/settings/ai/keys/${key.id}`, { method: 'PATCH', body: JSON.stringify({ active: !key.active }) });
+      setSettings({ ...defaults, ...data.settings });
+      setMessage(data.message);
+    } catch (err) { setMessage(err.message); }
+    finally { setBusy(false); }
+  };
+
+  const deleteAiKey = async (key) => {
+    if (!key.managed || !key.id) return;
+    if (!window.confirm(`Xóa ${key.label} khỏi pool Gemini?`)) return;
+    setBusy(true);
+    try {
+      const data = await api(`/admin/settings/ai/keys/${key.id}`, { method: 'DELETE' });
+      setSettings({ ...defaults, ...data.settings });
       setMessage(data.message);
     } catch (err) { setMessage(err.message); }
     finally { setBusy(false); }
   };
 
   const clearKey = async () => {
-    if (!window.confirm('Xóa Gemini API key đang lưu trên hệ thống?')) return;
+    if (!window.confirm('Xóa toàn bộ Gemini API key đang lưu trong database? Key đặt bằng ENV sẽ không bị xóa.')) return;
     setBusy(true);
     try {
-      const data = await api('/admin/settings', { method: 'PUT', body: JSON.stringify({ ...payload, apiKey: '', clearApiKey: true }) });
-      setSettings({ ...defaults, ...data.settings }); setApiKey('');
+      const data = await api('/admin/settings', { method: 'PUT', body: JSON.stringify({ ...payload, clearApiKey: true }) });
+      setSettings({ ...defaults, ...data.settings }); setApiKeysText('');
+      setMessage('Đã xóa các API key do Admin lưu trong database.');
     } catch (err) { setMessage(err.message); }
     finally { setBusy(false); }
   };
@@ -151,10 +221,59 @@ export default function AdminSettingsPage() {
 
       {/* SECTION GEMINI AI */}
       <section className="panel settings-card ai-settings-card">
-        <div className="settings-card-head"><div className="settings-card-icon purple"><Bot /></div><div><span>GEMINI AI</span><h3>Kết nối & mô hình</h3></div><b className={settings.aiConfigured ? 'config-ok' : 'config-off'}>{settings.aiConfigured ? 'Đã kết nối key' : 'Chưa có key'}</b></div>
-        <label>Gemini API Key<div className="secret-input"><KeyRound size={17} /><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={settings.apiKeyMasked || 'AIza...'} autoComplete="new-password" /></div><small>{settings.apiKeyMasked ? `Key hiện tại: ${settings.apiKeyMasked} · để trống nếu không đổi.` : 'Key chỉ được lưu ở backend và không gửi xuống tài khoản học sinh/giáo viên.'}</small></label>
+        <div className="settings-card-head"><div className="settings-card-icon purple"><Bot /></div><div><span>GEMINI AI</span><h3>Pool API & failover</h3></div><b className={settings.aiConfigured ? 'config-ok' : 'config-off'}>{settings.aiConfigured ? `${settings.apiKeyCount || settings.apiKeys?.length || 0} key khả dụng` : 'Chưa có key'}</b></div>
         <label>Mô hình<select value={settings.geminiModel} onChange={(e) => setSettings({ ...settings, geminiModel: e.target.value })}>{MODELS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-        <div className="settings-actions"><button type="button" className="btn secondary" onClick={testAi} disabled={busy}><Wifi size={17} /> Thử kết nối</button>{settings.aiConfigured && <button type="button" className="btn ghost danger-text" onClick={clearKey} disabled={busy}>Xóa key</button>}</div>
+        <label>Thêm API key (mỗi key một dòng)
+          <div className="secret-input" style={{ alignItems: 'flex-start' }}><KeyRound size={17} style={{ marginTop: 10 }} /><textarea rows="4" value={apiKeysText} onChange={(e) => setApiKeysText(e.target.value)} placeholder={'AIza...\nAIza...\nAIza...'} autoComplete="off" style={{ width: '100%', resize: 'vertical', border: 0, outline: 0, background: 'transparent', fontFamily: 'inherit' }} /></div>
+          <small>Key được mã hóa AES-256-GCM trong MySQL. Học sinh/giáo viên không nhận được key. Backend tự cooldown và chuyển key khi 429/503/timeout/lỗi key.</small>
+        </label>
+        <div className="settings-actions"><button type="button" className="btn secondary" onClick={addAiKeys} disabled={busy || !apiKeysText.trim()}><KeyRound size={17} /> Thêm vào pool</button><button type="button" className="btn secondary" onClick={() => testAi()} disabled={busy || (!apiKeysText.trim() && !settings.aiConfigured)}><Wifi size={17} /> Thử kết nối</button>{settings.apiKeys?.some((key) => key.managed) && <button type="button" className="btn ghost danger-text" onClick={clearKey} disabled={busy}>Xóa key DB</button>}</div>
+
+        <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+          {(settings.apiKeys || []).map((key, index) => <div key={`${key.source}-${key.id || index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center', padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 10 }}>
+            <div style={{ minWidth: 0 }}><strong style={{ display: 'block' }}>{key.label} · {key.masked}</strong><small style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}>{key.active ? '🟢' : '⚪'} {key.status || 'READY'}{key.cooldownUntil ? ` · cooldown tới ${new Date(key.cooldownUntil).toLocaleTimeString('vi-VN')}` : ''}{key.failureCount ? ` · lỗi ${key.failureCount} lần` : ''}</small></div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn ghost small" onClick={() => testAi(key.id)} disabled={busy || !key.managed}>Test</button>
+              {key.managed && <button type="button" className="btn ghost small" onClick={() => toggleAiKey(key)} disabled={busy}>{key.active ? 'Tắt' : 'Bật'}</button>}
+              {key.managed && <button type="button" className="btn ghost small danger-text" onClick={() => deleteAiKey(key)} disabled={busy}>Xóa</button>}
+            </div>
+          </div>)}
+          {!settings.apiKeys?.length && <small>Chưa có API key nào trong pool.</small>}
+        </div>
+      </section>
+
+      {/* SECTION MONITORING */}
+      <section className="panel settings-card span-settings">
+        <div className="settings-card-head">
+          <div className="settings-card-icon green"><Activity /></div>
+          <div><span>GIÁM SÁT PRODUCTION</span><h3>AI & lỗi hệ thống hôm nay</h3></div>
+          <button type="button" className="btn ghost" onClick={loadMonitoring} disabled={monitoringBusy} style={{ marginLeft: 'auto' }}><RefreshCw size={16} /> {monitoringBusy ? 'Đang tải...' : 'Làm mới'}</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10, marginBottom: 12 }}>
+          {[
+            ['Requests AI', Number(monitoring.totals.requests || 0).toLocaleString('vi-VN')],
+            ['Thành công', Number(monitoring.totals.successCount || 0).toLocaleString('vi-VN')],
+            ['429 / rate limit', Number(monitoring.totals.rateLimitedCount || 0).toLocaleString('vi-VN')],
+            ['503 / unavailable', Number(monitoring.totals.unavailableCount || 0).toLocaleString('vi-VN')],
+            ['Độ trễ TB', `${Number(monitoring.totals.averageLatencyMs || 0).toLocaleString('vi-VN')} ms`],
+          ].map(([label, value]) => <div key={label} style={{ padding: 12, border: '1px solid var(--line)', borderRadius: 12 }}><small>{label}</small><strong style={{ display: 'block', fontSize: '1.15rem', marginTop: 4 }}>{value}</strong></div>)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12 }}>
+            <strong>Người dùng AI nhiều nhất</strong>
+            <div style={{ display: 'grid', gap: 7, marginTop: 9 }}>
+              {monitoring.users.slice(0, 5).map((user) => <div key={user.id || user.email || user.fullName} style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.fullName || user.email || 'Không xác định'}</span><b>{Number(user.requestCount || 0)}</b></div>)}
+              {!monitoring.users.length && <small>Chưa có request AI nào hôm nay.</small>}
+            </div>
+          </div>
+          <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12 }}>
+            <strong><AlertTriangle size={15} style={{ verticalAlign: '-2px', marginRight: 6 }} />Lỗi hệ thống gần nhất</strong>
+            <div style={{ display: 'grid', gap: 7, marginTop: 9 }}>
+              {monitoring.errors.slice(0, 5).map((error) => <div key={error.id} style={{ borderBottom: '1px solid var(--line)', paddingBottom: 6 }}><small style={{ display: 'block' }}>{error.statusCode || 500} · {error.method} {error.path}</small><span style={{ fontSize: '.82rem' }}>{error.message}</span></div>)}
+              {!monitoring.errors.length && <small>Chưa ghi nhận lỗi backend gần đây.</small>}
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* SECTION GIỌNG ĐỌC */}

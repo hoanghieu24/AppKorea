@@ -21,16 +21,6 @@
       <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
     <div class="modal-body">
-      <!-- API KEY -->
-      <div class="settings-section classroom-secret-setting">
-        <div class="settings-label">🤖 Gemini API Key</div>
-        <p class="settings-desc">Nhập key để dùng AI tạo từ vựng, trò chuyện và học thông minh hơn. Lấy key miễn phí tại <a href="https://aistudio.google.com/apikey" target="_blank" class="settings-link">aistudio.google.com</a></p>
-        <div class="api-key-row">
-          <input type="password" id="apiKeyInput" class="settings-input" placeholder="AIza..." autocomplete="off" />
-          <button class="btn btn-primary btn-sm" onclick="saveApiKey()">💾 Lưu</button>
-        </div>
-        <div class="api-status" id="apiStatus"></div>
-      </div>
 
       <!-- VOICE SETTINGS -->
       <div class="settings-section">
@@ -47,19 +37,6 @@
           <input type="range" id="speechPitch" min="0.5" max="2" step="0.1" value="1.0" class="settings-range" />
         </div>
         <button class="btn btn-ghost btn-sm" onclick="testVoice()">▶ Thử giọng: 안녕하세요!</button>
-      </div>
-
-      <!-- AI MODEL -->
-      <div class="settings-section classroom-secret-setting">
-        <div class="settings-label">🧠 Mô hình AI</div>
-        <select id="modelSelect" class="settings-select">
-          <option value="gemini-3.5-flash">gemini-3.5-flash (Khuyên dùng - Cực nhanh)</option>
-          <option value="gemini-3.1-flash-lite">gemini-3.1-flash-lite (Nhẹ, tiết kiệm)</option>
-          <option value="gemini-2.5-flash">gemini-2.5-flash (Ổn định)</option>
-          <option value="gemini-2.5-pro">gemini-2.5-pro (Mạnh mẽ)</option>
-          <option value="gemini-1.5-flash">gemini-1.5-flash (Mặc định)</option>
-          <option value="gemini-1.5-pro">gemini-1.5-pro (Nâng cao)</option>
-        </select>
       </div>
 
       <!-- AI PERSONALITY -->
@@ -982,8 +959,7 @@
       </div>
 
       <div class="no-api-notice" id="noApiNotice">
-        <span>⚠️ AI chưa được cấu hình trên hệ thống. </span>
-        <button class="link-btn" onclick="openSettings()">Cài đặt →</button>
+        <span>⚠️ AI hệ thống chưa sẵn sàng. Hãy liên hệ Admin nếu tình trạng này kéo dài.</span>
       </div>
 
       <div class="chat-input-area">
@@ -1025,8 +1001,7 @@
       <div class="tutor-chat" id="tutorChat"></div>
 
       <div class="no-api-notice" id="noApiNoticeTutor">
-        <span>⚠️ AI chưa được cấu hình trên hệ thống. </span>
-        <button class="link-btn" onclick="openSettings()">Cài đặt →</button>
+        <span>⚠️ AI hệ thống chưa sẵn sàng. Hãy liên hệ Admin nếu tình trạng này kéo dài.</span>
       </div>
 
       <div class="tutor-input-row">

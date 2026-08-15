@@ -14,8 +14,8 @@ export default function LoginPage({ onLogin }) {
     setLoading(true); setError('');
     try {
       const session = await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }), toast: false });
-      saveSession(session);
-      onLogin(session);
+      const cleanSession = saveSession(session);
+      onLogin(cleanSession);
     } catch (err) {
       setError(err.message);
     } finally {

@@ -1,167 +1,233 @@
-# HanQuoc Classroom 2.2.8
+# HanQuoc Classroom / AppKorea
 
-> 2.2.8: sửa tương thích MySQL cho toàn bộ phân trang server-side; không dùng prepared parameters cho `LIMIT/OFFSET` sau khi các giá trị đã được validate, tránh lỗi `ER_WRONG_ARGUMENTS / mysqld_stmt_execute` trên một số máy MySQL.
->
-> 2.2.7: khóa lỗi giao từ vựng nhầm lớp: giáo viên có nhiều lớp phải chọn lớp đích, nút và thông báo hiển thị rõ tên lớp; backend xác nhận số từ thực sự được thêm, không báo thành công ảo và gửi thông báo cho học sinh khi có từ mới.
->
-> 2.2.6: cải thiện màn tích hợp từ vựng với Chọn tất cả/Bỏ chọn, hàng từ dễ đọc và không tự kéo màn hình; thêm phân trang lazy/server-side cho các danh sách Classroom và phân trang render-on-demand cho list dài trong Phòng tự học.
->
-> 2.2.5: tích hợp catalog Sơ cấp 1 theo 15 bài, dropdown bài học tự có dữ liệu và chọn bài nào tải ngay từ vựng bài đó; API tự đồng bộ catalog vào MySQL khi sử dụng.
->
-> 2.2.4: chấm Luyện ngữ pháp/Kiểm tra tổng hợp theo nghĩa thay vì so chuỗi tuyệt đối; chấp nhận cách diễn đạt tương đương, có mức đúng / gần đúng / sai và AI nhận xét các câu không khớp mẫu.
+Nền tảng lớp học và tự học tiếng Hàn cho **Admin / Giáo viên / Học sinh**.
 
-Bản chuyển đổi từ project HTML/CSS/JS cũ sang:
+- Frontend: React + Vite, deploy Vercel
+- Backend: Node.js + Express, deploy Render
+- Database: MySQL 8
+- AI: Gemini API, hỗ trợ pool nhiều API key + failover
+- Production hardening: phiên đăng nhập HttpOnly refresh token, rate limit, timeout AI/TTS, monitoring, backup/restore, security headers
 
-- Frontend: React 19 + Vite, responsive desktop/mobile.
-- Backend: Node.js + Express REST API.
-- Database: MySQL 8.
-- Auth: JWT + bcrypt, 3 role `ADMIN`, `TEACHER`, `STUDENT`.
-- App điện thoại: PWA (`manifest` + service worker), có thể cài từ trình duyệt hỗ trợ.
-- AI: Gemini chạy ở backend; chỉ Admin được xem/truy cập trang cấu hình và API key không bao giờ gửi xuống tài khoản giáo viên/học sinh.
+## 1. Cấu trúc project
 
-## Chức năng đã làm
+```text
+AppKorea/
+├─ backend/                 Express API + MySQL
+│  ├─ scripts/              init/seed/backup/restore DB
+│  ├─ sql/schema.sql
+│  └─ src/
+├─ frontend/                React + Vite
+│  ├─ public/legacy/        Phòng tự học tích hợp
+│  └─ src/
+├─ PRODUCTION_CHECKLIST.md
+├─ CHANGES_PRODUCTION_2.3.0.md
+├─ docker-compose.yml       MySQL local
+└─ package.json             npm workspaces backend/frontend
+```
 
-### Admin
+## 2. Chạy local
 
-- Đăng nhập theo role.
-- Tạo tài khoản admin/giáo viên/học sinh.
-- Tạo lớp.
-- Giao giáo viên vào lớp.
-- Thêm học sinh vào lớp.
-
-### Giáo viên
-
-- Chỉ nhìn thấy lớp được admin giao.
-- Tạo BTVN hoặc bài kiểm tra.
-- Câu hỏi: trắc nghiệm, trả lời ngắn, tự luận AI chấm.
-- BTVN có 2 bước: học sinh `Check bằng AI` nhiều lần để sửa bài, sau đó mới `Nộp cho giáo viên`. Giáo viên xem được số lần check, điểm và nhận xét AI của từng lần.
-- Admin có các màn `Quản lý lớp`, `Quản lý học sinh`, `Quản lý giáo viên`, `Quản lý người dùng`; đầy đủ Create/Read/Update/Delete, khóa/khôi phục và giao/gỡ thành viên lớp.
-- Giáo viên có thể lọc bài theo từng lớp; nút `Mở` của lớp truyền `classId`, API chỉ trả bài đúng lớp và dashboard luôn ghi rõ bài thuộc lớp nào.
-- Lưu nháp hoặc publish ngay.
-- Khi publish, tất cả học sinh trong lớp nhận notification.
-- Theo dõi ai đã nộp/chưa nộp, điểm và các chủ đề học sinh cần ôn thêm.
-- Tích hợp từ vựng theo catalog Sơ cấp 1: chọn Bài 1–15, tick từ, đưa vào lớp.
-
-### Học sinh
-
-- Nhận BTVN/kiểm tra của lớp.
-- Làm bài và nhận điểm/feedback sau khi nộp.
-- Xem phần cần ôn dựa trên lịch sử làm sai.
-- Học từ vựng giáo viên đã giao.
-- Flashcard, nghe phát âm bằng Web Speech API, đánh dấu "Đã nhớ"/"Cần ôn lại".
-- Notification có chấm báo mới.
-
-### Phòng tự học đầy đủ từ project gốc
-
-- Giữ nguyên engine học cũ trong giao diện Classroom: học từ mới, học hàng loạt, flashcard, quiz, điền từ, nghe, hội thoại nghe, viết, nói, AI Chat, AI Tutor, SRS/ôn tập, ngữ pháp, luyện ngữ pháp, TOPIK/kiểm tra, từ điển, dịch, học PDF, BTVN cá nhân, luyện câu theo sách, game ghép nhanh, số tiếng Hàn, sổ tay, game ngữ pháp và bất quy tắc.
-- Dữ liệu luyện câu trong Phòng tự học vẫn giữ bộ 20 bài từ project gốc.
-- Từ vựng giáo viên chọn ở mục `Tích hợp từ vựng từ sách` tự đồng bộ vào Phòng tự học của lớp.
-- Tiến độ của engine cũ vẫn lưu local để dùng nhanh, đồng thời đồng bộ vào MySQL theo từng tài khoản giáo viên/học sinh.
-- Các chế độ AI trong engine cũ đi qua API Node.js. Gemini/model/giọng đọc/personality/theme được Admin quản lý tập trung tại `Cấu hình hệ thống`; Phòng tự học không còn cho Teacher/Student tự đổi các mục này.
-- Thao tác tạo/giao/nộp/lưu cấu hình có toast báo thành công/lỗi; badge Thông báo tự làm mới để giáo viên sớm thấy bài vừa nộp.
-
-Kho tích hợp từ vựng cho giáo viên dùng catalog Sơ cấp 1 gồm 15 bài và 210 mục từ cơ bản theo chủ đề; bộ luyện tập cũ vẫn được giữ riêng cho Phòng tự học.
-
-## Chạy nhanh
-
-Yêu cầu: Node.js 20+ và MySQL 8+.
-
-1. Cài package ở thư mục gốc:
+Yêu cầu Node.js 20+ và MySQL 8.
 
 ```bash
 npm install
-```
-
-2. Copy `.env.example` thành `server/.env`, rồi sửa thông tin MySQL:
-
-```env
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=mat_khau_mysql_cua_ban
-DB_NAME=hanquoc_classroom
-JWT_SECRET=hay-doi-thanh-mot-chuoi-rat-dai-va-ngau-nhien
-```
-
-3. Tạo database/table và seed dữ liệu demo:
-
-```bash
+cp .env.example backend/.env
+cp frontend/.env.example frontend/.env.local
 npm run db:init
 npm run db:seed
-```
-
-Nếu đã chạy `db:init` ở bản 2.0 trước đó, hãy chạy lại `npm run db:init` một lần. Lệnh này dùng `CREATE TABLE IF NOT EXISTS` nên không xóa dữ liệu cũ và sẽ bổ sung bảng cấu hình hệ thống + lịch sử các lần Check AI.
-
-4. Chạy frontend + backend cùng lúc:
-
-```bash
 npm run dev
 ```
 
-- Web: `http://localhost:5173`
-- API: `http://localhost:4000/api/health`
+`db:seed` chỉ dành cho local/test. Mật khẩu demo được tạo ngẫu nhiên và in ra terminal; source không chứa mật khẩu demo cố định.
 
-## Nếu muốn chạy MySQL bằng Docker
+Frontend mặc định: `http://localhost:5173`
+Backend mặc định: `http://localhost:4000`
 
-Project có sẵn `docker-compose.yml`:
+## 3. Biến môi trường backend quan trọng
 
-```bash
-docker compose up -d
-```
-
-Khi dùng file compose mẫu, đặt `DB_PASSWORD=root123` trong `server/.env`, sau đó chạy `npm run db:init` và `npm run db:seed`.
-
-## Tài khoản demo
-
-| Role | Email | Mật khẩu |
-| --- | --- | --- |
-| Admin | `admin@hanquoc.local` | `Admin@123` |
-| Giáo viên | `teacher@hanquoc.local` | `Teacher@123` |
-| Học sinh | `student@hanquoc.local` | `Student@123` |
-| Học sinh 2 | `student2@hanquoc.local` | `Student@123` |
-
-Seed cũng tạo lớp `Sơ cấp 1 - K01`, giao giáo viên + 2 học sinh, nạp từ vựng Bài 1–2 và một BTVN mẫu đã publish.
-
-> Các mật khẩu trên chỉ dành cho local/demo. Khi deploy thật phải đổi toàn bộ.
-
-## Cấu hình Gemini
-
-Khuyến nghị: đăng nhập bằng Admin → `Cấu hình hệ thống` → nhập Gemini API key, chọn model → `Thử kết nối` → `Lưu & áp dụng`. Key được mã hóa trước khi lưu MySQL.
-
-Trong `server/.env` nên thêm một secret riêng và giữ nguyên giá trị này sau khi đã lưu key:
+Xem đầy đủ trong `.env.example`.
 
 ```env
-SETTINGS_ENCRYPTION_KEY=change-this-to-another-long-random-secret
+NODE_ENV=production
+CLIENT_URL=https://hoctienghan.io.vn,https://www.hoctienghan.io.vn
+
+DB_HOST=...
+DB_PORT=3306
+DB_USER=...
+DB_PASSWORD=...
+DB_NAME=...
+
+JWT_SECRET=<chuoi-ngau-nhien-rieng-dai-it-nhat-32-ky-tu>
+SETTINGS_ENCRYPTION_KEY=<chuoi-ngau-nhien-khac-dai-it-nhat-32-ky-tu>
+JWT_EXPIRES_IN=1h
+
+REFRESH_TOKEN_DAYS=30
+REFRESH_COOKIE_SAME_SITE=none
+REFRESH_COOKIE_SECURE=true
+
+GEMINI_MODEL=gemini-2.5-flash
+RATE_LIMIT_AI_PER_MINUTE=30
+RATE_LIMIT_AI_CONCURRENT_PER_USER=2
+AUTO_CLEANUP_DAYS=0
 ```
 
-`GEMINI_API_KEY` và `GEMINI_MODEL` trong `.env` vẫn được hỗ trợ làm fallback cho bản cũ, nhưng sau khi Admin lưu cấu hình thì giá trị trong MySQL được ưu tiên. Nếu chưa có Gemini, trắc nghiệm/trả lời ngắn vẫn chấm bình thường; tự luận dùng cơ chế chấm dự phòng.
+Production sẽ **không khởi động** nếu thiếu DB password/JWT secret/encryption key hoặc dùng secret quá ngắn. `JWT_SECRET` và `SETTINGS_ENCRYPTION_KEY` bắt buộc khác nhau.
 
-## Lệnh kiểm tra
+Nếu backend dùng custom domain cùng site, ví dụ `api.hoctienghan.io.vn`, có thể dùng `REFRESH_COOKIE_SAME_SITE=lax`. Nếu frontend Vercel gọi trực tiếp domain `*.onrender.com`, dùng `SameSite=none; Secure`.
+
+## 4. Vercel
+
+Root Directory: `frontend`
+
+Build command:
 
 ```bash
-npm test
 npm run build
 ```
 
-`npm run build` chạy được cả ở thư mục gốc lẫn `client/` hoặc `server/`. Với Node.js backend, bước build của server là kiểm tra cú pháp vì source chạy trực tiếp bằng Node, không cần transpile.
+Environment:
 
-## Cấu trúc chính
-
-```text
-korean-classroom/
-├─ client/                 React + PWA
-│  ├─ src/pages/           màn hình theo role
-│  └─ public/legacy/       toàn bộ engine HTML/CSS/JS từ project gốc
-├─ server/
-│  ├─ src/                 API, auth, AI, grading
-│  ├─ sql/schema.sql       toàn bộ schema MySQL
-│  ├─ data/textbook.json          bộ dữ liệu luyện tập cũ
-│  ├─ data/textbook-socap1.json   catalog từ vựng Sơ cấp 1 · 15 bài / 210 từ
-│  └─ scripts/             init DB + seed demo
-├─ .env.example
-└─ docker-compose.yml
+```env
+VITE_API_URL=https://<backend-render-hoac-api-custom-domain>
 ```
 
-## Gợi ý bước tiếp theo
+`frontend/vercel.json` đã có SPA rewrite và security headers. Nếu thêm CDN/script bên ngoài mới, cập nhật CSP tương ứng thay vì tắt CSP.
 
-MVP hiện ưu tiên đúng luồng lớp học và dễ dùng. Khi làm bản production nên thêm refresh token, quên mật khẩu, import học sinh Excel, upload file/ảnh câu hỏi, lịch học, WebSocket notification realtime và đóng gói Capacitor nếu cần phát hành APK/IPA native thay vì PWA.
+## 5. Render backend
+
+Root Directory: `backend`
+
+Start command:
+
+```bash
+npm start
+```
+
+Health Check Path:
+
+```text
+/api/health
+```
+
+Trước khi deploy code 2.3.0 vào DB đang chạy, chạy một lần:
+
+```bash
+npm run db:init
+```
+
+Lệnh này dùng `CREATE TABLE IF NOT EXISTS`, tạo thêm bảng refresh session, Gemini key pool, AI usage và system error log.
+
+## 6. MySQL production
+
+Backend hỗ trợ:
+
+```env
+DB_CONNECT_TIMEOUT_MS=10000
+DB_QUERY_TIMEOUT_MS=15000
+DB_CONNECTION_LIMIT=10
+DB_QUEUE_LIMIT=100
+DB_SSL=true
+DB_SSL_REJECT_UNAUTHORIZED=true
+DB_SSL_CA_BASE64=<CA-neu-nha-cung-cap-cap>
+```
+
+Chỉ bật `DB_SSL=true` khi nhà cung cấp MySQL hỗ trợ TLS. Nếu control panel cho phép giới hạn nguồn truy cập MySQL, chỉ mở nguồn cần thiết thay vì mở toàn Internet.
+
+## 7. Gemini AI
+
+Admin có thể thêm nhiều key trong **Cài đặt → Gemini AI → Pool API & failover**. Key được mã hóa AES-256-GCM trước khi lưu DB.
+
+Backend tự:
+
+- timeout request AI;
+- cooldown key khi 429/503/network timeout;
+- chuyển sang key khỏe khác;
+- đánh dấu key lỗi auth lâu hơn;
+- giới hạn tốc độ chống bot nhưng **không đặt quota lượt học theo ngày**;
+- giới hạn số request AI chạy đồng thời trên mỗi user;
+- ghi usage/error cho Admin theo dõi.
+
+Nhiều API key thuộc cùng một Google Cloud project vẫn dùng quota cấp project; pool key chủ yếu giúp failover credential/lỗi key và vận hành ổn định hơn.
+
+## 8. Phiên đăng nhập
+
+- Access JWT mặc định: 1 giờ, chỉ giữ trong memory frontend.
+- Refresh token: cookie `HttpOnly`, `Secure` trên production; DB chỉ lưu hash refresh token.
+- Refresh token được rotate khi làm mới phiên.
+- Admin khóa user/đổi role/đổi password: các refresh session của user bị revoke.
+- Mỗi request có auth đều đọc lại trạng thái user từ DB, nên tài khoản bị khóa không tiếp tục dùng token cũ.
+
+Frontend có migration mềm cho session localStorage cũ: token cũ được dùng một lần để tạo refresh cookie rồi bị xóa khỏi localStorage.
+
+## 9. Rate limit mặc định
+
+```text
+API chung       300 request/phút
+Login            10 lần/15 phút
+Refresh session  60 lần/15 phút
+AI               30 request/phút/user
+AI đồng thời      2 request/user
+TTS             120 request/phút/user
+```
+
+Có thể chỉnh bằng ENV. Đây là anti-abuse, không phải quota học tập theo ngày.
+
+## 10. Backup / restore
+
+Máy chạy lệnh cần có `mysqldump` và `mysql` CLI.
+
+Backup:
+
+```bash
+npm run db:backup
+```
+
+Mặc định tạo file gzip trong `backend/backups/`.
+
+Restore local/staging:
+
+```bash
+npm run db:restore -- /duong-dan/backup.sql.gz
+```
+
+Restore production bị khóa. Chỉ khi chủ động xác nhận:
+
+```env
+ALLOW_PRODUCTION_RESTORE=I_UNDERSTAND
+```
+
+Ngoài script này vẫn phải bật backup tự động ở nhà cung cấp DB và thử restore định kỳ.
+
+## 11. Seed demo
+
+Production bị chặn chạy demo seed. Nếu thực sự cần seed test trên production-like environment phải đặt rõ:
+
+```env
+ALLOW_PRODUCTION_DEMO_SEED=I_UNDERSTAND
+```
+
+Không khuyến nghị cho hệ thống đang có học sinh thật.
+
+## 12. Kiểm tra trước khi mở lớp
+
+```bash
+npm run build
+npm test
+```
+
+Sau đó chạy smoke test 3 role theo `PRODUCTION_CHECKLIST.md`: login/logout, khóa user, tạo lớp, giao bài, AI check, submit, thông báo, TTS, reload URL con, lỗi Gemini và mất DB/network.
+
+## 13. Bảo mật secret
+
+Không commit các file sau:
+
+```text
+backend/.env
+frontend/.env.local
+backup database
+API key
+JWT secret
+SETTINGS_ENCRYPTION_KEY
+```
+
+Nếu một secret từng bị commit public, phải **rotate secret tại nhà cung cấp**, không chỉ xóa dòng khỏi GitHub history hiện tại.

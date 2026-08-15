@@ -64,95 +64,49 @@ function learningStateStorageKey() {
 }
 
 // ============ GEMINI API ============
+// AI/user text trong legacy có nhiều màn hình render bằng innerHTML. Trung hòa dấu < > ngay
+// tại boundary AI để model/prompt injection không thể biến thành tag/script trong DOM.
+function neutralizeMarkup(value) {
+  return String(value ?? '').replace(/</g, '＜').replace(/>/g, '＞');
+}
+
 const GEMINI = {
-  getKey: () => localStorage.getItem('hq_api_key') || (classroomSession()?.token ? 'CLASSROOM_BACKEND' : ''),
-  getModel: () => {
-    const model = localStorage.getItem('hq_model') || 'gemini-3.5-flash';
-    return model;
-  },
-  endpoint: (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+  // API key/model chỉ tồn tại ở backend. Legacy self-study không bao giờ lưu hoặc nhận secret.
+  getKey: () => (classroomSession()?.user ? 'CLASSROOM_BACKEND' : ''),
+  getModel: () => 'SERVER_MANAGED',
 
   async call(prompt, systemPrompt = '', opts = {}) {
+    if (!classroomSession()?.user) {
+      throw new Error('AI chỉ hoạt động khi mở Phòng tự học từ HanQuoc Classroom. API do Admin quản lý.');
+    }
     const { jsonMode = false, ...generationOpts } = opts;
-
-    if (classroomSession()?.token) {
-      const data = await classroomApi('/learning/ai', {
-        method: 'POST',
-        body: {
-          prompt,
-          systemPrompt,
-          temperature: generationOpts.temperature ?? 0.7,
-          maxOutputTokens: generationOpts.maxOutputTokens ?? 1024,
-          jsonMode,
-        },
-      });
-      return String(data.text || '').trim();
-    }
-
-    const key = GEMINI.getKey();
-    if (!key) throw new Error('NO_API_KEY');
-    const model = GEMINI.getModel();
-    const body = {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 1024, ...generationOpts },
-    };
-    if (jsonMode) body.generationConfig.responseMimeType = 'application/json';
-    if (systemPrompt) body.system_instruction = { parts: [{ text: systemPrompt }] };
-
-    const res = await fetch(`${GEMINI.endpoint(model)}?key=${key}`, {
+    const data = await classroomApi('/learning/ai', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: {
+        prompt,
+        systemPrompt,
+        temperature: generationOpts.temperature ?? 0.7,
+        maxOutputTokens: generationOpts.maxOutputTokens ?? 1024,
+        jsonMode,
+      },
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      const msg = err?.error?.message || '';
-      if (res.status === 429 || res.status === 503 || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('overloaded') || msg.includes('UNAVAILABLE')) {
-        throw new Error('Hệ thống AI hiện đang quá tải. Bạn vui lòng chờ trong 2-3 phút rồi thử lại nhé!');
-      }
-      throw new Error(msg || `HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    return parts.filter(part => !part.thought).map(part => part.text || '').join('').trim()
-      || parts.map(part => part.text || '').join('').trim();
+    return neutralizeMarkup(String(data.text || '')).trim();
   },
 
   async callChat(history, systemPrompt = '') {
-    if (classroomSession()?.token) {
-      const data = await classroomApi('/learning/ai', {
-        method: 'POST',
-        body: { history, systemPrompt, temperature: 0.85, maxOutputTokens: 1200 },
-      });
-      return String(data.text || '').trim();
+    if (!classroomSession()?.user) {
+      throw new Error('AI chỉ hoạt động khi mở Phòng tự học từ HanQuoc Classroom. API do Admin quản lý.');
     }
-
-    const key = GEMINI.getKey();
-    if (!key) throw new Error('NO_API_KEY');
-    const model = GEMINI.getModel();
-    const body = {
-      contents: history,
-      generationConfig: { temperature: 0.85, maxOutputTokens: 1200 },
-    };
-    if (systemPrompt) body.system_instruction = { parts: [{ text: systemPrompt }] };
-
-    const res = await fetch(`${GEMINI.endpoint(model)}?key=${key}`, {
+    const data = await classroomApi('/learning/ai', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: {
+        history: Array.isArray(history) ? history.slice(-20) : history,
+        systemPrompt,
+        temperature: 0.85,
+        maxOutputTokens: 1200,
+      },
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      const msg = err?.error?.message || '';
-      if (res.status === 429 || res.status === 503 || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota') || msg.includes('overloaded') || msg.includes('UNAVAILABLE')) {
-        throw new Error('Hệ thống AI hiện đang quá tải. Bạn vui lòng chờ trong 2-3 phút rồi thử lại nhé!');
-      }
-      throw new Error(msg || `HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    const parts = data.candidates?.[0]?.content?.parts || [];
-    return parts.filter(part => !part.thought).map(part => part.text || '').join('').trim()
-      || parts.map(part => part.text || '').join('').trim();
+    return neutralizeMarkup(String(data.text || '')).trim();
   },
 
   async generateVocab(word) {
@@ -180,7 +134,7 @@ Viết bằng tiếng Việt, bao gồm:
 - 3 ví dụ có dịch tiếng Việt
 - Mẹo ghi nhớ
 Giới hạn 200 từ.`;
-    return await GEMINI.call(prompt, '', { temperature: 0.5 });
+    return GEMINI.call(prompt, '', { temperature: 0.5 });
   },
 
   async explainWord(word, meaning, example) {
@@ -190,7 +144,7 @@ Hãy giải thích ngắn gọn (100-150 từ tiếng Việt):
 2. Cách dùng thực tế
 3. Từ liên quan
 4. Lỗi hay gặp`;
-    return await GEMINI.call(prompt, '', { temperature: 0.5 });
+    return GEMINI.call(prompt, '', { temperature: 0.5 });
   },
 };
 
@@ -298,8 +252,7 @@ const TTS = {
     // List of TTS audio sources to try in sequence (Google Translate Direct first)
     const sources = [
       `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode}&client=tw-ob&q=${encoded}`,
-      `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=${langCode}&q=${encoded}`,
-      `/api/tts?text=${encoded}&lang=${langCode}`
+      `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=${langCode}&q=${encoded}`
     ];
 
     let currentSourceIndex = 0;
@@ -312,6 +265,7 @@ const TTS = {
 
       const url = sources[currentSourceIndex++];
       const audio = new Audio(url);
+    audio.playbackRate = 0.85;
       audio.playbackRate = TTS.rate || 0.85;
       TTS.currentAudio = audio;
 
@@ -583,7 +537,7 @@ function buildPersistedLearningState() {
 }
 
 function syncClassroomLearningState(snapshot) {
-  if (!classroomSession()?.token) return;
+  if (!classroomSession()?.user) return;
   clearTimeout(classroomStateSyncTimer);
   classroomStateSyncTimer = setTimeout(() => {
     classroomApi('/learning/state', {
@@ -635,12 +589,11 @@ function loadState() {
 }
 
 async function hydrateClassroomSystemSettings() {
-  if (!classroomSession()?.token) return;
+  if (!classroomSession()?.user) return;
   try {
     const { settings } = await classroomApi('/learning/settings', { timeout: 30000 });
     if (!settings) return;
 
-    localStorage.setItem('hq_model', settings.geminiModel || 'gemini-2.5-flash');
     TTS.rate = Number(settings.speechRate) || 0.8;
     TTS.pitch = Number(settings.speechPitch) || 1;
     TTS.useOnlineAudio = settings.voiceMode !== 'local';
@@ -665,7 +618,7 @@ async function hydrateClassroomSystemSettings() {
 }
 
 async function hydrateClassroomLearningState() {
-  if (!classroomSession()?.token) return;
+  if (!classroomSession()?.user) return;
   try {
     const data = await classroomApi('/learning/state', { timeout: 30000 });
     if (data.state) {
@@ -849,55 +802,14 @@ function updateStreak() {
 function generateWordData(korean) {
   return VOCAB_DB[korean]
     ? { korean, ...VOCAB_DB[korean] }
-    : { korean, roman: korean, meaning:`[${korean}] - cần AI tạo`, pos:'명사', tip:'Nhập API key để AI tạo thông tin tự động!', example:`${korean}이에요.`, exampleViet:`Đây là ${korean}.` };
+    : { korean, roman: korean, meaning:`[${korean}] - cần AI tạo`, pos:'명사', tip:'AI do Admin quản lý trên hệ thống.', example:`${korean}이에요.`, exampleViet:`Đây là ${korean}.` };
 }
 
-// ============ API KEY MANAGEMENT ============
-function saveApiKey() {
-  if (classroomSession()?.token) {
-    showToast('🔒 API AI do Admin quản lý trên Classroom.', 'info');
-    return;
-  }
-  const key = document.getElementById('apiKeyInput').value.trim();
-  if (!key) { showApiStatus('Vui lòng nhập API key!', 'err'); return; }
-  localStorage.setItem('hq_api_key', key);
-  showApiStatus('⏳ Đang kiểm tra và lưu key...', 'loading');
-  testApiKey(key);
-}
-async function testApiKey(key) {
-  try {
-    const model = GEMINI.getModel();
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-      { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{role:'user',parts:[{text:'Hello'}]}], generationConfig:{maxOutputTokens:5} }) }
-    );
-    if (res.ok) {
-      showApiStatus('✅ Đã lưu! AI đã hoạt động.', 'ok');
-      updateApiIndicator(true);
-      document.getElementById('aiPowerBadge').style.display = 'flex';
-      showToast('🤖 Gemini AI đã kết nối!', 'success');
-    } else {
-      const err = await res.json().catch(() => ({}));
-      const msg = err?.error?.message || 'Lỗi không xác định';
-      showApiStatus(`⚠️ Đã lưu nhưng kiểm tra lỗi: ${msg}. Bạn vẫn có thể thử chat xem sao.`, 'err');
-      updateApiIndicator(true); // Vẫn cho phép hiện xanh/hoạt động
-      document.getElementById('aiPowerBadge').style.display = 'flex';
-    }
-  } catch(e) {
-    showApiStatus(`⚠️ Đã lưu nhưng lỗi kết nối: ${e.message}`, 'err');
-    updateApiIndicator(true);
-    document.getElementById('aiPowerBadge').style.display = 'flex';
-  }
-}
-function showApiStatus(msg, cls) {
-  const el = document.getElementById('apiStatus');
-  el.textContent = msg;
-  el.className = 'api-status ' + cls;
-}
+// ============ AI STATUS (server-managed) ============
 function updateApiIndicator(ok) {
   const dot = document.getElementById('apiDot');
   const label = document.getElementById('apiLabel');
+  if (!dot || !label) return;
   if (ok) {
     dot.classList.add('active');
     dot.classList.remove('error');
@@ -916,26 +828,7 @@ function openSettings() {
   const modal = document.getElementById('settingsOverlay');
   modal.classList.add('open');
 
-  // Trong Classroom, API key/model do Admin quản lý ở backend.
-  // Bản standalone vẫn giữ cơ chế nhập key như cũ.
-  if (!classroomSession()?.token) {
-    const key = GEMINI.getKey();
-    if (key) {
-      document.getElementById('apiKeyInput').value = key;
-      showApiStatus('Key đã được lưu. Kiểm tra lại nếu cần.', 'ok');
-    }
-    const modelSel = document.getElementById('modelSelect');
-    const savedModel = GEMINI.getModel();
-    modelSel.value = savedModel;
-    modelSel.onchange = () => {
-      localStorage.setItem('hq_model', modelSel.value);
-      const currentKey = GEMINI.getKey();
-      if (currentKey) {
-        showApiStatus(`⏳ Đang chuyển mô hình và kiểm tra...`, 'loading');
-        testApiKey(currentKey);
-      }
-    };
-  }
+  // Gemini API key và model do Admin quản lý ở backend; modal này không hiển thị secret.
   // Rate/Pitch sliders
   const rateSlider = document.getElementById('speechRate');
   const pitchSlider = document.getElementById('speechPitch');
@@ -1036,7 +929,7 @@ async function processWords(rawWords) {
   let updatedCount = 0;
 
   for (let i=0; i<rawWords.length; i++) {
-    const w = rawWords[i].trim();
+    const w = neutralizeMarkup(rawWords[i].trim());
     if (!w) continue;
 
     const existing = state.words.find(x => x.korean === w);
@@ -1060,7 +953,7 @@ async function processWords(rawWords) {
         data = { korean: w, ...aiData };
       } catch(e) {
         data = generateWordData(w);
-        data.tip = '⚠️ AI tạo thất bại. Nhập thủ công hoặc kiểm tra API key.';
+        data.tip = '⚠️ AI hệ thống tạm chưa phản hồi. Bạn có thể nhập thủ công hoặc thử lại sau.';
       }
     } else {
       text.textContent = `📝 Thêm: ${w} (${pct}%)`;
@@ -1085,7 +978,7 @@ function needsAIRegen(w) {
 }
 
 async function regenerateAIWords() {
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key để tạo lại!','error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!','error'); return; }
   const targets = state.words.map((w,i)=>({w,i})).filter(x=>needsAIRegen(x.w));
   if (targets.length===0) return;
 
@@ -1379,7 +1272,7 @@ function speakExample() {
   if (w?.example) TTS.speak(w.example);
 }
 async function aiExplainWord() {
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key để dùng tính năng này!','error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!','error'); return; }
   const w = state.words[state.learn.index];
   if (!w) return;
   const box = document.getElementById('aiExplainBox');
@@ -1755,7 +1648,7 @@ function handleBatch10xSubmit() {
     if (fbEl) {
       fbEl.style.display = 'block';
       fbEl.className = 'batch-10x-feedback fb-error';
-      fbEl.innerHTML = `❌ Chưa đúng! Bạn nhập "<strong>${typedVal}</strong>", đáp án đúng là "<strong>${targetVal}</strong>". Thử lại nhé!`;
+      fbEl.innerHTML = `❌ Chưa đúng! Bạn nhập "<strong>${escapePracticeHtml(typedVal)}</strong>", đáp án đúng là "<strong>${escapePracticeHtml(targetVal)}</strong>". Thử lại nhé!`;
     }
   }
 }
@@ -2660,10 +2553,10 @@ function renderListenDialSetup() {
       <div id="ldDiffGuide" class="ldial-diff-info">
         ${ldDifficulty==='easy'?'🟢 <strong>Dễ</strong>: Chỉ dùng từ vựng bạn đã & đang học. Tuyệt đối KHÔNG có từ mới lạ!':ldDifficulty==='medium'?'🟡 <strong>Thường</strong>: Dùng từ đã học + 2-3 từ mới phù hợp chủ đề (có dịch nghĩa từ mới).':'🔴 <strong>Khó</strong>: Nhiều từ mới phong phú, câu thoại tự nhiên sát đề thi nghe TOPIK thật!'}
       </div>
-      <button class="btn btn-ai btn-lg" style="margin-top:14px" onclick="generateListenDial()" ${!GEMINI.getKey() ? 'disabled title="Cần API Key!"' : ''}>
+      <button class="btn btn-ai btn-lg" style="margin-top:14px" onclick="generateListenDial()" ${!GEMINI.getKey() ? 'disabled title="AI chưa được Admin cấu hình!"' : ''}>
         🤖 Tạo hội thoại AI
       </button>
-      ${!GEMINI.getKey() ? '<p style="color:var(--orange);font-size:.82rem;margin-top:8px">⚠️ Cần API Key. <button class="link-btn" onclick="openSettings()">Cài đặt →</button></p>' : ''}
+      ${!GEMINI.getKey() ? '<p style="color:var(--orange);font-size:.82rem;margin-top:8px">⚠️ AI chưa được Admin cấu hình. <span>Liên hệ Admin.</span></p>' : ''}
     </div>
   `;
   if (!window._ldialTopic) window._ldialTopic = 'Nhà hàng - Gọi món';
@@ -2676,7 +2569,7 @@ function selectDialTopic(btn, topic) {
 }
 
 async function generateListenDial() {
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!', 'error'); return; }
   const cont = document.getElementById('listenDialContainer');
   const diff = ldDifficulty || 'easy';
   const topic = window._ldialTopic || 'Nhà hàng';
@@ -2729,7 +2622,7 @@ Trả lời EXACT JSON:
     renderListenDialScene();
     showToast('✅ Hội thoại đã tạo! Nhấn ▶ để nghe.', 'success');
   } catch(e) {
-    cont.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo hội thoại: ${e.message}.<br><button class="btn btn-ai btn-sm" onclick="generateListenDial()">Thử lại</button></p></div>`;
+    cont.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo hội thoại: ${escapePracticeHtml(e.message)}.<br><button class="btn btn-ai btn-sm" onclick="generateListenDial()">Thử lại</button></p></div>`;
     showToast('⚠️ Lỗi. Thử lại!', 'error');
   }
 }
@@ -2995,7 +2888,7 @@ async function sendChatMessage() {
   const input = document.getElementById('chatInput');
   const text = input.value.trim();
   if (!text) return;
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!','error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!','error'); return; }
   input.value = '';
 
   // Add user message
@@ -3029,7 +2922,7 @@ async function sendChatMessage() {
     saveState();
   } catch(e) {
     removeTypingIndicator(typingId);
-    appendChatMessage('ai', `❌ Lỗi: ${e.message}. Kiểm tra API key!`, p.avatar);
+    appendChatMessage('ai', `❌ Lỗi: ${e.message}. AI hệ thống tạm chưa sẵn sàng.`, p.avatar);
   }
 }
 
@@ -3038,11 +2931,13 @@ function appendChatMessage(type, text, avatar) {
   const div = document.createElement('div');
   div.className = `chat-message ${type}-message fade-in`;
 
-  // Format Korean text
-  const formatted = text.replace(/([가-힣]+)/g, `<span class="korean-highlight">$1</span>`);
+  // Escape trước khi highlight để user/AI không chèn HTML/script vào iframe cùng origin.
+  const safeText = escapePracticeHtml(text);
+  const formatted = safeText.replace(/([가-힣]+)/g, `<span class="korean-highlight">$1</span>`);
+  const safeAvatar = escapePracticeHtml(avatar);
 
   div.innerHTML = `
-    <div class="chat-avatar">${avatar}</div>
+    <div class="chat-avatar">${safeAvatar}</div>
     <div class="message-bubble">
       <div class="message-text">${formatted}</div>
       <div class="message-time" style="display:flex;gap:6px;align-items:center">
@@ -3142,7 +3037,7 @@ async function sendTutorMessage() {
   const input = document.getElementById('tutorInput');
   const text = input.value.trim();
   if (!text) return;
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!','error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!','error'); return; }
   input.value = '';
 
   appendTutorMsg('user', text);
@@ -3177,9 +3072,9 @@ function appendTutorMsg(type, text) {
   const div = document.createElement('div');
   const p = PERSONALITIES[state.personality];
   div.className = `chat-message ${type}-message fade-in`;
-  const formatted = text.replace(/([가-힣]+)/g, `<span class="korean-highlight">$1</span>`).replace(/\n/g,'<br>');
+  const formatted = escapePracticeHtml(text).replace(/([가-힣]+)/g, `<span class="korean-highlight">$1</span>`).replace(/\n/g,'<br>');
   div.innerHTML = `
-    <div class="chat-avatar">${type==='ai'?p.avatar:'👤'}</div>
+    <div class="chat-avatar">${escapePracticeHtml(type==='ai'?p.avatar:'👤')}</div>
     <div class="message-bubble">
       <div class="message-text">${formatted}</div>
       <div class="message-time">${type==='ai'?p.name:'Bạn'}</div>
@@ -3302,7 +3197,7 @@ async function addGrammar(title, body) {
       body = `Công thức: ${title}\n\nNhập thêm chi tiết tại đây.`;
     }
   } else if (!body) {
-    body = `Công thức: ${title}\n\nNhập API key để AI tự tạo nội dung!`;
+    body = `Công thức: ${title}\n\nAI hệ thống tạm chưa sẵn sàng; bạn có thể nhập nội dung thủ công.`;
   }
   state.grammar.push({ title, body, lesson: targetLesson });
   renderLessonSelectors();
@@ -3570,8 +3465,7 @@ async function gdictAiSearchForTitle(title) {
   res.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 Gemini AI đang phân tích chi tiết cấu trúc ngữ pháp "${title}"...</span></div>`;
 
   if (!GEMINI.getKey()) {
-    showToast('⚠️ Cần API Key!', 'error');
-    openSettings();
+    showToast('⚠️ AI chưa được Admin cấu hình!', 'error');
     return;
   }
 
@@ -3596,7 +3490,7 @@ async function gdictAiSearchForTitle(title) {
       </div>
     `;
   } catch(e) {
-    res.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi phân tích AI: ${e.message}</p></div>`;
+    res.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi phân tích AI: ${escapePracticeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -3607,8 +3501,7 @@ async function startSingleGrammarQuiz(grammarTitle) {
   quizArea.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang tạo bài tập thực hành cho cấu trúc "${grammarTitle}"...</span></div>`;
 
   if (!GEMINI.getKey()) {
-    showToast('⚠️ Cần API Key!', 'error');
-    openSettings();
+    showToast('⚠️ AI chưa được Admin cấu hình!', 'error');
     return;
   }
 
@@ -3640,7 +3533,7 @@ async function startSingleGrammarQuiz(grammarTitle) {
     };
     renderGdictQuizUI();
   } catch(e) {
-    quizArea.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${e.message}</p></div>`;
+    quizArea.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${escapePracticeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -3653,8 +3546,7 @@ async function generateGdictQuickQuiz() {
   quizArea.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang khởi tạo 5 câu bài tập tổng hợp ngữ pháp...</span></div>`;
 
   if (!GEMINI.getKey()) {
-    showToast('⚠️ Cần API Key!', 'error');
-    openSettings();
+    showToast('⚠️ AI chưa được Admin cấu hình!', 'error');
     return;
   }
 
@@ -3686,7 +3578,7 @@ async function generateGdictQuickQuiz() {
     };
     renderGdictQuizUI();
   } catch(e) {
-    quizArea.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${e.message}</p></div>`;
+    quizArea.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${escapePracticeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -3815,8 +3707,7 @@ async function quickSideTranslate() {
   outEl.innerHTML = '<span style="color:var(--accent-light); font-size:0.85rem;">⚡ Đang dịch nhanh...</span>';
 
   if (!GEMINI.getKey()) {
-    showToast('⚠️ Cần API Key!', 'error');
-    openSettings();
+    showToast('⚠️ AI chưa được Admin cấu hình!', 'error');
     return;
   }
 
@@ -3840,7 +3731,7 @@ QUY TẮC BẮT BUỘC (TUÂN THỦ 100%):
       </div>
     `;
   } catch(e) {
-    outEl.innerHTML = `<span style="color:var(--red); font-size:0.85rem;">❌ Lỗi dịch: ${e.message}</span>`;
+    outEl.innerHTML = `<span style="color:var(--red); font-size:0.85rem;">❌ Lỗi dịch: ${escapePracticeHtml(e.message)}</span>`;
   }
 }
 
@@ -3930,8 +3821,7 @@ async function startMasterStudySuite() {
   exBox.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang khởi tạo Giai đoạn 1: Bài tập Ngữ pháp cho bài: ${selectedLessons.join(', ')}...</span></div>`;
 
   if (!GEMINI.getKey()) {
-    showToast('⚠️ Cần API Key!', 'error');
-    openSettings();
+    showToast('⚠️ AI chưa được Admin cấu hình!', 'error');
     return;
   }
 
@@ -3981,7 +3871,7 @@ Trả về EXACT JSON:
     renderMasterStage1UI();
     showToast(`🚀 Giai đoạn 1: Luyện Ngữ Pháp cho [${selectedLessons.join(', ')}]!`, 'success');
   } catch(e) {
-    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${e.message}</p></div>`;
+    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${escapePracticeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -4181,8 +4071,7 @@ async function startMasterFinalGrammarExam() {
   exBox.innerHTML = `<div class="ldial-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang thiết lập Giai đoạn 3: Đề Thi Ngữ Pháp Tổng Hợp Chốt Hạ cho bài [${st.selectedLessons.join(', ')}]...</span></div>`;
 
   if (!GEMINI.getKey()) {
-    showToast('⚠️ Cần API Key!', 'error');
-    openSettings();
+    showToast('⚠️ AI chưa được Admin cấu hình!', 'error');
     return;
   }
 
@@ -4215,7 +4104,7 @@ Trả về EXACT JSON:
 
     renderMasterFinalExamUI();
   } catch(e) {
-    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo đề thi: ${e.message}</p></div>`;
+    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo đề thi: ${escapePracticeHtml(e.message)}</p></div>`;
   }
 }
 
@@ -4401,7 +4290,6 @@ window.addEventListener('message', (event) => {
 
   if (data.type === 'CLASSROOM_SETTINGS_SYNC' && data.settings) {
     const settings = data.settings;
-    localStorage.setItem('hq_model', settings.geminiModel || 'gemini-2.5-flash');
     if (settings.personality && PERSONALITIES[settings.personality]) selectPersonality(settings.personality, false);
   }
 });
@@ -4428,7 +4316,7 @@ function initKeyboard() {
 
 // ============ INIT APP ============
 async function initApp() {
-  if (classroomSession()?.token) document.body.classList.add('classroom-embedded');
+  if (classroomSession()?.user) document.body.classList.add('classroom-embedded');
   loadState();
   TTS.init();
 
@@ -4505,7 +4393,7 @@ async function initApp() {
     });
   });
 
-  // CHECK IF API KEY EXISTS
+  // CHECK IF CLASSROOM AI BRIDGE IS AVAILABLE
   if (GEMINI.getKey()) {
     updateApiIndicator(true);
     document.getElementById('aiPowerBadge').style.display = 'flex';
@@ -4531,7 +4419,7 @@ async function initApp() {
   renderLessonSelectors();
   updateStreak();
 
-  if (classroomSession()?.token) {
+  if (classroomSession()?.user) {
     await hydrateClassroomLearningState();
   }
 }
@@ -4635,7 +4523,7 @@ function selectGrammarForPractice(idx) {
 }
 
 async function generateGrammarExercises() {
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!', 'error'); return; }
   const grammar = getActiveGrammar();
   let idx = state.grammarPractice.selectedIndex;
   if (idx < 0 || idx >= grammar.length) {
@@ -4698,13 +4586,13 @@ Trả lời CHÍNH XÁC định dạng JSON (không thêm bất kỳ text nào n
     showToast(`✅ Đã tạo 4 bài tập ${diffLabels[diff]} mới!`, 'success');
     addXP(5);
   } catch(e) {
-    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${e.message}</p></div>`;
+    exBox.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo bài tập: ${escapePracticeHtml(e.message)}</p></div>`;
     showToast('❌ Lỗi tạo bài tập. Thử lại!', 'error');
   }
 }
 
 async function startGrammarComprehensiveTest() {
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!', 'error'); return; }
   const grammar = getActiveGrammar();
   if (grammar.length === 0) { showToast('⚠️ Chưa có ngữ pháp nào!', 'error'); return; }
 
@@ -4747,7 +4635,7 @@ Trả lời CHÍNH XÁC định dạng JSON (không thêm text khác):
     renderCompTest(qs);
     showToast(`✅ Đề kiểm tra ${qs.length} câu đã sẵn sàng!`, 'success');
   } catch(e) {
-    content.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo đề: ${e.message}
+    content.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo đề: ${escapePracticeHtml(e.message)}
     <button class="btn btn-ai btn-sm" onclick="startGrammarComprehensiveTest()">🔄 Thử lại</button></p></div>`;
   }
 }
@@ -4937,7 +4825,7 @@ async function startExam(type) {
     saveState();
   }
   if (type === 'ai' && !GEMINI.getKey()) {
-    showToast('⚠️ Cần API Key cho chế độ AI!', 'error'); openSettings(); return;
+    showToast('⚠️ AI chưa được Admin cấu hình cho chế độ AI!', 'error'); openSettings(); return;
   }
 
   state.exam.type = type;
@@ -5571,10 +5459,10 @@ async function dictSearch() {
         if (aiData.korean) TTS.speak(aiData.korean);
       } else throw new Error('Không tìm thấy');
     } catch(e) {
-      result.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><p>Không tìm thấy "${q}". <button class="link-btn" onclick="openSettings()">Thêm API Key</button> để tra từ điển AI.</p></div>`;
+      result.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><p>Không tìm thấy "${escapePracticeHtml(q)}" trong kho từ. AI hệ thống tạm chưa sẵn sàng để tra thêm.</p></div>`;
     }
   } else {
-    result.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><p>Không tìm thấy trong kho từ. <button class="link-btn" onclick="openSettings()">Thêm API Key</button> để tra AI.</p></div>`;
+    result.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><p>Không tìm thấy trong kho từ. AI hệ thống tạm chưa sẵn sàng để tra thêm.</p></div>`;
   }
 }
 
@@ -5691,7 +5579,7 @@ function renderDictHistory() {
 async function dictAIAnalyze() {
   const q = document.getElementById('dictInput').value.trim();
   if (!q) { showToast('⚠️ Nhập từ trước!', 'error'); return; }
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!', 'error'); return; }
   switchDictTab('result');
   const result = document.getElementById('dictResult');
   result.innerHTML = `<div class="gp-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>🤖 AI đang phân tích chi tiết...</span></div>`;
@@ -5720,14 +5608,14 @@ Viết bằng tiếng Việt, trình bày rõ ràng với emoji.`;
     addXP(3);
     saveState();
   } catch(e) {
-    result.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi: ${e.message}</p></div>`;
+    result.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi: ${escapePracticeHtml(e.message)}</p></div>`;
   }
 }
 
 async function dictConjugate() {
   const verb = document.getElementById('conjInput').value.trim();
   if (!verb) { showToast('⚠️ Nhập động từ!', 'error'); return; }
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!', 'error'); return; }
 
   const el = document.getElementById('conjResult');
   el.innerHTML = `<div class="gp-loading"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span>Đang tạo biến thể...</span></div>`;
@@ -5774,7 +5662,7 @@ Chỉ trả JSON.`;
     addXP(3);
     saveState();
   } catch(e) {
-    el.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi: ${e.message}. Thử lại!</p></div>`;
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi: ${escapePracticeHtml(e.message)}. Thử lại!</p></div>`;
   }
 }
 
@@ -5839,7 +5727,7 @@ let lastDestLang = "vi";
 async function runTranslateAI() {
   const text = document.getElementById('translateInput').value.trim();
   if (!text) { showToast('Vui lòng nhập văn bản cần dịch!', 'error'); return; }
-  if (!GEMINI.getKey()) { showToast('Cần cài đặt API key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('AI chưa được Admin cấu hình!', 'error'); return; }
 
   const srcLang = document.getElementById('translateSrcLang').value;
   const destLang = document.getElementById('translateDestLang').value;
@@ -5951,7 +5839,7 @@ Trả về kết quả dưới định dạng JSON CHÍNH XÁC (không chứa b�
     saveState();
 
   } catch (e) {
-    resultText.innerHTML = `<span style="color: var(--red);">⚠️ Không thể dịch câu này. Lỗi: ${e.message}</span>`;
+    resultText.innerHTML = `<span style="color: var(--red);">⚠️ Không thể dịch câu này. Lỗi: ${escapePracticeHtml(e.message)}</span>`;
   }
 }
 
@@ -6163,7 +6051,7 @@ async function deletePdfItem(id) {
 
 async function analyzeActivePdfAI() {
   if (!activePdfItem) return;
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!', 'error'); return; }
   
   showToast('🤖 AI đang phân tích từ vựng tiêu biểu từ PDF...', 'info');
   const prompt = `Bạn là trợ lý tiếng Hàn.
@@ -6255,7 +6143,7 @@ function switchHwModalTab(tab) {
 }
 
 async function submitCreateHomework() {
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!', 'error'); return; }
   const isGen = document.getElementById('hwTabGen').classList.contains('active');
 
   closeHomeworkModal();
@@ -6309,7 +6197,7 @@ Trả lời EXACT JSON:
       renderActiveHomework();
       showToast('✅ Đã tạo Bài Tập Về Nhà thành công!', 'success');
     } catch(e) {
-      if (mainArea) mainArea.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo BTVN: ${e.message}</p></div>`;
+      if (mainArea) mainArea.innerHTML = `<div class="empty-state"><div class="empty-icon">❌</div><p>Lỗi tạo BTVN: ${escapePracticeHtml(e.message)}</p></div>`;
     }
   } else {
     // Self paste
@@ -6454,7 +6342,7 @@ function redoActiveHomework() {
 async function submitHomeworkForGrading() {
   const hw = state.homework.current;
   if (!hw || !hw.questions.length) return;
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!', 'error'); return; }
 
   // Collect answers
   hw.questions.forEach((q, i) => {
@@ -6605,7 +6493,7 @@ function startHwVocabQuiz() {
 async function extractHwVocabWithAI() {
   const hw = state.homework.current;
   if (!hw) return;
-  if (!GEMINI.getKey()) { showToast('⚠️ Cần API Key!', 'error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('⚠️ AI chưa được Admin cấu hình!', 'error'); return; }
 
   showToast('🤖 AI đang trích xuất danh sách từ vựng từ BTVN...', 'info');
   const qaText = hw.questions.map((q, i) => `Câu ${i+1}: ${q.prompt}\nĐáp án: ${hw.userAnswers[i]||''}\n${hw.grading && hw.grading.results && hw.grading.results[i] ? 'Đáp án gợi ý: ' + (hw.grading.results[i].correctAnswer||'') : ''}`).join('\n\n');
@@ -7256,7 +7144,7 @@ function spUpdateLesson() {
 
 // ---- GENERATE ----
 async function spGenerate() {
-  if (!GEMINI.getKey()) { showToast('Cần nhập Gemini API key trong Cài đặt!','error'); openSettings(); return; }
+  if (!GEMINI.getKey()) { showToast('AI chưa được Admin cấu hình!','error'); return; }
   const lesson = SP_BOOK_DATA[spState.lessonIdx];
   const dirSel = document.getElementById('spDirectionSelect');
   const typeSel = document.getElementById('spTypeSelect');

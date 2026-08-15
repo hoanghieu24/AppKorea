@@ -72,7 +72,7 @@ export default function NotificationsPage({ user }) {
       <PageHeader
         eyebrow="CẬP NHẬT"
         title="Thông báo"
-        subtitle={isStaff ? "Gửi thông báo chung cho tất cả học sinh hoặc theo từng lớp." : "Thông báo bài tập mới và lời nhắc từ giáo viên."}
+        subtitle={user?.role === 'ADMIN' ? "Gửi thông báo toàn trường hoặc theo từng lớp." : user?.role === 'TEACHER' ? "Gửi thông báo cho học sinh trong các lớp bạn phụ trách." : "Thông báo bài tập mới và lời nhắc từ giáo viên."}
       />
       {message && <div className="notice">{message}</div>}
 
@@ -80,7 +80,7 @@ export default function NotificationsPage({ user }) {
         <form className="panel announce-form" onSubmit={sendAnnouncement} style={{ marginBottom: 20 }}>
           <div className="panel-title">
             <div>
-              <span>GIÁO VIÊN</span>
+              <span>{user?.role === 'ADMIN' ? 'ADMIN' : 'GIÁO VIÊN'}</span>
               <h3><Megaphone size={19} style={{ display: 'inline', marginRight: 6, verticalAlign: '-3px', color: 'var(--purple)' }} /> Gửi thông báo cho học sinh</h3>
             </div>
           </div>
@@ -97,7 +97,7 @@ export default function NotificationsPage({ user }) {
             <label>
               Gửi đến
               <select value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })}>
-                <option value="ALL">📢 Tất cả học sinh toàn trường</option>
+                <option value="ALL">{user?.role === 'ADMIN' ? '📢 Tất cả học sinh toàn trường' : '📢 Tất cả học sinh các lớp của tôi'}</option>
                 {classes.map((c) => (
                   <option key={c.id} value={c.id}>
                     🏫 Chỉ học sinh Lớp {c.name} ({c.code})

@@ -200,3 +200,75 @@ CREATE TABLE IF NOT EXISTS notifications (
   CONSTRAINT fk_notification_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   INDEX idx_notification_user_read (user_id, read_at, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS auth_refresh_tokens (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL UNIQUE,
+  expires_at DATETIME NOT NULL,
+  revoked_at DATETIME NULL,
+  last_used_at DATETIME NULL,
+  user_agent VARCHAR(255) NULL,
+  ip_address VARCHAR(64) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_refresh_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_refresh_user_active (user_id, revoked_at, expires_at),
+  INDEX idx_refresh_expiry (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_api_keys (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  provider VARCHAR(24) NOT NULL DEFAULT 'GEMINI',
+  label VARCHAR(80) NOT NULL,
+  secret_encrypted TEXT NOT NULL,
+  fingerprint VARCHAR(24) NOT NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  priority INT UNSIGNED NOT NULL DEFAULT 100,
+  last_status VARCHAR(24) NOT NULL DEFAULT 'READY',
+  cooldown_until DATETIME NULL,
+  failure_count INT UNSIGNED NOT NULL DEFAULT 0,
+  last_error VARCHAR(255) NULL,
+  last_used_at DATETIME NULL,
+  last_success_at DATETIME NULL,
+  created_by BIGINT UNSIGNED NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_ai_key_provider_fingerprint (provider, fingerprint),
+  INDEX idx_ai_key_runtime (provider, active, priority, cooldown_until),
+  CONSTRAINT fk_ai_key_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ai_usage_events (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NULL,
+  route_name VARCHAR(80) NOT NULL,
+  api_key_id BIGINT UNSIGNED NULL,
+  key_label VARCHAR(80) NULL,
+  status VARCHAR(24) NOT NULL,
+  http_status SMALLINT UNSIGNED NULL,
+  latency_ms INT UNSIGNED NOT NULL DEFAULT 0,
+  prompt_chars INT UNSIGNED NOT NULL DEFAULT 0,
+  response_chars INT UNSIGNED NOT NULL DEFAULT 0,
+  error_code VARCHAR(120) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_ai_usage_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_ai_usage_key FOREIGN KEY (api_key_id) REFERENCES ai_api_keys(id) ON DELETE SET NULL,
+  INDEX idx_ai_usage_created (created_at),
+  INDEX idx_ai_usage_user_created (user_id, created_at),
+  INDEX idx_ai_usage_status_created (status, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS system_error_logs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  request_id VARCHAR(80) NULL,
+  user_id BIGINT UNSIGNED NULL,
+  method VARCHAR(10) NULL,
+  path VARCHAR(255) NULL,
+  status_code SMALLINT UNSIGNED NOT NULL DEFAULT 500,
+  error_code VARCHAR(80) NULL,
+  message VARCHAR(500) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_error_log_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_error_log_created (created_at),
+  INDEX idx_error_log_status_created (status_code, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

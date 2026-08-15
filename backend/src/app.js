@@ -4,17 +4,72 @@ import helmet from 'helmet';
 import { z } from 'zod';
 import { config } from './config.js';
 import { query, withTransaction } from './db.js';
-import { hashPassword, requireAuth, requireRole, signToken, verifyPassword } from './auth.js';
-import { aiEnabled, generateTextWithAI, gradeEssayWithAI, testGeminiConnection } from './ai.js';
-import { getAdminSettings, getSafeLearningSettings, saveAdminSettings } from './settings.js';
+import { cleanupRefreshTokens, issueRefreshToken, requireAuth, requireRole, revokeAllRefreshTokensForUser, revokeRefreshToken, rotateRefreshToken, signToken, verifyPassword, hashPassword } from './auth.js';
+import { aiEnabled, aiErrorResponse, generateTextWithAI, gradeEssayWithAI, testGeminiConnection } from './ai.js';
+import { addGeminiApiKeys, deleteGeminiApiKey, getAdminSettings, getGeminiApiKeySecretById, getSafeLearningSettings, saveAdminSettings, setGeminiApiKeyActive, updateGeminiKeyHealth } from './settings.js';
 import { gradeEssayFallback, gradeObjective } from './grading.js';
 import { ensureTextbookCatalog, getTextbookLessons, getTextbookVocabulary } from './textbook.js';
+import { createConcurrencyGuard, createRateLimiter } from './rateLimit.js';
+import { recordSystemError, requestContextMiddleware, sanitizeLogText } from './monitoring.js';
 
 const app = express();
 
-app.use(helmet());
-app.use(cors({ origin: config.clientUrl, credentials: true }));
+app.set('trust proxy', config.trustProxy);
+app.disable('x-powered-by');
+app.use(requestContextMiddleware);
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+app.use(cors({
+  credentials: true,
+  origin(origin, callback) {
+    // Cho phép server-to-server/curl không có Origin; browser chỉ được phép từ CLIENT_URL.
+    if (!origin || config.clientUrls.includes(String(origin).replace(/\/$/, ''))) return callback(null, true);
+    return callback(new Error('CORS_ORIGIN_DENIED'));
+  },
+}));
 app.use(express.json({ limit: '1mb' }));
+
+const generalRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: config.rateLimits.generalPerMinute,
+  message: 'Bạn gửi quá nhiều yêu cầu trong thời gian ngắn. Vui lòng thử lại sau một chút.',
+});
+const loginRateLimiter = createRateLimiter({
+  windowMs: 15 * 60_000,
+  max: config.rateLimits.loginPer15Minutes,
+  // Không khóa cả lớp khi nhiều học sinh cùng dùng một Wi-Fi/NAT: giới hạn theo IP + email.
+  keyGenerator: (req) => `login:${req.ip}:${String(req.body?.email || '').trim().toLowerCase()}`,
+  message: 'Tài khoản này có quá nhiều lần đăng nhập trong thời gian ngắn. Vui lòng chờ rồi thử lại.',
+});
+const loginIpRateLimiter = createRateLimiter({
+  windowMs: 15 * 60_000,
+  max: config.rateLimits.loginIpPer15Minutes,
+  keyGenerator: (req) => `login-ip:${req.ip}`,
+  message: 'Có quá nhiều lượt đăng nhập từ mạng này. Vui lòng chờ rồi thử lại.',
+});
+const refreshRateLimiter = createRateLimiter({
+  windowMs: 15 * 60_000,
+  max: config.rateLimits.refreshPer15Minutes,
+  message: 'Có quá nhiều lần làm mới phiên đăng nhập. Vui lòng thử lại sau một chút.',
+});
+const aiRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: config.rateLimits.aiPerMinute,
+  keyGenerator: (req) => `ai:${req.user?.id || req.ip}`,
+  message: 'Bạn đang gửi yêu cầu AI quá nhanh. Hãy đợi vài giây rồi tiếp tục học nhé.',
+});
+const aiConcurrencyGuard = createConcurrencyGuard({
+  max: config.rateLimits.aiConcurrentPerUser,
+  keyGenerator: (req) => `ai:${req.user?.id || req.ip}`,
+  message: 'Bạn đang có quá nhiều câu hỏi AI xử lý cùng lúc. Hãy chờ câu trước hoàn tất.',
+});
+const ttsRateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: config.rateLimits.ttsPerMinute,
+  keyGenerator: (req) => `tts:${req.user?.id || req.ip}`,
+  message: 'Bạn đang phát âm quá nhanh. Vui lòng thử lại sau vài giây.',
+});
+
+app.use('/api', generalRateLimiter);
 
 const idSchema = z.coerce.number().int().positive();
 const pageSchema = z.coerce.number().int().min(1).max(100000);
@@ -87,16 +142,40 @@ function badRequest(res, message) {
 }
 
 app.get('/api/health', async (_req, res) => {
+  const started = Date.now();
   try {
-    await query('SELECT 1');
-    res.json({ ok: true, database: 'connected', ai: await aiEnabled() });
-  } catch {
-    res.status(503).json({ ok: false, database: 'disconnected', ai: false });
+    const healthTimeout = Math.min(config.db.queryTimeout, 5000);
+    await query('SELECT 1', [], { timeout: healthTimeout });
+    // Bắt lỗi deploy quên chạy db:init trước khi traffic thật đi vào auth/monitoring.
+    await Promise.all([
+      query('SELECT 1 FROM auth_refresh_tokens LIMIT 0', [], { timeout: healthTimeout }),
+      query('SELECT 1 FROM ai_api_keys LIMIT 0', [], { timeout: healthTimeout }),
+      query('SELECT 1 FROM ai_usage_events LIMIT 0', [], { timeout: healthTimeout }),
+      query('SELECT 1 FROM system_error_logs LIMIT 0', [], { timeout: healthTimeout }),
+    ]);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      database: 'connected',
+      schema: 'ready',
+      databaseLatencyMs: Date.now() - started,
+      ai: await aiEnabled(),
+      uptimeSeconds: Math.round(process.uptime()),
+    });
+  } catch (error) {
+    res.setHeader('Cache-Control', 'no-store');
+    const schemaMissing = error?.code === 'ER_NO_SUCH_TABLE';
+    res.status(503).json({
+      ok: false,
+      database: schemaMissing ? 'connected' : 'disconnected',
+      schema: schemaMissing ? 'migration_required' : 'unknown',
+      ai: false,
+    });
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
-  const input = z.object({ email: z.string().email(), password: z.string().min(6) }).safeParse(req.body);
+app.post('/api/auth/login', loginIpRateLimiter, loginRateLimiter, async (req, res) => {
+  const input = z.object({ email: z.string().email().max(190), password: z.string().min(6).max(200) }).safeParse(req.body);
   if (!input.success) return badRequest(res, 'Email hoặc mật khẩu chưa hợp lệ.');
 
   const rows = await query('SELECT * FROM users WHERE email = ? AND active = 1 LIMIT 1', [input.data.email.toLowerCase()]);
@@ -104,13 +183,34 @@ app.post('/api/auth/login', async (req, res) => {
   if (!user || !(await verifyPassword(input.data.password, user.password_hash))) {
     return res.status(401).json({ message: 'Email hoặc mật khẩu không đúng.' });
   }
+  await issueRefreshToken(user.id, req, res);
+  res.setHeader('Cache-Control', 'no-store');
   res.json({ token: signToken(user), user: userDto(user) });
 });
 
+app.post('/api/auth/refresh', refreshRateLimiter, async (req, res) => {
+  const user = await rotateRefreshToken(req, res);
+  if (!user) return res.status(401).json({ message: 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.' });
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ token: signToken(user), user: userDto(user) });
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+  await revokeRefreshToken(req, res);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ message: 'Đã đăng xuất.' });
+});
+
+app.post('/api/auth/session', requireAuth, async (req, res) => {
+  // Endpoint chuyển phiên bản cũ (JWT từng lưu localStorage) sang refresh cookie HttpOnly.
+  await issueRefreshToken(req.user.id, req, res);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json({ token: signToken(req.user), user: userDto(req.user) });
+});
+
 app.get('/api/auth/me', requireAuth, async (req, res) => {
-  const rows = await query('SELECT id, email, full_name, role, active FROM users WHERE id = ? LIMIT 1', [req.user.id]);
-  if (!rows[0] || !rows[0].active) return res.status(401).json({ message: 'Tài khoản không còn hoạt động.' });
-  res.json({ user: userDto(rows[0]) });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ user: userDto(req.user) });
 });
 
 app.get('/api/classes', requireAuth, async (req, res) => {
@@ -324,6 +424,9 @@ app.put('/api/admin/users/:id', requireAuth, requireRole('ADMIN'), async (req, r
         await connection.execute('DELETE FROM class_students WHERE student_id = ?', [userId]);
       }
     });
+    if (!input.data.active || current.role !== input.data.role || input.data.password) {
+      await revokeAllRefreshTokensForUser(userId);
+    }
     return res.json({ message: 'Đã cập nhật tài khoản.' });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'Email này đã tồn tại.' });
@@ -341,6 +444,7 @@ app.delete('/api/admin/users/:id', requireAuth, requireRole('ADMIN'), async (req
     await connection.execute('DELETE FROM class_teachers WHERE teacher_id = ?', [userId]);
     await connection.execute('DELETE FROM class_students WHERE student_id = ?', [userId]);
   });
+  await revokeAllRefreshTokensForUser(userId);
   res.json({ message: 'Đã xóa tài khoản khỏi hoạt động. Lịch sử học và bài tập được giữ nguyên.' });
 });
 
@@ -436,36 +540,42 @@ app.delete('/api/admin/classes/:id/students/:studentId', requireAuth, requireRol
   res.json({ message: 'Đã gỡ học sinh khỏi lớp.' });
 });
 
-app.get('/api/tts', async (req, res) => {
+app.get('/api/tts', requireAuth, ttsRateLimiter, async (req, res) => {
   const text = String(req.query.text || '').trim();
   const lang = String(req.query.lang || 'ko').trim().toLowerCase().slice(0, 5);
   if (!text) return res.status(400).send('Thiếu nội dung');
   if (text.length > 500) return res.status(400).send('Văn bản quá dài');
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.ttsTimeoutMs);
+  timer.unref?.();
   try {
     const langCode = lang.startsWith('vi') ? 'vi' : 'ko';
     const googleUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${langCode}&client=tw-ob&q=${encodeURIComponent(text)}`;
     const resp = await fetch(googleUrl, {
+      signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36',
         'Referer': 'https://translate.google.com/',
       },
     });
-    if (!resp.ok) {
-      return res.status(resp.status).send('Lỗi TTS nguồn');
-    }
+    if (!resp.ok) return res.status(502).send('Nguồn phát âm đang tạm lỗi');
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
     const buffer = await resp.arrayBuffer();
     return res.send(Buffer.from(buffer));
   } catch (err) {
-    console.error('Lỗi TTS proxy:', err?.message);
-    return res.status(500).send('Lỗi máy chủ TTS');
+    if (err?.name === 'AbortError') return res.status(504).send('Nguồn phát âm phản hồi quá lâu');
+    console.error(`[${req.requestId}] TTS proxy error:`, sanitizeLogText(err?.message));
+    return res.status(502).send('Lỗi máy chủ TTS');
+  } finally {
+    clearTimeout(timer);
   }
 });
 
 const adminSettingsInput = z.object({
   apiKey: z.string().max(500).optional().default(''),
+  apiKeysText: z.string().max(10000).optional().default(''),
   clearApiKey: z.boolean().optional().default(false),
   geminiModel: z.string().regex(/^[a-zA-Z0-9._-]{3,80}$/),
   speechRate: z.coerce.number().min(0.5).max(1.5),
@@ -497,19 +607,89 @@ app.put('/api/admin/settings', requireAuth, requireRole('ADMIN'), async (req, re
   res.json({ message: 'Đã lưu cấu hình hệ thống & thông báo toàn trang.', settings });
 });
 
-app.post('/api/admin/settings/ai/test', requireAuth, requireRole('ADMIN'), async (req, res) => {
+app.post('/api/admin/settings/ai/keys', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const input = z.object({ apiKeysText: z.string().trim().min(20).max(10000) }).safeParse(req.body);
+  if (!input.success) return badRequest(res, 'Danh sách API key chưa hợp lệ. Mỗi key để một dòng.');
+  try {
+    const result = await addGeminiApiKeys(input.data.apiKeysText, req.user.id);
+    const settings = await getAdminSettings();
+    return res.status(201).json({
+      message: `Đã thêm ${result.added} API key${result.skipped ? `, bỏ qua ${result.skipped} key trùng` : ''}.`,
+      settings,
+    });
+  } catch (error) {
+    if (error.message === 'AI_KEYS_TOO_MANY') return badRequest(res, 'Mỗi lần chỉ thêm tối đa 20 API key.');
+    if (error.message === 'AI_KEY_INVALID') return badRequest(res, 'Có API key quá ngắn hoặc không hợp lệ.');
+    throw error;
+  }
+});
+
+app.patch('/api/admin/settings/ai/keys/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const keyId = idSchema.parse(req.params.id);
+  const input = z.object({ active: z.boolean() }).safeParse(req.body);
+  if (!input.success) return badRequest(res, 'Trạng thái API key chưa hợp lệ.');
+  const result = await setGeminiApiKeyActive(keyId, input.data.active);
+  if (!result.affectedRows) return res.status(404).json({ message: 'Không tìm thấy API key.' });
+  return res.json({ message: input.data.active ? 'Đã bật API key.' : 'Đã tắt API key.', settings: await getAdminSettings() });
+});
+
+app.delete('/api/admin/settings/ai/keys/:id', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const keyId = idSchema.parse(req.params.id);
+  const result = await deleteGeminiApiKey(keyId);
+  if (!result.affectedRows) return res.status(404).json({ message: 'Không tìm thấy API key.' });
+  return res.json({ message: 'Đã xóa API key khỏi hệ thống.', settings: await getAdminSettings() });
+});
+
+app.post('/api/admin/settings/ai/test', requireAuth, requireRole('ADMIN'), aiRateLimiter, aiConcurrencyGuard, async (req, res) => {
   const input = z.object({
     apiKey: z.string().max(500).optional().default(''),
+    keyId: z.coerce.number().int().positive().optional(),
     geminiModel: z.string().regex(/^[a-zA-Z0-9._-]{3,80}$/),
   }).safeParse(req.body);
   if (!input.success) return badRequest(res, 'API key hoặc model chưa hợp lệ.');
   try {
-    await testGeminiConnection({ apiKey: input.data.apiKey.trim() || undefined, model: input.data.geminiModel });
+    let apiKey = input.data.apiKey.trim();
+    if (!apiKey && input.data.keyId) {
+      const managed = await getGeminiApiKeySecretById(input.data.keyId);
+      if (!managed) return res.status(404).json({ message: 'Không tìm thấy API key.' });
+      apiKey = managed.apiKey;
+    }
+    await testGeminiConnection({ apiKey: apiKey || undefined, model: input.data.geminiModel });
+    if (input.data.keyId) await updateGeminiKeyHealth(input.data.keyId, { success: true });
     return res.json({ message: 'Kết nối Gemini thành công.' });
   } catch (error) {
-    console.error('Gemini test error:', error.message);
-    return res.status(400).json({ message: 'Không kết nối được Gemini. Kiểm tra API key và model.' });
+    const aiError = aiErrorResponse(error);
+    if (input.success && input.data.keyId) await updateGeminiKeyHealth(input.data.keyId, { status: aiError.code || 'TEST_ERROR', error: sanitizeLogText(error.message, 240) });
+    console.warn(`[${req.requestId}] Gemini test: ${sanitizeLogText(error.message)}`);
+    return res.status(aiError.status >= 500 ? 502 : aiError.status).json({ message: aiError.message, code: aiError.code });
   }
+});
+
+app.get('/api/admin/monitoring/ai', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const days = Math.max(1, Math.min(30, Number(req.query.days) || 1));
+  const [totals, statuses, users, daily] = await Promise.all([
+    query(`SELECT COUNT(*) requests, SUM(status = 'SUCCESS') successCount,
+      SUM(status = 'RATE_LIMITED') rateLimitedCount, SUM(status = 'UNAVAILABLE') unavailableCount,
+      ROUND(AVG(latency_ms)) averageLatencyMs
+      FROM ai_usage_events WHERE created_at >= DATE_SUB(NOW(), INTERVAL ${days} DAY)`),
+    query(`SELECT status, COUNT(*) count FROM ai_usage_events
+      WHERE created_at >= DATE_SUB(NOW(), INTERVAL ${days} DAY) GROUP BY status ORDER BY count DESC`),
+    query(`SELECT u.id, u.full_name fullName, u.email, COUNT(e.id) requestCount, SUM(e.status = 'SUCCESS') successCount
+      FROM ai_usage_events e LEFT JOIN users u ON u.id = e.user_id
+      WHERE e.created_at >= DATE_SUB(NOW(), INTERVAL ${days} DAY)
+      GROUP BY e.user_id, u.id ORDER BY requestCount DESC LIMIT 20`),
+    query(`SELECT DATE(created_at) day, COUNT(*) requests, SUM(status = 'SUCCESS') successCount
+      FROM ai_usage_events WHERE created_at >= DATE_SUB(NOW(), INTERVAL ${days} DAY)
+      GROUP BY DATE(created_at) ORDER BY day ASC`),
+  ]);
+  return res.json({ days, totals: totals[0] || {}, statuses, users, daily, keys: (await getAdminSettings()).apiKeys });
+});
+
+app.get('/api/admin/monitoring/errors', requireAuth, requireRole('ADMIN'), async (req, res) => {
+  const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 30));
+  const errors = await query(`SELECT id, request_id requestId, user_id userId, method, path, status_code statusCode,
+    error_code errorCode, message, created_at createdAt FROM system_error_logs ORDER BY created_at DESC LIMIT ${limit}`);
+  return res.json({ errors });
 });
 
 app.get('/api/textbook/lessons', requireAuth, async (_req, res) => {
@@ -529,26 +709,31 @@ app.get('/api/textbook/lessons/:id/vocabulary', requireAuth, async (req, res) =>
   });
 });
 
-app.post('/api/learning/ai', requireAuth, async (req, res) => {
+app.post('/api/learning/ai', requireAuth, aiRateLimiter, aiConcurrencyGuard, async (req, res) => {
   if (!(await aiEnabled())) return res.status(503).json({ message: 'Gemini chưa được Admin cấu hình.' });
   const input = z.object({
-    prompt: z.string().max(30000).optional().default(''),
+    prompt: z.string().max(config.aiPromptMaxChars).optional().default(''),
     systemPrompt: z.string().max(12000).optional().default(''),
     history: z.array(z.object({
       role: z.enum(['user', 'model']),
-      parts: z.array(z.object({ text: z.string().max(12000) })).min(1).max(8),
-    })).max(40).optional().nullable(),
+      parts: z.array(z.object({ text: z.string().max(6000) })).min(1).max(4),
+    })).max(config.aiHistoryMaxMessages).optional().nullable(),
     temperature: z.coerce.number().min(0).max(1.5).optional(),
     maxOutputTokens: z.coerce.number().int().min(128).max(4096).optional(),
     jsonMode: z.boolean().optional().default(false),
   }).safeParse(req.body);
   if (!input.success || (!input.data.prompt && !input.data.history?.length)) return badRequest(res, 'Yêu cầu AI chưa hợp lệ.');
+
+  const historyChars = (input.data.history || []).reduce((sum, item) => sum + item.parts.reduce((n, part) => n + part.text.length, 0), 0);
+  if (historyChars > config.aiHistoryMaxChars) return badRequest(res, 'Lịch sử chat quá dài. Hãy bắt đầu một đoạn chat mới.');
+
   try {
-    const text = await generateTextWithAI(input.data);
+    const text = await generateTextWithAI({ ...input.data, userId: req.user.id, route: 'learning-ai' });
     return res.json({ text });
   } catch (error) {
-    console.error('Learning AI error:', error.message);
-    return res.status(502).json({ message: 'AI tạm thời không phản hồi.' });
+    const aiError = aiErrorResponse(error);
+    console.warn(`[${req.requestId}] Learning AI: ${sanitizeLogText(error.message)}`);
+    return res.status(aiError.status).json({ message: aiError.message, code: aiError.code });
   }
 });
 
@@ -988,7 +1173,7 @@ function feedbackMentionsError(feedback) {
   return /(sai|lỗi|nhầm|chưa đúng|chưa chính xác|thiếu|thừa|chính tả|ngữ pháp|trợ từ|chia động từ|không tự nhiên|어색|틀|오류)/i.test(text);
 }
 
-async function strictVerifyEssayAnswer(question, answer, currentResult) {
+async function strictVerifyEssayAnswer(question, answer, currentResult, metadata = {}) {
   const maxPoints = Number(question.points || 0);
   const reference = String(question.correct_answer || '').trim();
   const rawAnswer = String(answer || '').trim();
@@ -1027,6 +1212,7 @@ Hãy chấm theo đúng quy tắc nghiêm khắc ở trên.`,
         temperature: 0,
         maxOutputTokens: 300,
         jsonMode: true,
+        ...metadata,
       });
 
       const verified = parseStrictVerifierJson(verifierRaw);
@@ -1106,7 +1292,7 @@ function capEssayScoreAgainstReference(question, answer, result) {
   };
 }
 
-async function gradeAssignmentAnswers(questions, answers) {
+async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
   const useAi = await aiEnabled();
   const results = [];
   for (const question of questions) {
@@ -1115,7 +1301,7 @@ async function gradeAssignmentAnswers(questions, answers) {
     if (question.type === 'ESSAY') {
       if (useAi) {
         try {
-          result = await gradeEssayWithAI({ prompt: question.prompt, referenceAnswer: question.correct_answer, answer, maxPoints: Number(question.points) });
+          result = await gradeEssayWithAI({ prompt: question.prompt, referenceAnswer: question.correct_answer, answer, maxPoints: Number(question.points), ...metadata });
         } catch {
           result = gradeEssayFallback(question, answer);
           result.feedback += ' AI tạm thời không phản hồi nên hệ thống dùng chấm dự phòng.';
@@ -1124,7 +1310,7 @@ async function gradeAssignmentAnswers(questions, answers) {
 
       // ESSAY trong app hiện cũng được dùng cho câu dịch/câu ngắn có đáp án mẫu.
       // Hậu kiểm cứng để AI không thể cho 100% khi vẫn còn lỗi.
-      result = await strictVerifyEssayAnswer(question, answer, result);
+      result = await strictVerifyEssayAnswer(question, answer, result, metadata);
     } else if (question.type === 'SHORT_TEXT') {
       result = gradeShortTextStrict(question, answer);
     } else {
@@ -1156,6 +1342,7 @@ async function gradeAssignmentAnswers(questions, answers) {
         prompt: `Kết quả bài làm: ${JSON.stringify(compact)}`,
         temperature: 0.25,
         maxOutputTokens: 400,
+        ...metadata,
       });
       if (aiSummary.trim()) { summary = aiSummary.trim(); aiSummaryUsed = true; }
     } catch { /* giữ nhận xét dự phòng */ }
@@ -1195,7 +1382,7 @@ async function createFinalSubmission({ assignment, studentId, grade, attemptId =
   });
 }
 
-app.post(['/api/assignments/:id/check', '/api/assignments/:id/attempt'], requireAuth, requireRole('STUDENT'), async (req, res) => {
+app.post(['/api/assignments/:id/check', '/api/assignments/:id/attempt'], requireAuth, requireRole('STUDENT'), aiRateLimiter, aiConcurrencyGuard, async (req, res) => {
   const assignmentId = idSchema.parse(req.params.id);
   const input = z.object({ answers: answerInput }).safeParse(req.body);
   if (!input.success) return badRequest(res, 'Dữ liệu bài làm chưa hợp lệ.');
@@ -1206,7 +1393,7 @@ app.post(['/api/assignments/:id/check', '/api/assignments/:id/attempt'], require
   if (existed[0]) return res.status(409).json({ message: 'Bài đã nộp chính thức nên không thể check thêm.' });
 
   const questions = await query('SELECT * FROM questions WHERE assignment_id = ? ORDER BY position', [assignmentId]);
-  const grade = await gradeAssignmentAnswers(questions, input.data.answers);
+  const grade = await gradeAssignmentAnswers(questions, input.data.answers, { userId: req.user.id, route: 'assignment-check' });
   const numberRows = await query('SELECT COALESCE(MAX(attempt_no), 0) + 1 nextAttempt FROM assignment_attempts WHERE assignment_id = ? AND student_id = ?', [assignmentId, req.user.id]);
   const attemptNo = Number(numberRows[0]?.nextAttempt || 1);
   const inserted = await query(
@@ -1220,7 +1407,7 @@ app.post(['/api/assignments/:id/check', '/api/assignments/:id/attempt'], require
   });
 });
 
-app.post('/api/assignments/:id/submit', requireAuth, requireRole('STUDENT'), async (req, res) => {
+app.post('/api/assignments/:id/submit', requireAuth, requireRole('STUDENT'), aiRateLimiter, aiConcurrencyGuard, async (req, res) => {
   const assignmentId = idSchema.parse(req.params.id);
   const assignments = await query("SELECT * FROM assignments WHERE id = ? AND status = 'PUBLISHED' LIMIT 1", [assignmentId]);
   const assignment = assignments[0];
@@ -1247,7 +1434,7 @@ app.post('/api/assignments/:id/submit', requireAuth, requireRole('STUDENT'), asy
     const input = z.object({ answers: answerInput }).safeParse(req.body);
     if (!input.success) return badRequest(res, 'Dữ liệu bài kiểm tra chưa hợp lệ.');
     const questions = await query('SELECT * FROM questions WHERE assignment_id = ? ORDER BY position', [assignmentId]);
-    grade = await gradeAssignmentAnswers(questions, input.data.answers);
+    grade = await gradeAssignmentAnswers(questions, input.data.answers, { userId: req.user.id, route: 'assignment-submit' });
   }
 
   const submissionId = await createFinalSubmission({ assignment, studentId: req.user.id, grade, attemptId });
@@ -1366,7 +1553,7 @@ app.patch('/api/notifications/:id/read', requireAuth, async (req, res) => {
 app.post('/api/notifications/announce', requireAuth, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
   const schema = z.object({
     title: z.string().trim().min(1, 'Vui lòng nhập tiêu đề thông báo.').max(100),
-    message: z.string().trim().min(1, 'Vui lòng nhập nội dung thông báo.').max(1000),
+    message: z.string().trim().min(1, 'Vui lòng nhập nội dung thông báo.').max(500),
     classId: z.union([z.string(), z.number()]).optional().default('ALL'),
   });
   const parse = schema.safeParse(req.body);
@@ -1375,20 +1562,41 @@ app.post('/api/notifications/announce', requireAuth, requireRole('TEACHER', 'ADM
   const { title, message, classId } = parse.data;
   let count = 0;
   if (String(classId) === 'ALL') {
-    const result = await query(
-      `INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
-       SELECT id, 'ANNOUNCEMENT', ?, ?, 'ANNOUNCEMENT', NULL
-       FROM users WHERE role = 'STUDENT' AND status = 'ACTIVE'`,
-      [title, message]
-    );
-    count = result.affectedRows || 0;
+    if (req.user.role === 'ADMIN') {
+      const result = await query(
+        `INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
+         SELECT id, 'ANNOUNCEMENT', ?, ?, 'ANNOUNCEMENT', NULL
+         FROM users WHERE role = 'STUDENT' AND active = 1`,
+        [title, message],
+      );
+      count = result.affectedRows || 0;
+    } else {
+      // Giáo viên chỉ được gửi "ALL" tới học sinh trong các lớp mình phụ trách.
+      // DISTINCT tránh gửi trùng nếu một học sinh nằm ở nhiều lớp của cùng giáo viên.
+      const result = await query(
+        `INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
+         SELECT DISTINCT cs.student_id, 'ANNOUNCEMENT', ?, ?, 'ANNOUNCEMENT', NULL
+         FROM class_students cs
+         JOIN class_teachers ct ON ct.class_id = cs.class_id
+         JOIN users u ON u.id = cs.student_id
+         WHERE ct.teacher_id = ? AND u.role = 'STUDENT' AND u.active = 1`,
+        [title, message, req.user.id],
+      );
+      count = result.affectedRows || 0;
+    }
   } else {
-    const classNum = Number(classId);
+    const parsedClassId = idSchema.safeParse(classId);
+    if (!parsedClassId.success) return badRequest(res, 'Lớp nhận thông báo không hợp lệ.');
+    const classNum = parsedClassId.data;
+    if (req.user.role === 'TEACHER' && !(await teacherOwnsClass(req.user.id, classNum))) {
+      return res.status(403).json({ message: 'Bạn không có quyền gửi thông báo cho lớp này.' });
+    }
     const result = await query(
       `INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
-       SELECT student_id, 'ANNOUNCEMENT', ?, ?, 'ANNOUNCEMENT', NULL
-       FROM class_students WHERE class_id = ?`,
-      [title, message, classNum]
+       SELECT cs.student_id, 'ANNOUNCEMENT', ?, ?, 'CLASS', ?
+       FROM class_students cs JOIN users u ON u.id = cs.student_id
+       WHERE cs.class_id = ? AND u.role = 'STUDENT' AND u.active = 1`,
+      [title, message, classNum, classNum],
     );
     count = result.affectedRows || 0;
   }
@@ -1397,7 +1605,7 @@ app.post('/api/notifications/announce', requireAuth, requireRole('TEACHER', 'ADM
 
 
 // Teacher AI ask about students
-app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), async (req, res) => {
+app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), aiRateLimiter, aiConcurrencyGuard, async (req, res) => {
   if (!(await aiEnabled())) return res.status(503).json({ message: 'Gemini chưa được Admin cấu hình.' });
   const input = z.object({
     question: z.string().min(2).max(2000),
@@ -1409,6 +1617,15 @@ app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), as
   const { question, assignmentId, studentId } = input.data;
   const teacherId = req.user.id;
   const teacherName = req.user.full_name || req.user.email;
+
+  // Chặn IDOR: giáo viên không được truyền assignmentId của lớp khác để đọc điểm/dữ liệu học sinh qua AI.
+  if (assignmentId) {
+    const assignmentRows = await query('SELECT id, class_id FROM assignments WHERE id = ? LIMIT 1', [assignmentId]);
+    if (!assignmentRows[0]) return res.status(404).json({ message: 'Không tìm thấy bài tập.' });
+    if (req.user.role === 'TEACHER' && !(await teacherOwnsClass(req.user.id, assignmentRows[0].class_id))) {
+      return res.status(403).json({ message: 'Bạn không có quyền dùng AI với dữ liệu bài này.' });
+    }
+  }
 
   // Build rich context directly from DB
   let contextLines = [`Giáo viên: ${teacherName}`];
@@ -1430,7 +1647,7 @@ app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), as
       // Danh sách học sinh và kết quả
       const students = await query(
         `SELECT u.id, u.full_name,
-          s.id subId, s.score, s.max_score, s.percentage, s.ai_summary, s.created_at submittedAt,
+          s.id subId, s.score, s.max_score, s.percentage, s.ai_summary, s.submitted_at submittedAt,
           (SELECT COUNT(*) FROM assignment_attempts WHERE assignment_id = a.id AND student_id = u.id) attemptCount
          FROM class_students cs
          JOIN users u ON u.id = cs.student_id
@@ -1507,17 +1724,19 @@ app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), as
       // --- Không có assignmentId: lấy tổng quan tất cả lớp của GV ---
       contextLines.push(`\n=== TỔNG QUAN LỚP HỌC ===`);
 
-      // Lấy các lớp GV phụ trách (qua assignments hoặc class_teachers)
-      const classes = await query(
-        `SELECT DISTINCT c.id, c.name,
-          (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id) studentCount
-         FROM classes c
-         WHERE c.id IN (
-           SELECT DISTINCT class_id FROM assignments WHERE teacher_id = ?
-           UNION
-           SELECT class_id FROM class_teachers WHERE teacher_id = ?
-         ) LIMIT 10`, [teacherId, teacherId]
-      );
+      // Chỉ lấy các lớp giáo viên hiện đang được phân công; assignment cũ không tự cấp lại quyền lớp.
+      const classes = req.user.role === 'ADMIN'
+        ? await query(
+          `SELECT c.id, c.name,
+            (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id) studentCount
+           FROM classes c WHERE c.active = 1 ORDER BY c.created_at DESC LIMIT 10`,
+        )
+        : await query(
+          `SELECT c.id, c.name,
+            (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id) studentCount
+           FROM classes c JOIN class_teachers ct ON ct.class_id = c.id
+           WHERE ct.teacher_id = ? AND c.active = 1 ORDER BY c.created_at DESC LIMIT 10`, [teacherId]
+        );
 
       if (!classes.length) {
         contextLines.push('Giáo viên chưa phụ trách lớp nào hoặc chưa có bài tập nào.');
@@ -1544,46 +1763,57 @@ app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), as
       }
     }
   } catch (e) {
-    console.warn('AI-ask context error:', e.message);
-    contextLines.push(`[Lỗi khi đọc DB: ${e.message}]`);
+    console.warn('AI-ask context error:', sanitizeLogText(e.message));
+    contextLines.push('[Một phần dữ liệu lớp học tạm thời chưa đọc được từ hệ thống.]');
   }
 
   const fullContext = contextLines.join('\n');
   const systemPrompt = `Bạn là trợ lý AI thông minh hỗ trợ giáo viên tiếng Hàn. Bạn đã được cung cấp đầy đủ dữ liệu lớp học từ hệ thống, hãy dựa vào đó để trả lời trực tiếp, cụ thể, không hỏi lại giáo viên "vui lòng cung cấp thêm thông tin". Nếu không có đủ dữ liệu một phần nào đó, hãy nói rõ phần đó chưa có dữ liệu. Trả lời bằng tiếng Việt, ngắn gọn, thực tế và có ích.\n\nDỮ LIỆU HIỆN TẠI TỪ HỆ THỐNG:\n${fullContext}`;
 
   try {
-    const answer = await generateTextWithAI({ prompt: question, systemPrompt, temperature: 0.35, maxOutputTokens: 800 });
+    const answer = await generateTextWithAI({ prompt: question, systemPrompt, temperature: 0.35, maxOutputTokens: 800, userId: req.user.id, route: 'teacher-ai-ask' });
     res.json({ answer: answer.trim() });
   } catch (err) {
-    res.status(502).json({ message: 'AI tạm thời không phản hồi: ' + err.message });
+    const aiError = aiErrorResponse(err);
+    res.status(aiError.status).json({ message: aiError.message, code: aiError.code });
   }
 });
 
-// Auto-cleanup: delete assignments & data older than 1 week (runs on each server start, safe to call repeatedly)
-async function cleanupOldAssignments() {
+// Bảo trì nhẹ. Không tự đóng/xóa bài đã publish trên production.
+async function runMaintenance() {
   try {
-    const result = await query(
-      `DELETE FROM assignments WHERE created_at < DATE_SUB(NOW(), INTERVAL 7 DAY) AND status = 'DRAFT'`
-    );
-    if (result.affectedRows > 0) console.log(`[cleanup] Deleted ${result.affectedRows} stale DRAFT assignments older than 7 days.`);
-    // Also close (not delete) published assignments older than 7 days that have 0 submissions
-    const closed = await query(
-      `UPDATE assignments SET status = 'CLOSED' WHERE status = 'PUBLISHED'
-       AND created_at < DATE_SUB(NOW(), INTERVAL 7 DAY)
-       AND (SELECT COUNT(*) FROM submissions WHERE assignment_id = assignments.id) = 0`
-    );
-    if (closed.affectedRows > 0) console.log(`[cleanup] Closed ${closed.affectedRows} old empty PUBLISHED assignments.`);
-  } catch (e) { console.warn('[cleanup] Error during assignment cleanup:', e.message); }
+    await cleanupRefreshTokens();
+    await query('DELETE FROM ai_usage_events WHERE created_at < DATE_SUB(NOW(), INTERVAL 90 DAY)');
+    await query('DELETE FROM system_error_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 DAY)');
+
+    if (config.autoCleanupDays > 0) {
+      const result = await query(
+        `DELETE FROM assignments WHERE created_at < DATE_SUB(NOW(), INTERVAL ${config.autoCleanupDays} DAY) AND status = 'DRAFT'`,
+      );
+      if (result.affectedRows > 0) console.log(`[maintenance] Deleted ${result.affectedRows} stale DRAFT assignments.`);
+    }
+  } catch (error) {
+    console.warn('[maintenance] Error:', sanitizeLogText(error.message));
+  }
 }
-setTimeout(cleanupOldAssignments, 5000);
-setInterval(cleanupOldAssignments, 24 * 60 * 60 * 1000); // Run daily
+setTimeout(runMaintenance, 5000).unref?.();
+setInterval(runMaintenance, 24 * 60 * 60 * 1000).unref?.();
 
 app.use((req, res) => res.status(404).json({ message: `Không có API ${req.method} ${req.path}` }));
 
-app.use((error, _req, res, _next) => {
+app.use((error, req, res, _next) => {
   if (error?.name === 'ZodError') return res.status(400).json({ message: 'ID hoặc dữ liệu gửi lên chưa hợp lệ.' });
-  console.error(error);
-  return res.status(500).json({ message: 'Có lỗi máy chủ. Hãy kiểm tra log backend.' });
+  if (error?.message === 'CORS_ORIGIN_DENIED') return res.status(403).json({ message: 'Nguồn truy cập không được phép.' });
+  if (error?.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'Dữ liệu đã tồn tại hoặc thao tác đã được thực hiện trước đó.' });
+
+  const isDbTimeout = ['PROTOCOL_SEQUENCE_TIMEOUT', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED'].includes(error?.code);
+  const statusCode = isDbTimeout ? 503 : 500;
+  console.error(`[${req.requestId || '-'}]`, sanitizeLogText(error?.stack || error?.message, 1500));
+  void recordSystemError({ req, error, statusCode });
+  return res.status(statusCode).json({
+    message: isDbTimeout ? 'Cơ sở dữ liệu đang phản hồi chậm. Vui lòng thử lại.' : 'Có lỗi máy chủ. Vui lòng thử lại sau.',
+    requestId: req.requestId,
+  });
 });
 
 export default app;

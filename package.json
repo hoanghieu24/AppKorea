@@ -1,15 +1,21 @@
 {
   "name": "hanquoc-classroom",
   "private": true,
-  "version": "2.2.8",
-  "workspaces": ["server", "client"],
+  "version": "2.3.0",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
-    "dev": "concurrently -n API,WEB -c green,cyan \"npm run dev -w server\" \"npm run dev -w client\"",
-    "build": "npm run build -w server && npm run build -w client",
-    "test": "npm test -w server",
-    "db:init": "npm run db:init -w server",
-    "db:seed": "npm run db:seed -w server",
-    "start": "npm run start -w server"
+    "dev": "concurrently -n API,WEB -c green,cyan \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "test": "npm test -w backend",
+    "db:init": "npm run db:init -w backend",
+    "db:seed": "npm run db:seed -w backend",
+    "db:backup": "npm run db:backup -w backend",
+    "db:restore": "npm run db:restore -w backend --",
+    "start": "npm run start -w backend",
+    "preflight": "node scripts/preflight.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

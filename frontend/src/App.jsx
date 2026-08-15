@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { api, clearSession, getSession } from './api.js';
+import { bootstrapSession, getSession } from './api.js';
 import Shell from './components/Shell.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import DashboardPage from './pages/DashboardPage.jsx';
@@ -15,16 +15,17 @@ import TeacherStudentsPage from './pages/TeacherStudentsPage.jsx';
 
 export default function App() {
   const [session, setSession] = useState(() => getSession());
-  const [checking, setChecking] = useState(Boolean(session?.token));
+  const [checking, setChecking] = useState(Boolean(session?.user));
   const location = useLocation();
 
   useEffect(() => {
-    if (!session?.token) { setChecking(false); return; }
-    api('/auth/me')
-      .then(({ user }) => setSession((current) => ({ ...current, user })))
-      .catch(() => { clearSession(); setSession(null); })
-      .finally(() => setChecking(false));
-  }, [session?.token]);
+    if (!session?.user) { setChecking(false); return; }
+    let cancelled = false;
+    bootstrapSession()
+      .then((nextSession) => { if (!cancelled) setSession(nextSession); })
+      .finally(() => { if (!cancelled) setChecking(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   if (checking) return <div className="app-loader"><div className="loader-logo">한</div><p>Đang mở lớp học...</p></div>;
   if (!session?.user) return <Routes><Route path="/login" element={<LoginPage onLogin={setSession} />} /><Route path="*" element={<Navigate to="/login" replace state={{ from: location.pathname }} />} /></Routes>;

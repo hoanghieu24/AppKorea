@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bell, BookOpen, BrainCircuit, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, ClipboardList, GraduationCap, Home, LogOut, Megaphone, Menu, PanelLeftClose, PanelLeftOpen, School, Settings2, ShieldCheck, Smartphone, Users, X } from 'lucide-react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { api, clearSession, roleLabel } from '../api.js';
+import { api, logoutSession, roleLabel } from '../api.js';
 export default function Shell({ user, onLogout, children }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('hanquoc_classroom_sidebar_collapsed') === '1');
@@ -57,7 +57,7 @@ export default function Shell({ user, onLogout, children }) {
     items.push({ to: '/notifications', label: 'Thông báo', icon: Bell, badge: unread });
     return items;
   }, [user.role, unread]);
-  const logout = () => { clearSession(); onLogout(); navigate('/login'); };
+  const logout = async () => { await logoutSession(); onLogout(); navigate('/login'); };
   const install = async () => { if (!installPrompt) return; await installPrompt.prompt(); setInstallPrompt(null); };
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
