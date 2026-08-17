@@ -873,7 +873,7 @@ export default function AssignmentsPage({ user }) {
       setOcrStatus({
         stage: 'ai',
         title: 'OCR xong · AI đang tách câu hỏi',
-        detail: 'Gemini đang sửa lỗi nhận dạng, phân loại câu và dựng đáp án/lựa chọn.',
+        detail: 'AI đang sửa lỗi nhận dạng, phân loại câu và dựng đáp án/lựa chọn.',
       });
       setMessage('Đã đọc xong ảnh. AI đang tách câu hỏi...');
 
@@ -898,7 +898,7 @@ export default function AssignmentsPage({ user }) {
             title: `AI đang dựng câu hỏi · ${pageIndex + 1}/${ocrPages.length}`,
             detail: chunkCount > 1 ? `Đang xử lý phần ${chunkIndex + 1}/${chunkCount} của ${page.fileName}` : `Đang xử lý ${page.fileName}`,
           });
-          setMessage(`Gemini đang sửa OCR + tách câu: ${label} 🧠`);
+          setMessage(`AI đang sửa OCR + tách câu: ${label} 🧠`);
 
           let questions = [];
 

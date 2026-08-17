@@ -1416,21 +1416,13 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
     LEFT JOIN submissions s ON s.student_id = u.id AND s.assignment_id = ?
     WHERE cs.class_id = ? ORDER BY u.full_name${limitSql}`, studentParams);
   const studentIds = students.map((student) => student.id);
-  let attempts = [];
+  const attemptCountByStudent = new Map();
   if (studentIds.length) {
     const placeholders = studentIds.map(() => '?').join(',');
-    attempts = await query(`SELECT id, student_id studentId, attempt_no attemptNo, score, max_score maxScore, percentage,
-      result_json resultJson, ai_summary summary, ai_used aiUsed, submission_id submissionId, created_at createdAt, submitted_at submittedAt
-      FROM assignment_attempts WHERE assignment_id = ? AND student_id IN (${placeholders}) ORDER BY student_id, attempt_no DESC`, [assignmentId, ...studentIds]);
-  }
-  const attemptsByStudent = new Map();
-  for (const attempt of attempts) {
-    const studentKey = Number(attempt.studentId);
-    const list = attemptsByStudent.get(studentKey) || [];
-    const results = typeof attempt.resultJson === 'string' ? JSON.parse(attempt.resultJson) : attempt.resultJson || [];
-    const { resultJson: _hiddenResultJson, ...safeAttempt } = attempt;
-    list.push({ ...safeAttempt, results, aiUsed: Boolean(attempt.aiUsed), submitted: Boolean(attempt.submissionId) });
-    attemptsByStudent.set(studentKey, list);
+    const attemptCounts = await query(`SELECT student_id studentId, COUNT(*) attemptCount
+      FROM assignment_attempts WHERE assignment_id = ? AND student_id IN (${placeholders})
+      GROUP BY student_id`, [assignmentId, ...studentIds]);
+    for (const row of attemptCounts) attemptCountByStudent.set(Number(row.studentId), Number(row.attemptCount || 0));
   }
   let stats = [];
   if (studentIds.length) {
@@ -1453,8 +1445,7 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
     students: students.map((student) => ({
       ...student,
       submitted: Boolean(student.submissionId),
-      attemptCount: attemptsByStudent.get(Number(student.id))?.length || 0,
-      attempts: attemptsByStudent.get(Number(student.id)) || [],
+      attemptCount: attemptCountByStudent.get(Number(student.id)) || 0,
       weakTopics: weakByStudent.get(student.id) || weakByStudent.get(Number(student.id)) || [],
     })),
   });
