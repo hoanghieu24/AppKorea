@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { config } from './config.js';
 import { query, withTransaction } from './db.js';
+import { touchSeen } from './presence.js';
 
 const JWT_ISSUER = 'hanquoc-classroom';
 const JWT_AUDIENCE = 'hanquoc-web';
@@ -185,6 +186,12 @@ export async function requireAuth(req, res, next) {
 
     // Luôn dùng role/trạng thái mới nhất trong DB, không tin role cũ nằm trong JWT.
     req.user = userPayload(current);
+
+    // Bất kỳ thao tác API hợp lệ nào cũng chứng minh user đang hoạt động.
+    // touchSeen có throttle riêng nên không UPDATE MySQL trên từng request.
+    void touchSeen(req.user.id).catch((error) => {
+      console.warn('[presence] passive touch failed:', error?.message || error);
+    });
     return next();
   } catch (error) {
     return next(error);

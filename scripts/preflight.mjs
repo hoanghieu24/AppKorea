@@ -48,6 +48,12 @@ ok(schema.includes('CREATE TABLE IF NOT EXISTS user_presence'), 'Thiếu bảng 
 ok(app.includes("app.post('/api/auth/heartbeat', requireAuth"), 'Thiếu heartbeat presence có auth.');
 ok(app.includes('presenceSummary()') && app.includes('presenceSelectSql'), 'Admin users chưa trả presence summary/trạng thái online.');
 
+const auth = await text('backend/src/auth.js');
+const presenceModule = await text('backend/src/presence.js');
+ok(auth.includes('touchSeen(req.user.id)'), 'Auth chưa cập nhật presence từ mọi API đã xác thực.');
+ok(presenceModule.includes('PASSIVE_TOUCH_INTERVAL_MS = 30_000') && presenceModule.includes('export async function touchSeen'), 'Presence chưa throttle passive activity touch 30 giây.');
+ok(presenceModule.includes('ONLINE_WINDOW_SECONDS = 180'), 'Presence online window chưa nâng lên 180 giây.');
+
 const config = await text('backend/src/config.js');
 ok(config.includes('validateProductionConfig'), 'Thiếu production ENV validation.');
 ok(config.includes("JWT_EXPIRES_IN") && config.includes("'1h'"), 'JWT access token chưa có default ngắn hạn.');
@@ -57,7 +63,8 @@ const frontendApi = await text('frontend/src/api.js');
 ok(!/localStorage\.setItem\([^\n]*token/i.test(frontendApi), 'Frontend đang persist token trực tiếp vào localStorage.');
 ok(frontendApi.includes("credentials: 'include'"), 'Frontend fetch chưa gửi HttpOnly session cookie.');
 const shell = await text('frontend/src/components/Shell.jsx');
-ok(shell.includes("api('/auth/heartbeat'") && shell.includes('60_000'), 'Frontend chưa gửi heartbeat 60 giây.');
+ok(shell.includes("api('/auth/heartbeat'") && shell.includes('45_000'), 'Frontend chưa gửi heartbeat 45 giây.');
+ok(shell.includes("window.addEventListener('focus'") && shell.includes("window.addEventListener('pageshow'") && shell.includes("window.addEventListener('online'"), 'Frontend chưa phục hồi presence khi quay lại tab/PWA/mạng.');
 const adminManagement = await text('frontend/src/pages/AdminManagementPage.jsx');
 ok(adminManagement.includes('Đăng nhập gần nhất') && adminManagement.includes('Số lần đăng nhập'), 'Admin chưa hiển thị lịch sử đăng nhập/presence.');
 

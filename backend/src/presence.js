@@ -1,6 +1,8 @@
 import { query } from './db.js';
 
-const ONLINE_WINDOW_SECONDS = 130;
+const ONLINE_WINDOW_SECONDS = 180;
+const PASSIVE_TOUCH_INTERVAL_MS = 30_000;
+const passiveTouchAt = new Map();
 
 export async function ensurePresenceSchema() {
   await query(`
@@ -19,6 +21,7 @@ export async function ensurePresenceSchema() {
 }
 
 export async function markLogin(userId) {
+  passiveTouchAt.set(Number(userId), Date.now());
   await query(
     `INSERT INTO user_presence (user_id, last_login_at, last_seen_at, last_logout_at, login_count)
      VALUES (?, NOW(), NOW(), NULL, 1)
@@ -32,6 +35,7 @@ export async function markLogin(userId) {
 }
 
 export async function markSeen(userId) {
+  passiveTouchAt.set(Number(userId), Date.now());
   await query(
     `INSERT INTO user_presence (user_id, last_seen_at, login_count)
      VALUES (?, NOW(), 0)
@@ -41,12 +45,38 @@ export async function markSeen(userId) {
 }
 
 export async function markLogout(userId) {
+  passiveTouchAt.delete(Number(userId));
   await query(
     `INSERT INTO user_presence (user_id, last_seen_at, last_logout_at, login_count)
      VALUES (?, NOW(), NOW(), 0)
      ON DUPLICATE KEY UPDATE last_seen_at = NOW(), last_logout_at = NOW()`,
     [userId],
   );
+}
+
+
+// Đánh dấu hoạt động từ mọi API đã xác thực nhưng không ghi MySQL trên từng request.
+// Mỗi user chỉ phát sinh tối đa khoảng 1 UPDATE / 30 giây từ luồng passive này.
+export async function touchSeen(userId) {
+  const id = Number(userId);
+  if (!Number.isInteger(id) || id <= 0) return false;
+  const now = Date.now();
+  const previous = passiveTouchAt.get(id) || 0;
+  if (now - previous < PASSIVE_TOUCH_INTERVAL_MS) return false;
+  passiveTouchAt.set(id, now);
+  try {
+    await query(
+      `INSERT INTO user_presence (user_id, last_seen_at, login_count)
+       VALUES (?, NOW(), 0)
+       ON DUPLICATE KEY UPDATE last_seen_at = NOW()`,
+      [id],
+    );
+    return true;
+  } catch (error) {
+    // Cho phép request sau thử lại sớm nếu DB touch thất bại.
+    passiveTouchAt.delete(id);
+    throw error;
+  }
 }
 
 export const presenceSelectSql = `

@@ -43,18 +43,43 @@ export default function Shell({ user, onLogout, children }) {
   useEffect(() => { localStorage.setItem('hanquoc_classroom_sidebar_collapsed', sidebarCollapsed ? '1' : '0'); }, [sidebarCollapsed]);
   useEffect(() => {
     let disposed = false;
-    const heartbeat = () => {
-      if (disposed || document.visibilityState === 'hidden') return;
-      api('/auth/heartbeat', { method: 'POST', toast: false }).catch(() => {});
+    let inFlight = false;
+    let lastSentAt = 0;
+
+    const heartbeat = ({ force = false } = {}) => {
+      if (disposed || document.visibilityState === 'hidden' || !navigator.onLine) return;
+      const now = Date.now();
+      if (inFlight || (!force && now - lastSentAt < 5_000)) return;
+      inFlight = true;
+      lastSentAt = now;
+      api('/auth/heartbeat', { method: 'POST', toast: false })
+        .catch(() => {})
+        .finally(() => { inFlight = false; });
     };
-    heartbeat();
-    const timer = window.setInterval(heartbeat, 60_000);
-    const onVisibility = () => { if (document.visibilityState === 'visible') heartbeat(); };
+
+    // Gửi ngay khi Shell được mount, sau đó duy trì nhẹ khi tab đang được dùng.
+    heartbeat({ force: true });
+    const timer = window.setInterval(() => heartbeat(), 45_000);
+
+    // Browser/PWA có thể đóng băng timer khi chạy nền. Khi user quay lại,
+    // kích hoạt heartbeat bằng nhiều tín hiệu để không phụ thuộc riêng visibilitychange.
+    const onVisibility = () => { if (document.visibilityState === 'visible') heartbeat({ force: true }); };
+    const onFocus = () => heartbeat({ force: true });
+    const onOnline = () => heartbeat({ force: true });
+    const onPageShow = () => heartbeat({ force: true });
+
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('pageshow', onPageShow);
+
     return () => {
       disposed = true;
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('pageshow', onPageShow);
     };
   }, [user.id]);
   const navItems = useMemo(() => {
