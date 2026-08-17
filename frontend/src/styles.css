@@ -320,6 +320,35 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .submit-bar > div { display: grid; gap: 2px; }
 .submit-bar strong { font-size: .8rem; }
 .submit-bar span { color: var(--muted); font-size: .7rem; }
+
+
+/* AI assignment grading: floating, live-looking progress so students know the request is still working. */
+.ai-checking-float { position: fixed; right: 24px; bottom: 92px; z-index: 70; width: min(430px, calc(100vw - 32px)); padding: 16px; border: 1px solid #dcd8ff; border-radius: 18px; background: rgba(255,255,255,.96); box-shadow: 0 18px 55px rgba(61, 55, 119, .20); backdrop-filter: blur(14px); overflow: hidden; animation: aiCheckIn .24s ease-out both; }
+.ai-checking-float::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(110deg, transparent 25%, rgba(116, 99, 255, .08) 45%, transparent 65%); transform: translateX(-100%); animation: aiCheckShimmer 2.1s linear infinite; }
+.ai-checking-top { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 11px; }
+.ai-checking-top > div:nth-child(2) { display: grid; gap: 3px; min-width: 0; }
+.ai-checking-top strong { color: #393451; font-size: .88rem; }
+.ai-checking-top span { color: var(--muted); font-size: .68rem; line-height: 1.45; }
+.ai-checking-top > b { color: var(--purple); font-size: .88rem; font-variant-numeric: tabular-nums; }
+.ai-checking-orb { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; color: #6759f5; background: #f0eeff; box-shadow: 0 0 0 0 rgba(103,89,245,.28); animation: aiCheckPulse 1.7s ease-out infinite; }
+.ai-checking-track { position: relative; height: 8px; margin-top: 13px; border-radius: 999px; overflow: hidden; background: #efedf8; }
+.ai-checking-track > i { display: block; height: 100%; min-width: 4%; border-radius: inherit; background: linear-gradient(90deg, #7768ff, #9d72ff, #7464f6); transition: width .3s ease; position: relative; }
+.ai-checking-track > i::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); animation: aiProgressSweep 1.15s linear infinite; }
+.ai-checking-steps { position: relative; display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 11px; }
+.ai-checking-steps span { display: flex; align-items: center; gap: 5px; color: #aaa6b7; font-size: .59rem; white-space: nowrap; }
+.ai-checking-steps span > i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #d8d5e4; }
+.ai-checking-steps span.active { color: #5c5279; font-weight: 700; }
+.ai-checking-steps span.active > i { background: #6f61f6; box-shadow: 0 0 0 3px #eeecff; }
+.ai-checking-foot { position: relative; display: flex; align-items: center; gap: 6px; margin-top: 11px; color: #716c80; font-size: .64rem; }
+.ai-checking-foot b { margin-left: auto; color: #514a68; font-variant-numeric: tabular-nums; }
+.ai-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #2cc887; box-shadow: 0 0 0 0 rgba(44,200,135,.35); animation: aiLivePulse 1.25s infinite; }
+.student-answer-input:disabled, .option-list input:disabled + span { opacity: .68; cursor: wait; }
+
+@keyframes aiCheckIn { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes aiCheckPulse { 70% { box-shadow: 0 0 0 10px rgba(103,89,245,0); } 100% { box-shadow: 0 0 0 0 rgba(103,89,245,0); } }
+@keyframes aiLivePulse { 70% { box-shadow: 0 0 0 6px rgba(44,200,135,0); } 100% { box-shadow: 0 0 0 0 rgba(44,200,135,0); } }
+@keyframes aiCheckShimmer { to { transform: translateX(100%); } }
+@keyframes aiProgressSweep { to { transform: translateX(100%); } }
 .result-layout { grid-template-columns: .38fr .62fr; }
 .result-summary { position: sticky; top: 30px; text-align: center; }
 .score-ring { --score: 50%; width: 144px; height: 144px; margin: 5px auto 16px; border-radius: 50%; padding: 9px; background: conic-gradient(var(--green) var(--score), #eeedf2 0); }
@@ -903,3 +932,8 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 
 
 
+
+@media (max-width: 700px) {
+  .ai-checking-float { right: 14px; bottom: 150px; width: calc(100vw - 28px); padding: 14px; }
+  .ai-checking-steps span { font-size: .54rem; }
+}

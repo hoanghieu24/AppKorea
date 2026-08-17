@@ -1292,10 +1292,32 @@ function capEssayScoreAgainstReference(question, answer, result) {
   };
 }
 
+async function mapWithConcurrency(items, limit, mapper) {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return [];
+
+  const concurrency = Math.max(1, Math.min(Number(limit) || 1, list.length));
+  const output = new Array(list.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= list.length) return;
+      output[index] = await mapper(list[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  return output;
+}
+
 async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
   const useAi = await aiEnabled();
-  const results = [];
-  for (const question of questions) {
+  // 4 câu/lượt mặc định (ENV có thể chỉnh 3-5). Mỗi câu vẫn chấm tuần tự bên trong
+  // nếu cần hậu kiểm, nên tối đa chỉ có `aiGradingConcurrency` câu AI chạy cùng lúc.
+  const results = await mapWithConcurrency(questions, config.aiGradingConcurrency, async (question) => {
     const answer = String(answers[String(question.id)] ?? '');
     let result;
     if (question.type === 'ESSAY') {
@@ -1316,12 +1338,12 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
     } else {
       result = gradeObjective(question, answer);
     }
-    results.push({
+    return {
       questionId: Number(question.id), topic: question.topic, points: Number(question.points), answer,
       referenceAnswer: question.correct_answer || '', awarded: Number(result.awarded), isCorrect: Boolean(result.isCorrect),
       feedback: result.feedback || '', gradedByAi: Boolean(result.gradedByAi),
-    });
-  }
+    };
+  });
 
   const maxScore = results.reduce((sum, item) => sum + item.points, 0);
   const score = results.reduce((sum, item) => sum + item.awarded, 0);

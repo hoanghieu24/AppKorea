@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Bot, BrainCircuit, CheckCircle2, CircleAlert, Clock3, ChevronLeft, ChevronRight, Loader2, Maximize2, MessageSquare, Send, Sparkles, UserCheck, Users, X, XCircle, Zap } from 'lucide-react';
+import { ArrowLeft, Bot, CheckCircle2, CircleAlert, Clock3, ChevronLeft, ChevronRight, Maximize2, MessageSquare, Send, Sparkles, UserCheck, Users, X, XCircle } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { api, formatDate } from '../api.js';
 import { Empty, Pagination } from '../components/Shell.jsx';
@@ -13,9 +13,10 @@ export default function AssignmentDetailPage({ user }) {
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [checkingProgress, setCheckingProgress] = useState(0);
+  const [checkingElapsed, setCheckingElapsed] = useState(0);
   const [reportPage, setReportPage] = useState(1);
   const [reportLoading, setReportLoading] = useState(false);
-  const previewRef = useRef(null);
 
   const load = async () => {
     try {
@@ -27,6 +28,20 @@ export default function AssignmentDetailPage({ user }) {
   useEffect(() => { load(); }, [id]);
 
   useEffect(() => {
+    if (!checking) return undefined;
+    const startedAt = Date.now();
+    setCheckingElapsed(0);
+    setCheckingProgress((current) => Math.max(4, current));
+    const timer = window.setInterval(() => {
+      const elapsed = (Date.now() - startedAt) / 1000;
+      setCheckingElapsed(Math.floor(elapsed));
+      // Progress cảm nhận: tiến nhanh lúc đầu, chậm dần và dừng ở 92% cho tới khi server trả kết quả thật.
+      setCheckingProgress((current) => Math.max(current, Math.min(92, Math.round(8 + 84 * (1 - Math.exp(-elapsed / 6.5))))));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [checking]);
+
+  useEffect(() => {
     if (!data?.assignment || data?.assignment?.type === undefined) return;
     if (user.role !== 'TEACHER') return;
     setReportLoading(true);
@@ -36,17 +51,22 @@ export default function AssignmentDetailPage({ user }) {
 
   const setAnswer = (qId, val) => {
     setAnswers((prev) => ({ ...prev, [String(qId)]: val }));
+    // Nếu học sinh sửa đáp án sau khi đã check AI thì lần check cũ không còn
+    // đại diện cho bài hiện tại nữa. Bắt buộc check lại trước khi nộp.
     setPreview(null);
   };
 
   const checkWithAi = async () => {
+    setMessage('');
+    setCheckingProgress(4);
+    setCheckingElapsed(0);
     setChecking(true);
     try {
       const result = await api(`/assignments/${id}/attempt`, { method: 'POST', toast: false, body: JSON.stringify({ answers }) });
+      setCheckingProgress(100);
       setPreview(result);
-      setTimeout(() => {
-        previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
+      // Cho người học kịp thấy trạng thái “Hoàn tất” thay vì panel biến mất đột ngột.
+      await new Promise((resolve) => window.setTimeout(resolve, 450));
     } catch (err) { setMessage(err.message); }
     finally { setChecking(false); }
   };
@@ -88,51 +108,11 @@ export default function AssignmentDetailPage({ user }) {
     </section>
     {message && <div className="notice">{message}</div>}
     {assignment.instructions && <div className="instruction-box"><strong>Hướng dẫn</strong><p>{assignment.instructions}</p></div>}
-    {user.role === 'STUDENT' ? <StudentWork assignment={assignment} questions={questions} submission={submission} answers={answers} setAnswer={setAnswer} preview={preview} previewRef={previewRef} checkWithAi={checkWithAi} checking={checking} submit={submit} submitting={submitting} aiEnabled={data.aiEnabled} /> : <TeacherView assignment={assignment} questions={questions} report={report} reportLoading={reportLoading} setReportPage={setReportPage} publish={publish} assignmentId={Number(id)} />}
+    {user.role === 'STUDENT' ? <StudentWork assignment={assignment} questions={questions} submission={submission} answers={answers} setAnswer={setAnswer} preview={preview} checkWithAi={checkWithAi} checking={checking} checkingProgress={checkingProgress} checkingElapsed={checkingElapsed} submit={submit} submitting={submitting} aiEnabled={data.aiEnabled} /> : <TeacherView assignment={assignment} questions={questions} report={report} reportLoading={reportLoading} setReportPage={setReportPage} publish={publish} assignmentId={Number(id)} />}
   </>;
 }
 
-function AiScanningBanner() {
-  const [step, setStep] = useState(0);
-  const [progress, setProgress] = useState(15);
-  useEffect(() => {
-    const stepTimer = setInterval(() => { setStep((s) => (s < 2 ? s + 1 : s)); }, 1200);
-    const progressTimer = setInterval(() => { setProgress((p) => (p < 92 ? p + Math.floor(Math.random() * 8 + 6) : 95)); }, 280);
-    return () => { clearInterval(stepTimer); clearInterval(progressTimer); };
-  }, []);
-  const steps = [
-    { title: 'Đọc câu trả lời & đối chiếu từ vựng', desc: 'Đang kiểm tra từ ngữ tiếng Hàn...' },
-    { title: 'Phân tích ngữ pháp & cấu trúc câu', desc: 'Đang đối chiếu ngữ cảnh bài học...' },
-    { title: 'Gemini AI đang chấm điểm & viết gợi ý', desc: 'Sắp hoàn tất, nhận xét chi tiết...' }
-  ];
-  return (
-    <div className="ai-scanning-card" role="status" aria-live="polite">
-      <div className="ai-scanner-beam-line" />
-      <div className="ai-scanning-header">
-        <div className="ai-scanner-orb-wrap">
-          <div className="ai-scanner-orb"><BrainCircuit size={26} /></div>
-          <div className="ai-scanner-pulse-ring" /><div className="ai-scanner-pulse-ring delay" />
-        </div>
-        <div className="ai-scanning-info">
-          <div className="ai-scanning-badge"><Sparkles size={14} /><span>AI ĐANG QUÉT BÀI LÀM</span></div>
-          <strong>{steps[step].title}</strong><small>{steps[step].desc}</small>
-        </div>
-        <div className="ai-scanning-percent"><b>{progress}%</b></div>
-      </div>
-      <div className="ai-scanning-progress-track"><div className="ai-scanning-progress-bar" style={{ width: `${progress}%` }} /></div>
-      <div className="ai-scanning-steps-list">
-        {steps.map((st, i) => (
-          <div key={i} className={`ai-scanning-step-item ${i === step ? 'current' : i < step ? 'done' : 'waiting'}`}>
-            <span className="ai-step-dot">{i < step ? '✓' : i === step ? '✦' : (i + 1)}</span>
-            <span>{st.title}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function StudentWork({ assignment, questions, submission, answers, setAnswer, preview, previewRef, checkWithAi, checking, submit, submitting, aiEnabled }) {
+function StudentWork({ assignment, questions, submission, answers, setAnswer, preview, checkWithAi, checking, checkingProgress, checkingElapsed, submit, submitting, aiEnabled }) {
   const answerMap = useMemo(() => new Map((submission?.answers || []).map((answer) => [Number(answer.questionId), answer])), [submission]);
   if (submission) {
     return <div className="two-col result-layout">
@@ -145,13 +125,54 @@ function StudentWork({ assignment, questions, submission, answers, setAnswer, pr
   }
   return <form onSubmit={submit} className="student-work">
     <div className="work-info"><Sparkles size={18} /><span>{assignment.type === 'HOMEWORK' ? (aiEnabled ? 'Làm xong → Check bằng AI → sửa nếu cần → khi ổn mới nộp chính thức cho giáo viên.' : 'Admin chưa cấu hình AI; hệ thống vẫn check bằng cơ chế dự phòng rồi mới cho nộp.') : 'Bài kiểm tra chỉ nộp chính thức một lần; không có bước xem trước đáp án.'}</span></div>
-    {checking && <AiScanningBanner />}
-    <div className={`question-list ${checking ? 'is-scanning-glow' : ''}`}>{questions.map((question, index) => <article className="question-card" key={question.id}><div className="q-head"><span>Câu {index + 1}</span><b>{question.points} điểm · {question.topic}</b></div><h3>{question.prompt}</h3>
-      {question.type === 'MULTIPLE_CHOICE' ? <div className="option-list">{question.options.map((option) => <label key={option} className={answers[String(question.id)] === option ? 'selected' : ''}><input type="radio" name={`q-${question.id}`} value={option} checked={answers[String(question.id)] === option} onChange={(e) => setAnswer(question.id, e.target.value)} /><span>{option}</span></label>)}</div> : question.type === 'SHORT_TEXT' ? <input className="student-answer-input" value={answers[String(question.id)] || ''} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Nhập câu trả lời..." /> : <textarea className="student-answer-input" rows="4" value={answers[String(question.id)] || ''} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Viết câu trả lời của bạn..." />}
+    <div className="question-list">{questions.map((question, index) => <article className="question-card" key={question.id}><div className="q-head"><span>Câu {index + 1}</span><b>{question.points} điểm · {question.topic}</b></div><h3>{question.prompt}</h3>
+      {question.type === 'MULTIPLE_CHOICE' ? <div className="option-list">{question.options.map((option) => <label key={option} className={answers[String(question.id)] === option ? 'selected' : ''}><input type="radio" name={`q-${question.id}`} value={option} checked={answers[String(question.id)] === option} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} /><span>{option}</span></label>)}</div> : question.type === 'SHORT_TEXT' ? <input className="student-answer-input" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Nhập câu trả lời..." /> : <textarea className="student-answer-input" rows="4" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Viết câu trả lời của bạn..." />}
     </article>)}</div>
-    {assignment.type === 'HOMEWORK' && preview && <section ref={previewRef} className="ai-preview panel"><div className="ai-preview-head"><div><Bot /><span><strong>AI check lần {preview.attemptNo}</strong><small>Đây chưa phải bài nộp chính thức.</small></span></div><b>{Math.round(preview.percentage)}%</b></div><p>{preview.summary}</p><div className="preview-results">{preview.results?.map((result, index) => <div className={result.isCorrect ? 'preview-result correct' : 'preview-result wrong'} key={result.questionId}><span>{result.isCorrect ? <CheckCircle2 size={17} /> : <XCircle size={17} />} Câu {index + 1}</span><strong>{result.awarded}/{result.points} điểm</strong><p>{result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>{!result.isCorrect && result.referenceAnswer && <small>Đáp án tham khảo: {result.referenceAnswer}</small>}</div>)}</div></section>}
-    <div className="submit-bar"><div><strong>{assignment.type === 'HOMEWORK' ? (preview ? 'Ổn rồi thì nộp cho giáo viên' : 'Bước 1: Check bằng AI') : 'Kiểm tra kỹ trước khi nộp'}</strong><span>{assignment.type === 'HOMEWORK' ? (preview ? `Đã check ${preview.attemptNo} lần. Sửa đáp án sẽ cần check lại.` : 'Có thể check lại nhiều lần trước khi nộp chính thức.') : 'Bài kiểm tra chỉ nộp chính thức một lần.'}</span></div><div className="submit-actions">{assignment.type === 'HOMEWORK' && <button type="button" className={`btn secondary ${checking ? 'btn-scanning-active' : ''}`} onClick={checkWithAi} disabled={checking || submitting}><Bot size={17} /> {checking ? 'AI đang quét bài...' : preview ? 'Check lại bằng AI' : 'Check bằng AI'}</button>}<button className="btn primary" disabled={submitting || checking || (assignment.type === 'HOMEWORK' && !preview)}><Send size={17} /> {submitting ? 'Đang nộp...' : 'Nộp cho giáo viên'}</button></div></div>
+    {assignment.type === 'HOMEWORK' && checking && <AiCheckingStatus progress={checkingProgress} elapsed={checkingElapsed} questionCount={questions.length} />}
+    {assignment.type === 'HOMEWORK' && preview && <section className="ai-preview panel"><div className="ai-preview-head"><div><Bot /><span><strong>AI check lần {preview.attemptNo}</strong><small>Đây chưa phải bài nộp chính thức.</small></span></div><b>{Math.round(preview.percentage)}%</b></div><p>{preview.summary}</p><div className="preview-results">{preview.results?.map((result, index) => <div className={result.isCorrect ? 'preview-result correct' : 'preview-result wrong'} key={result.questionId}><span>{result.isCorrect ? <CheckCircle2 size={17} /> : <XCircle size={17} />} Câu {index + 1}</span><strong>{result.awarded}/{result.points} điểm</strong><p>{result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>{!result.isCorrect && result.referenceAnswer && <small>Đáp án tham khảo: {result.referenceAnswer}</small>}</div>)}</div></section>}
+    <div className="submit-bar"><div><strong>{assignment.type === 'HOMEWORK' ? (preview ? 'Ổn rồi thì nộp cho giáo viên' : 'Bước 1: Check bằng AI') : 'Kiểm tra kỹ trước khi nộp'}</strong><span>{assignment.type === 'HOMEWORK' ? (preview ? `Đã check ${preview.attemptNo} lần. Sửa đáp án sẽ cần check lại.` : 'Có thể check lại nhiều lần trước khi nộp chính thức.') : 'Bài kiểm tra chỉ nộp chính thức một lần.'}</span></div><div className="submit-actions">{assignment.type === 'HOMEWORK' && <button type="button" className="btn secondary" onClick={checkWithAi} disabled={checking || submitting}><Bot size={17} /> {checking ? 'AI đang check...' : preview ? 'Check lại bằng AI' : 'Check bằng AI'}</button>}<button className="btn primary" disabled={submitting || checking || (assignment.type === 'HOMEWORK' && !preview)}><Send size={17} /> {submitting ? 'Đang nộp...' : 'Nộp cho giáo viên'}</button></div></div>
   </form>;
+}
+
+function AiCheckingStatus({ progress, elapsed, questionCount }) {
+  const percent = Math.max(4, Math.min(100, Number(progress) || 4));
+  const batchCount = Math.max(1, Math.ceil(Number(questionCount || 0) / 4));
+  let title = 'Đang chuẩn bị bài làm...';
+  let detail = `AI sẽ chấm theo nhóm 4 câu/lượt · khoảng ${batchCount} lượt.`;
+  let activeStep = 0;
+
+  if (percent >= 18) {
+    title = 'AI đang chấm bài của bạn';
+    detail = 'Các câu được xử lý song song theo nhóm nhỏ để nhanh hơn mà vẫn giữ ổn định.';
+    activeStep = 1;
+  }
+  if (percent >= 62) {
+    title = 'Đang đối chiếu đáp án & lỗi tiếng Hàn';
+    detail = 'AI đang kiểm tra chính tả, trợ từ, đuôi câu và đáp án tham khảo.';
+    activeStep = 2;
+  }
+  if (percent >= 84) {
+    title = 'Đang tổng hợp nhận xét';
+    detail = 'Sắp xong rồi — hệ thống đang gom điểm và phản hồi cho từng câu.';
+    activeStep = 3;
+  }
+  if (percent >= 100) {
+    title = 'Chấm xong rồi!';
+    detail = 'Đang mở kết quả cho bạn...';
+    activeStep = 4;
+  }
+
+  const steps = ['Chuẩn bị', 'Chấm theo nhóm', 'Đối chiếu', 'Nhận xét'];
+  return <aside className="ai-checking-float" role="status" aria-live="polite" aria-busy="true">
+    <div className="ai-checking-top">
+      <div className="ai-checking-orb"><Bot size={22} /></div>
+      <div><strong>{title}</strong><span>{detail}</span></div>
+      <b>{percent}%</b>
+    </div>
+    <div className="ai-checking-track"><i style={{ width: `${percent}%` }} /></div>
+    <div className="ai-checking-steps">{steps.map((step, index) => <span className={index <= activeStep ? 'active' : ''} key={step}><i />{step}</span>)}</div>
+    <div className="ai-checking-foot"><span className="ai-live-dot" /> AI đang làm việc thật · đừng đóng tab <b>{elapsed}s</b></div>
+  </aside>;
 }
 
 function TeacherView({ assignment, questions, report, reportLoading, setReportPage, publish, assignmentId }) {
@@ -295,12 +316,9 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
           <div className="report-list">
             {report.students.map((student) => (
               <div className="report-row report-row-attempts" key={student.id}>
-                <div className="report-row-header">
-                  <div className="avatar small">{student.fullName.slice(0, 1)}</div>
-                  <strong style={{ flex: 1 }}>{student.fullName}</strong>
-                  <span className={`submit-state ${student.submitted ? 'done' : ''}`}>{student.submitted ? 'Đã nộp' : 'Chưa nộp'}</span>
-                </div>
+                <div className="avatar small">{student.fullName.slice(0, 1)}</div>
                 <div className="grow">
+                  <strong>{student.fullName}</strong>
                   <span>{student.submitted ? `Đã nộp · ${Math.round(student.percentage)}%` : student.attemptCount ? `Đang làm · đã check AI ${student.attemptCount} lần` : 'Chưa làm bài'}</span>
                   {student.summary && <small className="student-ai-summary">AI: {student.summary}</small>}
                   {student.weakTopics?.length ? <small>Cần ôn: {student.weakTopics.map((t) => `${t.topic} (${t.mastery}%)`).join(', ')}</small> : null}
@@ -339,6 +357,7 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
                     );
                   })()}
                 </div>
+                <span className={`submit-state ${student.submitted ? 'done' : ''}`}>{student.submitted ? 'Đã nộp' : 'Chưa nộp'}</span>
               </div>
             ))}
           </div>
