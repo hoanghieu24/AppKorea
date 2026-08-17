@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, BookOpen, CheckCircle2, ClipboardList, Clock3, GraduationCap, School, Sparkles, Users } from 'lucide-react';
+import { ArrowRight, BookOpen, CheckCircle2, ClipboardList, Clock3, GraduationCap, RefreshCw, School, Sparkles, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api, formatDate } from '../api.js';
 import { Empty, PageHeader, StatCard } from '../components/Shell.jsx';
@@ -17,17 +17,40 @@ function AdminDashboard({ user }) {
   const [userForm, setUserForm] = useState({ fullName: '', email: '', password: '', role: 'STUDENT' });
   const [classForm, setClassForm] = useState({ name: '', code: '', description: '' });
   const [memberForm, setMemberForm] = useState({ classId: '', teacherId: '', studentId: '' });
+  const [presence, setPresence] = useState({ onlineTotal: 0, onlineStudents: 0, onlineTeachers: 0, onlineAdmins: 0 });
+  const [refreshingPresence, setRefreshingPresence] = useState(false);
+  const [presenceUpdatedAt, setPresenceUpdatedAt] = useState(null);
 
-  const load = async () => {
-    const [classData, userData] = await Promise.all([api('/classes'), api('/admin/users')]);
-    setClasses(classData.classes); setUsers(userData.users);
-    setMemberForm((old) => ({ ...old, classId: old.classId || String(classData.classes[0]?.id || '') }));
+  const load = async ({ presenceOnly = false, manual = false } = {}) => {
+    if (manual) setRefreshingPresence(true);
+    try {
+      if (presenceOnly) {
+        const userData = await api('/admin/users?page=1&pageSize=1', { toast: false });
+        if (userData.presence) setPresence(userData.presence);
+        setPresenceUpdatedAt(new Date());
+        return;
+      }
+      const [classData, userData] = await Promise.all([api('/classes'), api('/admin/users?all=1')]);
+      setClasses(classData.classes); setUsers(userData.users);
+      if (userData.presence) setPresence(userData.presence);
+      setPresenceUpdatedAt(new Date());
+      setMemberForm((old) => ({ ...old, classId: old.classId || String(classData.classes[0]?.id || '') }));
+    } finally {
+      if (manual) setRefreshingPresence(false);
+    }
   };
-  useEffect(() => { load().catch((err) => setMessage(err.message)); }, []);
+  useEffect(() => {
+    load().catch((err) => setMessage(err.message));
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') load({ presenceOnly: true }).catch(() => {});
+    }, 15_000);
+    const onVisibility = () => { if (document.visibilityState === 'visible') load({ presenceOnly: true }).catch(() => {}); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisibility); };
+  }, []);
 
   const teachers = users.filter((item) => item.role === 'TEACHER');
   const students = users.filter((item) => item.role === 'STUDENT');
-  const onlineUsers = users.filter((item) => item.isOnline);
   const createUser = async (event) => {
     event.preventDefault();
     try {
@@ -53,11 +76,11 @@ function AdminDashboard({ user }) {
   };
 
   return <>
-    <PageHeader eyebrow="QUẢN TRỊ" title={`Chào ${user.fullName}`} subtitle="Tạo tài khoản, mở lớp và giao đúng giáo viên vào lớp." />
+    <PageHeader eyebrow="QUẢN TRỊ" title={`Chào ${user.fullName}`} subtitle="Tạo tài khoản, mở lớp và giao đúng giáo viên vào lớp." action={<button type="button" className="btn ghost" onClick={() => load({ presenceOnly: true, manual: true }).catch(() => {})} disabled={refreshingPresence}><RefreshCw size={16} className={refreshingPresence ? 'spin' : ''} /> {refreshingPresence ? 'Đang cập nhật...' : 'Làm mới online'}</button>} />
     {message && <div className="notice">{message}</div>}
     <div className="stats-grid">
       <StatCard label="Lớp đang có" value={classes.length} note="Do admin quản lý" icon={School} />
-      <StatCard label="Đang online" value={onlineUsers.length} note="Cập nhật theo hoạt động gần nhất" tone="green" icon={Users} />
+      <StatCard label="Đang online" value={presence.onlineTotal} note={presenceUpdatedAt ? `Cập nhật ${presenceUpdatedAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Tự cập nhật mỗi 15 giây'} tone="green" icon={Users} />
       <StatCard label="Giáo viên" value={teachers.length} note="Tài khoản hoạt động" icon={GraduationCap} />
       <StatCard label="Học sinh" value={students.length} note="Trên toàn hệ thống" tone="orange" icon={Users} />
     </div>

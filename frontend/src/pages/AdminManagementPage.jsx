@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GraduationCap, Pencil, Plus, RotateCcw, Save, School, Search, Trash2, UserMinus, UserPlus, Users, X } from 'lucide-react';
+import { GraduationCap, Pencil, Plus, RefreshCw, RotateCcw, Save, School, Search, Trash2, UserMinus, UserPlus, Users, X } from 'lucide-react';
 import { api, formatDate, roleLabel } from '../api.js';
 import { Empty, PageHeader, Pagination } from '../components/Shell.jsx';
 
@@ -23,9 +23,12 @@ function UserManagement({ fixedRole, currentUser }) {
   const [pagination, setPagination] = useState(null);
   const [listLoading, setListLoading] = useState(false);
   const [presence, setPresence] = useState({ onlineTotal: 0, onlineStudents: 0, onlineTeachers: 0, onlineAdmins: 0 });
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
 
-  const load = async (targetPage = page, search = queryText, { silent = false } = {}) => {
+  const load = async (targetPage = page, search = queryText, { silent = false, manual = false } = {}) => {
     if (!silent) setListLoading(true);
+    if (manual) setRefreshing(true);
     const params = new URLSearchParams({ page: String(targetPage), pageSize: '10' });
     if (fixedRole) params.set('role', fixedRole);
     if (search.trim()) params.set('q', search.trim());
@@ -33,7 +36,11 @@ function UserManagement({ fixedRole, currentUser }) {
       const data = await api(`/admin/users?${params.toString()}`, { toast: false });
       setUsers(data.users || []); setPagination(data.pagination);
       if (data.presence) setPresence(data.presence);
-    } finally { if (!silent) setListLoading(false); }
+      setLastUpdatedAt(new Date());
+    } finally {
+      if (!silent) setListLoading(false);
+      if (manual) setRefreshing(false);
+    }
   };
   useEffect(() => {
     const timer = window.setTimeout(() => load(page, queryText), queryText ? 220 : 0);
@@ -42,7 +49,7 @@ function UserManagement({ fixedRole, currentUser }) {
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') load(page, queryText, { silent: true }).catch(() => {});
-    }, 30_000);
+    }, 15_000);
     return () => window.clearInterval(timer);
   }, [fixedRole, page, queryText]);
 
@@ -92,7 +99,12 @@ function UserManagement({ fixedRole, currentUser }) {
     <PageHeader eyebrow={eyebrow} title={title} subtitle="Tạo, xem, sửa, khóa/khôi phục tài khoản. Dữ liệu học tập cũ luôn được bảo toàn." action={<button className="btn primary" onClick={openCreate}><Plus size={17} /> Thêm mới</button>} />
     <div className="management-toolbar">
       <label className="management-search"><Search size={17} /><input value={queryText} onChange={(e) => { setQueryText(e.target.value); setPage(1); }} placeholder="Tìm theo tên, email..." /></label>
-      <div className="presence-toolbar-stats"><span className="presence-live-dot" /> <strong>{onlineCount}</strong> đang online <span>·</span> <span>{pagination?.total ?? visible.length} tài khoản</span></div>
+      <div className="presence-toolbar-right">
+        <div className="presence-toolbar-stats"><span className="presence-live-dot" /> <strong>{onlineCount}</strong> đang online <span>·</span> <span>{pagination?.total ?? visible.length} tài khoản</span>{lastUpdatedAt ? <><span>·</span><span>Cập nhật {lastUpdatedAt.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></> : null}</div>
+        <button type="button" className="btn ghost presence-refresh-button" onClick={() => load(page, queryText, { silent: true, manual: true }).catch(() => {})} disabled={refreshing}>
+          <RefreshCw size={15} className={refreshing ? 'spin' : ''} /> {refreshing ? 'Đang cập nhật...' : 'Làm mới'}
+        </button>
+      </div>
     </div>
 
     {showForm && <section className="panel management-form-panel">

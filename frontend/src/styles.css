@@ -960,3 +960,14 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .login-count-badge { display: inline-flex; align-items: center; padding: 5px 8px; border-radius: 999px; background: #f3f0ff; color: #6556e8; font-size: .64rem; font-weight: 800; white-space: nowrap; }
 @keyframes presencePulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.82); opacity: .62; } }
 @media (max-width: 720px) { .presence-toolbar-stats { font-size: .64rem; } }
+
+
+/* 2.3.10 - Admin presence refresh */
+.presence-toolbar-right { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.presence-refresh-button { min-height: 34px; padding: 7px 10px; font-size: .68rem; }
+.spin { animation: adminRefreshSpin .8s linear infinite; }
+@keyframes adminRefreshSpin { to { transform: rotate(360deg); } }
+@media (max-width: 720px) {
+  .presence-toolbar-right { width: 100%; justify-content: space-between; }
+  .presence-toolbar-stats { white-space: normal; }
+}
