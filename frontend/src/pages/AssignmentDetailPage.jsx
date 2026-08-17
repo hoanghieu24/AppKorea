@@ -128,22 +128,22 @@ function StudentWork({ assignment, questions, submission, answers, setAnswer, pr
     <div className="question-list">{questions.map((question, index) => <article className="question-card" key={question.id}><div className="q-head"><span>Câu {index + 1}</span><b>{question.points} điểm · {question.topic}</b></div><h3>{question.prompt}</h3>
       {question.type === 'MULTIPLE_CHOICE' ? <div className="option-list">{question.options.map((option) => <label key={option} className={answers[String(question.id)] === option ? 'selected' : ''}><input type="radio" name={`q-${question.id}`} value={option} checked={answers[String(question.id)] === option} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} /><span>{option}</span></label>)}</div> : question.type === 'SHORT_TEXT' ? <input className="student-answer-input" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Nhập câu trả lời..." /> : <textarea className="student-answer-input" rows="4" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Viết câu trả lời của bạn..." />}
     </article>)}</div>
-    {assignment.type === 'HOMEWORK' && checking && <AiCheckingStatus progress={checkingProgress} elapsed={checkingElapsed} questionCount={questions.length} />}
+    {assignment.type === 'HOMEWORK' && checking && <AiCheckingStatus progress={checkingProgress} elapsed={checkingElapsed} aiQuestionCount={questions.filter((question) => question.type === 'ESSAY' && String(answers[String(question.id)] || '').trim()).length} />}
     {assignment.type === 'HOMEWORK' && preview && <section className="ai-preview panel"><div className="ai-preview-head"><div><Bot /><span><strong>AI check lần {preview.attemptNo}</strong><small>Đây chưa phải bài nộp chính thức.</small></span></div><b>{Math.round(preview.percentage)}%</b></div><p>{preview.summary}</p><div className="preview-results">{preview.results?.map((result, index) => <div className={result.isCorrect ? 'preview-result correct' : 'preview-result wrong'} key={result.questionId}><span>{result.isCorrect ? <CheckCircle2 size={17} /> : <XCircle size={17} />} Câu {index + 1}</span><strong>{result.awarded}/{result.points} điểm</strong><p>{result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>{!result.isCorrect && result.referenceAnswer && <small>Đáp án tham khảo: {result.referenceAnswer}</small>}</div>)}</div></section>}
     <div className="submit-bar"><div><strong>{assignment.type === 'HOMEWORK' ? (preview ? 'Ổn rồi thì nộp cho giáo viên' : 'Bước 1: Check bằng AI') : 'Kiểm tra kỹ trước khi nộp'}</strong><span>{assignment.type === 'HOMEWORK' ? (preview ? `Đã check ${preview.attemptNo} lần. Sửa đáp án sẽ cần check lại.` : 'Có thể check lại nhiều lần trước khi nộp chính thức.') : 'Bài kiểm tra chỉ nộp chính thức một lần.'}</span></div><div className="submit-actions">{assignment.type === 'HOMEWORK' && <button type="button" className="btn secondary" onClick={checkWithAi} disabled={checking || submitting}><Bot size={17} /> {checking ? 'AI đang check...' : preview ? 'Check lại bằng AI' : 'Check bằng AI'}</button>}<button className="btn primary" disabled={submitting || checking || (assignment.type === 'HOMEWORK' && !preview)}><Send size={17} /> {submitting ? 'Đang nộp...' : 'Nộp cho giáo viên'}</button></div></div>
   </form>;
 }
 
-function AiCheckingStatus({ progress, elapsed, questionCount }) {
+function AiCheckingStatus({ progress, elapsed, aiQuestionCount }) {
   const percent = Math.max(4, Math.min(100, Number(progress) || 4));
-  const batchCount = Math.max(1, Math.ceil(Number(questionCount || 0) / 4));
+  const batchCount = Math.ceil(Number(aiQuestionCount || 0) / 5);
   let title = 'Đang chuẩn bị bài làm...';
-  let detail = `AI sẽ chấm theo nhóm 4 câu/lượt · khoảng ${batchCount} lượt.`;
+  let detail = batchCount ? `AI gộp tối đa 5 câu trong 1 lượt gọi · dự kiến ${batchCount} lượt Gemini.` : 'Các câu này được chấm trực tiếp, không cần gọi Gemini.';
   let activeStep = 0;
 
   if (percent >= 18) {
     title = 'AI đang chấm bài của bạn';
-    detail = 'Các câu được xử lý song song theo nhóm nhỏ để nhanh hơn mà vẫn giữ ổn định.';
+    detail = 'Mỗi nhóm tối đa 5 câu được gửi chung trong một lần gọi AI để giảm tải và đỡ tốn request.';
     activeStep = 1;
   }
   if (percent >= 62) {

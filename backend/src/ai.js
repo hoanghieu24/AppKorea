@@ -233,7 +233,7 @@ export async function generateTextWithAI(
 
   throw new AiError(
     `AI_${lastFailure?.code || 'UNAVAILABLE'}`,
-    'Hệ thống AI hiện đang quá tải. Bạn vui lòng chờ trong 2-3 phút rồi thử lại nhé!',
+    'AI đang tạm thời quá tải. Hệ thống đã thử các kết nối dự phòng nhưng chưa có kết nối khả dụng.',
     503,
   );
 }
@@ -246,41 +246,59 @@ export async function testGeminiConnection({ apiKey, model }) {
   return Boolean(text.trim());
 }
 
-async function callGemini(prompt, metadata = {}) {
-  return generateTextWithAI({ prompt, temperature: 0.2, maxOutputTokens: 700, jsonMode: true, ...metadata });
+
+export async function gradeEssayBatchWithAI({ items, userId = null, route = 'assignment-grade-batch' }) {
+  const batch = (Array.isArray(items) ? items : []).slice(0, 5).map((item) => ({
+    questionId: Number(item.questionId),
+    prompt: String(item.prompt || '').slice(0, 3000),
+    referenceAnswer: String(item.referenceAnswer || '').slice(0, 1600),
+    answer: String(item.answer || '').slice(0, 3000),
+    maxPoints: Math.max(0, Number(item.maxPoints) || 0),
+  }));
+  if (!batch.length) return [];
+
+  const systemPrompt = `Bạn là giáo viên tiếng Hàn chấm bài cho học sinh Việt Nam.
+Bạn nhận TỐI ĐA 5 câu trong một lần gọi và phải chấm TỪNG CÂU độc lập.
+QUY TẮC BẮT BUỘC:
+1. Không trộn đáp án, điểm hay nhận xét giữa các câu. questionId phải giữ nguyên.
+2. Nếu có đáp án tham khảo ngắn, ưu tiên độ chính xác về nghĩa, Hangul, từ vựng, trợ từ, đuôi câu và chia động từ.
+3. Nếu không có đáp án cố định, chấm theo đúng yêu cầu đề và mức độ tự nhiên/chính xác của tiếng Hàn.
+4. Bỏ trống hoặc lạc đề phải 0 điểm.
+5. Sai thì feedback bằng tiếng Việt phải nói rõ sai ở đâu và gợi ý cách sửa. Đúng thì nhận xét ngắn gọn.
+6. scoreRatio là số từ 0 đến 1. isCorrect=true chỉ khi câu trả lời đạt yêu cầu đầy đủ.
+7. Chỉ trả JSON thuần đúng schema, không markdown, không thêm chữ bên ngoài:
+{"results":[{"questionId":1,"scoreRatio":1,"isCorrect":true,"feedback":"..."}]}`;
+
+  const raw = await generateTextWithAI({
+    systemPrompt,
+    prompt: `Hãy chấm ${batch.length} câu sau trong MỘT lần xử lý:\n${JSON.stringify(batch)}`,
+    temperature: 0,
+    maxOutputTokens: Math.min(2600, 500 + batch.length * 380),
+    jsonMode: true,
+    userId,
+    route,
+  });
+
+  const parsed = extractJson(raw);
+  const rows = Array.isArray(parsed?.results) ? parsed.results : [];
+  const byId = new Map(rows.map((row) => [Number(row?.questionId), row]));
+
+  return batch.map((item) => {
+    const row = byId.get(item.questionId);
+    if (!row) return null;
+    const ratioRaw = Number(row.scoreRatio);
+    if (!Number.isFinite(ratioRaw)) return null;
+    const ratio = Math.max(0, Math.min(1, ratioRaw));
+    return {
+      questionId: item.questionId,
+      awarded: Number((ratio * item.maxPoints).toFixed(2)),
+      isCorrect: Boolean(row.isCorrect) && ratio >= 0.8,
+      feedback: String(row.feedback || 'Đã chấm bằng AI.').trim(),
+      gradedByAi: true,
+    };
+  });
 }
 
-export async function gradeEssayWithAI({ prompt, referenceAnswer, answer, maxPoints, userId = null, route = 'assignment-grade' }) {
-  const request = `Bạn là giáo viên tiếng Hàn ân cần và linh hoạt đang chấm bài tự luận cho học sinh Việt Nam.
-
-QUY TẮC CHẤM VÀ ĐÁNH GIÁ:
-1. CHẤM CỞI MỞ, KHÔNG QUÁ GẮT/SÁT TỪNG CHỮ: Không phạt nặng các lỗi lặt vặt về khoảng trắng, dấu câu hay viết hoa. Nếu bài làm của học sinh diễn đạt đúng ý cốt lõi, người Hàn có thể hiểu được và đúng ngữ cảnh thì hãy tính là ĐÚNG (isCorrect = true) và cho điểm tối đa hoặc gần tối đa (scoreRatio từ 0.8 đến 1.0).
-2. GIẢI THÍCH KỸ KHI SAI: Với bất kỳ câu nào sai hoặc bị trừ điểm (isCorrect = false hoặc scoreRatio < 0.8), bạn PHẢI GIẢI THÍCH KỸ TẠI SAO SAI bằng tiếng Việt (chỉ rõ sai ở điểm ngữ pháp nào, dùng sai từ vựng gì, hoặc nhầm lẫn cấu trúc ra sao), đồng thời hướng dẫn lại đáp án đúng chuẩn.
-3. VỚI CÂU ĐÚNG: Đưa ra lời khen ngắn gọn khích lệ.
-
-Thông tin bài làm:
-- Câu hỏi: ${prompt}
-- Đáp án tham khảo: ${referenceAnswer || '(không có đáp án cố định)'}
-- Bài làm của học sinh: ${answer || '(bỏ trống)'}
-- Điểm tối đa: ${maxPoints}
-
-Trả về duy nhất một chuỗi JSON hợp lệ (không dùng markdown code fence, không thêm văn bản bên ngoài):
-{
-  "scoreRatio": 1.0,
-  "isCorrect": true,
-  "feedback": "Nhận xét tiếng Việt chi tiết. Nếu sai phải giải thích kỹ tại sao sai và hướng dẫn lại câu đúng."
-}
-Lưu ý: scoreRatio là số thực từ 0.0 đến 1.0.`;
-
-  const parsed = extractJson(await callGemini(request, { userId, route }));
-  const ratio = Math.max(0, Math.min(1, Number(parsed.scoreRatio) || 0));
-  return {
-    awarded: Number((ratio * maxPoints).toFixed(2)),
-    isCorrect: Boolean(parsed.isCorrect ?? ratio >= 0.7),
-    feedback: String(parsed.feedback || 'Đã chấm bằng AI.'),
-    gradedByAi: true,
-  };
-}
 
 export function aiErrorResponse(error) {
   if (error instanceof AiError) {

@@ -80,8 +80,8 @@ export const config = {
   geminiApiKey: fallbackGeminiKeys[0] || '',
   geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
   aiTimeoutMs: intEnv('AI_TIMEOUT_MS', 25000, { min: 5000, max: 60000 }),
-  // Chấm bài AI theo nhóm nhỏ để giảm tổng thời gian nhưng không dội request vào Gemini.
-  aiGradingConcurrency: intEnv('AI_GRADING_CONCURRENCY', 4, { min: 3, max: 5 }),
+  // Batch thật: 3-5 câu tự luận được gộp vào MỘT Gemini request. Mặc định 5 để giảm số lần gọi tối đa.
+  aiGradingBatchSize: intEnv('AI_GRADING_BATCH_SIZE', 5, { min: 3, max: 5 }),
   aiKeyCooldownSeconds: intEnv('AI_KEY_COOLDOWN_SECONDS', 60, { min: 5, max: 3600 }),
   aiPromptMaxChars: intEnv('AI_PROMPT_MAX_CHARS', 12000, { min: 1000, max: 30000 }),
   aiHistoryMaxMessages: intEnv('AI_HISTORY_MAX_MESSAGES', 24, { min: 4, max: 40 }),

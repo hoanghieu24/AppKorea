@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { config } from './config.js';
 import { query, withTransaction } from './db.js';
 import { cleanupRefreshTokens, issueRefreshToken, requireAuth, requireRole, revokeAllRefreshTokensForUser, revokeRefreshToken, rotateRefreshToken, signToken, verifyPassword, hashPassword } from './auth.js';
-import { aiEnabled, aiErrorResponse, generateTextWithAI, gradeEssayWithAI, testGeminiConnection } from './ai.js';
+import { aiEnabled, aiErrorResponse, generateTextWithAI, gradeEssayBatchWithAI, testGeminiConnection } from './ai.js';
 import { addGeminiApiKeys, deleteGeminiApiKey, getAdminSettings, getGeminiApiKeySecretById, getSafeLearningSettings, saveAdminSettings, setGeminiApiKeyActive, updateGeminiKeyHealth } from './settings.js';
 import { gradeEssayFallback, gradeObjective } from './grading.js';
 import { ensureTextbookCatalog, getTextbookLessons, getTextbookVocabulary } from './textbook.js';
@@ -1133,122 +1133,6 @@ function gradeShortTextStrict(question, answer) {
 }
 
 
-function parseStrictVerifierJson(raw) {
-  const source = String(raw || '').trim();
-  if (!source) return null;
-  const cleaned = source
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
-  try {
-    const data = JSON.parse(cleaned);
-    const scorePercent = Math.max(0, Math.min(100, Number(data.scorePercent)));
-    if (!Number.isFinite(scorePercent)) return null;
-    return {
-      scorePercent,
-      isCorrect: Boolean(data.isCorrect) && scorePercent === 100,
-      feedback: String(data.feedback || '').trim(),
-    };
-  } catch {
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try {
-      const data = JSON.parse(match[0]);
-      const scorePercent = Math.max(0, Math.min(100, Number(data.scorePercent)));
-      if (!Number.isFinite(scorePercent)) return null;
-      return {
-        scorePercent,
-        isCorrect: Boolean(data.isCorrect) && scorePercent === 100,
-        feedback: String(data.feedback || '').trim(),
-      };
-    } catch {
-      return null;
-    }
-  }
-}
-
-function feedbackMentionsError(feedback) {
-  const text = String(feedback || '').toLowerCase();
-  return /(sai|lỗi|nhầm|chưa đúng|chưa chính xác|thiếu|thừa|chính tả|ngữ pháp|trợ từ|chia động từ|không tự nhiên|어색|틀|오류)/i.test(text);
-}
-
-async function strictVerifyEssayAnswer(question, answer, currentResult, metadata = {}) {
-  const maxPoints = Number(question.points || 0);
-  const reference = String(question.correct_answer || '').trim();
-  const rawAnswer = String(answer || '').trim();
-
-  // Nếu có đáp án mẫu ngắn: rule cứng được ưu tiên tuyệt đối.
-  if (reference && normalizeStrictAnswer(reference).length <= 120) {
-    const strict = gradeShortTextStrict(question, rawAnswer);
-    return {
-      ...currentResult,
-      awarded: Number(strict.awarded || 0),
-      isCorrect: Boolean(strict.isCorrect),
-      feedback: strict.feedback || currentResult.feedback || '',
-      gradedByAi: Boolean(currentResult.gradedByAi),
-    };
-  }
-
-  // Không có đáp án mẫu: dùng một vòng AI thứ hai chỉ để "kiểm tra nghiêm".
-  // Quy tắc: chỉ 100 khi hoàn toàn đúng; có bất kỳ lỗi nào thì không được 100.
-  if (await aiEnabled()) {
-    try {
-      const verifierRaw = await generateTextWithAI({
-        systemPrompt: `Bạn là giám khảo tiếng Hàn CHẤM RẤT NGHIÊM.
-Nhiệm vụ: kiểm tra câu trả lời của học viên theo đúng yêu cầu đề.
-QUY TẮC BẮT BUỘC:
-1. 100 điểm CHỈ khi câu trả lời hoàn toàn đúng về nghĩa, từ vựng, chính tả Hangul, trợ từ, đuôi câu và chia động từ.
-2. Chỉ cần sai 1 âm tiết/ký tự Hangul: không quá 80 điểm.
-3. Thừa hoặc thiếu từ/ký tự làm câu không chuẩn: không quá 70 điểm.
-4. Sai trợ từ/đuôi câu/chia động từ: không quá 65 điểm.
-5. Sai nghĩa chính hoặc trả lời không đúng ngôn ngữ yêu cầu: 0-40 điểm.
-6. Không được bỏ qua lỗi chỉ vì người đọc vẫn đoán được ý.
-7. Trả về JSON thuần, không markdown:
-{"scorePercent":0,"isCorrect":false,"feedback":"..."}`,
-        prompt: `ĐỀ: ${question.prompt}
-CÂU TRẢ LỜI HỌC VIÊN: ${rawAnswer}
-Hãy chấm theo đúng quy tắc nghiêm khắc ở trên.`,
-        temperature: 0,
-        maxOutputTokens: 300,
-        jsonMode: true,
-        ...metadata,
-      });
-
-      const verified = parseStrictVerifierJson(verifierRaw);
-      if (verified) {
-        const awarded = Number((maxPoints * verified.scorePercent / 100).toFixed(2));
-        return {
-          ...currentResult,
-          awarded,
-          isCorrect: Boolean(verified.isCorrect),
-          feedback: verified.feedback || currentResult.feedback || '',
-          gradedByAi: true,
-        };
-      }
-    } catch {
-      // fallback bên dưới
-    }
-  }
-
-  // Fallback an toàn: nếu AI ban đầu tự nhận có lỗi thì cấm full điểm.
-  let awarded = Math.max(0, Math.min(maxPoints, Number(currentResult?.awarded || 0)));
-  let isCorrect = Boolean(currentResult?.isCorrect);
-  if (feedbackMentionsError(currentResult?.feedback)) {
-    awarded = Math.min(awarded, Number((maxPoints * 0.7).toFixed(2)));
-    isCorrect = false;
-  }
-  if (!isCorrect && awarded >= maxPoints) {
-    awarded = Number((maxPoints * 0.7).toFixed(2));
-  }
-
-  return {
-    ...currentResult,
-    awarded,
-    isCorrect,
-  };
-}
-
 function shouldStrictCheckEssay(question) {
   const reference = String(question.correct_answer || '').trim();
   if (!reference) return false;
@@ -1292,59 +1176,116 @@ function capEssayScoreAgainstReference(question, answer, result) {
   };
 }
 
-async function mapWithConcurrency(items, limit, mapper) {
-  const list = Array.isArray(items) ? items : [];
-  if (!list.length) return [];
+function chunkEssayJobs(items, maxItems, maxInputChars = 9000) {
+  const output = [];
+  let current = [];
+  let currentChars = 0;
 
-  const concurrency = Math.max(1, Math.min(Number(limit) || 1, list.length));
-  const output = new Array(list.length);
-  let nextIndex = 0;
-
-  async function worker() {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= list.length) return;
-      output[index] = await mapper(list[index], index);
+  for (const item of items) {
+    const estimatedChars = String(item?.question?.prompt || '').length
+      + String(item?.question?.correct_answer || '').length
+      + String(item?.answer || '').length
+      + 180;
+    const wouldOverflow = current.length && (current.length >= maxItems || currentChars + estimatedChars > maxInputChars);
+    if (wouldOverflow) {
+      output.push(current);
+      current = [];
+      currentChars = 0;
     }
+    current.push(item);
+    currentChars += estimatedChars;
   }
-
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  if (current.length) output.push(current);
   return output;
+}
+
+function buildLocalAssignmentSummary(results, weakTopics) {
+  if (!results.length) return 'Chưa có câu trả lời để nhận xét.';
+  const wrong = results.filter((item) => !item.isCorrect);
+  if (!wrong.length) return 'Bài làm rất tốt. Các câu đều đạt yêu cầu; hãy tiếp tục duy trì cách học hiện tại.';
+
+  const topicText = weakTopics.length ? `Cần ôn thêm: ${weakTopics.join(', ')}.` : 'Một vài câu vẫn cần xem lại.';
+  const usefulFeedback = wrong
+    .map((item) => String(item.feedback || '').trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' ');
+  return `${topicText}${usefulFeedback ? ` ${usefulFeedback}` : ''}`.slice(0, 900);
 }
 
 async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
   const useAi = await aiEnabled();
-  // 4 câu/lượt mặc định (ENV có thể chỉnh 3-5). Mỗi câu vẫn chấm tuần tự bên trong
-  // nếu cần hậu kiểm, nên tối đa chỉ có `aiGradingConcurrency` câu AI chạy cùng lúc.
-  const results = await mapWithConcurrency(questions, config.aiGradingConcurrency, async (question) => {
+  const resultByQuestionId = new Map();
+  const essayJobs = [];
+
+  // Các dạng có đáp án xác định được chấm local, không tiêu tốn Gemini request.
+  for (const question of questions) {
     const answer = String(answers[String(question.id)] ?? '');
     let result;
-    if (question.type === 'ESSAY') {
-      if (useAi) {
-        try {
-          result = await gradeEssayWithAI({ prompt: question.prompt, referenceAnswer: question.correct_answer, answer, maxPoints: Number(question.points), ...metadata });
-        } catch {
-          result = gradeEssayFallback(question, answer);
-          result.feedback += ' AI tạm thời không phản hồi nên hệ thống dùng chấm dự phòng.';
-        }
-      } else result = gradeEssayFallback(question, answer);
 
-      // ESSAY trong app hiện cũng được dùng cho câu dịch/câu ngắn có đáp án mẫu.
-      // Hậu kiểm cứng để AI không thể cho 100% khi vẫn còn lỗi.
-      result = await strictVerifyEssayAnswer(question, answer, result, metadata);
+    if (question.type === 'ESSAY') {
+      // Luôn có fallback trước. Nếu AI batch lỗi, học sinh vẫn nhận được kết quả thay vì treo cả bài.
+      result = gradeEssayFallback(question, answer);
+      if (useAi && answer.trim()) {
+        essayJobs.push({ question, answer });
+      }
     } else if (question.type === 'SHORT_TEXT') {
       result = gradeShortTextStrict(question, answer);
     } else {
       result = gradeObjective(question, answer);
     }
-    return {
+
+    resultByQuestionId.set(Number(question.id), {
       questionId: Number(question.id), topic: question.topic, points: Number(question.points), answer,
       referenceAnswer: question.correct_answer || '', awarded: Number(result.awarded), isCorrect: Boolean(result.isCorrect),
       feedback: result.feedback || '', gradedByAi: Boolean(result.gradedByAi),
-    };
-  });
+    });
+  }
 
+  // PHƯƠNG ÁN 2: tối đa 5 câu tự luận = 1 Gemini request.
+  // Ví dụ 12 câu tự luận => 3 request (5 + 5 + 2), thay vì 12-24 request như trước.
+  for (const batch of chunkEssayJobs(essayJobs, config.aiGradingBatchSize)) {
+    try {
+      const aiRows = await gradeEssayBatchWithAI({
+        items: batch.map(({ question, answer }) => ({
+          questionId: Number(question.id),
+          prompt: question.prompt,
+          referenceAnswer: question.correct_answer,
+          answer,
+          maxPoints: Number(question.points),
+        })),
+        ...metadata,
+        route: `${metadata.route || 'assignment-check'}-batch`,
+      });
+
+      const aiById = new Map(aiRows.filter(Boolean).map((row) => [Number(row.questionId), row]));
+      for (const { question, answer } of batch) {
+        const current = resultByQuestionId.get(Number(question.id));
+        const aiResult = aiById.get(Number(question.id));
+        if (!aiResult) {
+          current.feedback = `${current.feedback || ''} AI chưa trả đủ dữ liệu cho câu này nên hệ thống dùng chấm dự phòng.`.trim();
+          continue;
+        }
+
+        // Với câu ngắn có đáp án mẫu, rule local là lớp bảo vệ cuối để AI không cho 100% khi sai ký tự/trợ từ.
+        const checked = capEssayScoreAgainstReference(question, answer, aiResult);
+        resultByQuestionId.set(Number(question.id), {
+          ...current,
+          awarded: Number(checked.awarded),
+          isCorrect: Boolean(checked.isCorrect),
+          feedback: checked.feedback || current.feedback || '',
+          gradedByAi: true,
+        });
+      }
+    } catch {
+      for (const { question } of batch) {
+        const current = resultByQuestionId.get(Number(question.id));
+        current.feedback = `${current.feedback || ''} AI tạm thời không phản hồi nên hệ thống dùng chấm dự phòng.`.trim();
+      }
+    }
+  }
+
+  const results = questions.map((question) => resultByQuestionId.get(Number(question.id)));
   const maxScore = results.reduce((sum, item) => sum + item.points, 0);
   const score = results.reduce((sum, item) => sum + item.awarded, 0);
   const percentage = maxScore ? Number(((score / maxScore) * 100).toFixed(2)) : 0;
@@ -1354,22 +1295,10 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
     current.points += item.awarded; current.max += item.points; topicRows.set(item.topic, current);
   }
   const weakTopics = [...topicRows.entries()].filter(([, data]) => data.max && data.points / data.max < 0.7).map(([topic]) => topic);
-  let summary = weakTopics.length ? `Cần ôn thêm: ${weakTopics.join(', ')}.` : 'Làm khá ổn. Hãy duy trì ôn tập đều.';
-  let aiSummaryUsed = false;
-  if (useAi) {
-    try {
-      const compact = results.map((item) => ({ topic: item.topic, correct: item.isCorrect, score: item.awarded, max: item.points, feedback: item.feedback }));
-      const aiSummary = await generateTextWithAI({
-        systemPrompt: 'Bạn là giáo viên tiếng Hàn chấm bài NGHIÊM KHẮC nhưng giải thích rõ ràng. Tuyệt đối KHÔNG tự tính lại hoặc nâng điểm. score/max/correct là kết quả chính thức. correct=false thì phải nói câu đó chưa đúng. Sai 1 ký tự Hangul, sai chính tả, sai trợ từ, sai đuôi câu hoặc sai chia động từ đều phải nêu rõ; không được khen là hoàn toàn đúng chỉ vì vẫn hiểu được ý. Chỉ khi correct=true và score=max mới được nói đạt điểm tối đa. Nhận xét bằng tiếng Việt, 3-4 câu ngắn, không dùng markdown.',
-        prompt: `Kết quả bài làm: ${JSON.stringify(compact)}`,
-        temperature: 0.25,
-        maxOutputTokens: 400,
-        ...metadata,
-      });
-      if (aiSummary.trim()) { summary = aiSummary.trim(); aiSummaryUsed = true; }
-    } catch { /* giữ nhận xét dự phòng */ }
-  }
-  return { results, score, maxScore, percentage, weakTopics, summary, aiUsed: aiSummaryUsed || results.some((item) => item.gradedByAi) };
+
+  // Không gọi Gemini thêm một lượt chỉ để viết summary: tiết kiệm request cho lớp đông.
+  const summary = buildLocalAssignmentSummary(results, weakTopics);
+  return { results, score, maxScore, percentage, weakTopics, summary, aiUsed: results.some((item) => item.gradedByAi) };
 }
 
 async function createFinalSubmission({ assignment, studentId, grade, attemptId = null }) {

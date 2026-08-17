@@ -251,7 +251,7 @@ export default function AdminSettingsPage() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(135px, 1fr))', gap: 10, marginBottom: 12 }}>
           {[
-            ['Requests AI', Number(monitoring.totals.requests || 0).toLocaleString('vi-VN')],
+            ['Lượt gọi Gemini', Number(monitoring.totals.requests || 0).toLocaleString('vi-VN')],
             ['Thành công', Number(monitoring.totals.successCount || 0).toLocaleString('vi-VN')],
             ['429 / rate limit', Number(monitoring.totals.rateLimitedCount || 0).toLocaleString('vi-VN')],
             ['503 / unavailable', Number(monitoring.totals.unavailableCount || 0).toLocaleString('vi-VN')],
