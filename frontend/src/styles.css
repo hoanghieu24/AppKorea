@@ -937,3 +937,6 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
   .ai-checking-float { right: 14px; bottom: 150px; width: calc(100vw - 28px); padding: 14px; }
   .ai-checking-steps span { font-size: .54rem; }
 }
+
+/* 2.3.5 — Batch grading proof */
+.ai-batch-proof{display:flex;align-items:center;gap:8px;margin:10px 0 14px;padding:9px 12px;border:1px solid #ddd8ff;background:#f7f5ff;border-radius:12px;color:#5b55a8;font-size:13px}.ai-batch-proof svg{color:#6656e8;flex:0 0 auto}.ai-batch-proof strong{color:#332d78}

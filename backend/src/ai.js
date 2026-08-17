@@ -101,6 +101,7 @@ export async function generateTextWithAI(
     jsonMode = false,
     userId = null,
     route = 'internal',
+    telemetry = null,
   },
   overrides = {},
 ) {
@@ -147,6 +148,11 @@ export async function generateTextWithAI(
   for (const keyInfo of available) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(keyInfo.apiKey)}`;
     const started = Date.now();
+    if (telemetry && typeof telemetry === 'object') {
+      telemetry.providerAttempts = Math.max(0, Number(telemetry.providerAttempts) || 0) + 1;
+      telemetry.attemptedKeyIds = Array.isArray(telemetry.attemptedKeyIds) ? telemetry.attemptedKeyIds : [];
+      telemetry.attemptedKeyIds.push(keyInfo.id ?? null);
+    }
     try {
       const response = await fetchWithTimeout(endpoint, {
         method: 'POST',
@@ -255,10 +261,10 @@ export async function gradeEssayBatchWithAI({ items, userId = null, route = 'ass
     answer: String(item.answer || '').slice(0, 3000),
     maxPoints: Math.max(0, Number(item.maxPoints) || 0),
   }));
-  if (!batch.length) return [];
+  if (!batch.length) return { results: [], providerAttempts: 0 };
 
   const systemPrompt = `Bạn là giáo viên tiếng Hàn chấm bài cho học sinh Việt Nam.
-Bạn nhận TỐI ĐA 5 câu trong một lần gọi và phải chấm TỪNG CÂU độc lập.
+Bạn nhận TỐI ĐA 5 câu trong MỘT request Gemini và phải chấm TỪNG CÂU độc lập.
 QUY TẮC BẮT BUỘC:
 1. Không trộn đáp án, điểm hay nhận xét giữa các câu. questionId phải giữ nguyên.
 2. Nếu có đáp án tham khảo ngắn, ưu tiên độ chính xác về nghĩa, Hangul, từ vựng, trợ từ, đuôi câu và chia động từ.
@@ -266,24 +272,29 @@ QUY TẮC BẮT BUỘC:
 4. Bỏ trống hoặc lạc đề phải 0 điểm.
 5. Sai thì feedback bằng tiếng Việt phải nói rõ sai ở đâu và gợi ý cách sửa. Đúng thì nhận xét ngắn gọn.
 6. scoreRatio là số từ 0 đến 1. isCorrect=true chỉ khi câu trả lời đạt yêu cầu đầy đủ.
-7. Chỉ trả JSON thuần đúng schema, không markdown, không thêm chữ bên ngoài:
+7. Phải trả đủ đúng ${batch.length} phần tử, một phần tử cho mỗi questionId đầu vào.
+8. Chỉ trả JSON thuần đúng schema, không markdown, không thêm chữ bên ngoài:
 {"results":[{"questionId":1,"scoreRatio":1,"isCorrect":true,"feedback":"..."}]}`;
 
+  // telemetry chỉ đếm request HTTP thật sự tới Gemini. Bình thường 1 batch = 1 providerAttempt.
+  // Nếu key đầu bị 429/503 rồi failover sang key dự phòng thì providerAttempts có thể > 1.
+  const telemetry = { providerAttempts: 0, attemptedKeyIds: [] };
   const raw = await generateTextWithAI({
     systemPrompt,
-    prompt: `Hãy chấm ${batch.length} câu sau trong MỘT lần xử lý:\n${JSON.stringify(batch)}`,
+    prompt: `Hãy chấm ${batch.length} câu sau trong MỘT request Gemini duy nhất:\n${JSON.stringify(batch)}`,
     temperature: 0,
     maxOutputTokens: Math.min(2600, 500 + batch.length * 380),
     jsonMode: true,
     userId,
     route,
+    telemetry,
   });
 
   const parsed = extractJson(raw);
   const rows = Array.isArray(parsed?.results) ? parsed.results : [];
   const byId = new Map(rows.map((row) => [Number(row?.questionId), row]));
 
-  return batch.map((item) => {
+  const results = batch.map((item) => {
     const row = byId.get(item.questionId);
     if (!row) return null;
     const ratioRaw = Number(row.scoreRatio);
@@ -297,6 +308,11 @@ QUY TẮC BẮT BUỘC:
       gradedByAi: true,
     };
   });
+
+  return {
+    results,
+    providerAttempts: Math.max(0, Number(telemetry.providerAttempts) || 0),
+  };
 }
 
 

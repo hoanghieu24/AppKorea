@@ -1217,6 +1217,7 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
   const useAi = await aiEnabled();
   const resultByQuestionId = new Map();
   const essayJobs = [];
+  const aiStats = { essayQuestions: 0, batches: 0, providerCalls: 0 };
 
   // Các dạng có đáp án xác định được chấm local, không tiêu tốn Gemini request.
   for (const question of questions) {
@@ -1242,11 +1243,14 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
     });
   }
 
+  aiStats.essayQuestions = essayJobs.length;
+
   // PHƯƠNG ÁN 2: tối đa 5 câu tự luận = 1 Gemini request.
   // Ví dụ 12 câu tự luận => 3 request (5 + 5 + 2), thay vì 12-24 request như trước.
   for (const batch of chunkEssayJobs(essayJobs, config.aiGradingBatchSize)) {
     try {
-      const aiRows = await gradeEssayBatchWithAI({
+      aiStats.batches += 1;
+      const batchResult = await gradeEssayBatchWithAI({
         items: batch.map(({ question, answer }) => ({
           questionId: Number(question.id),
           prompt: question.prompt,
@@ -1257,6 +1261,8 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
         ...metadata,
         route: `${metadata.route || 'assignment-check'}-batch`,
       });
+      aiStats.providerCalls += Math.max(0, Number(batchResult?.providerAttempts) || 0);
+      const aiRows = Array.isArray(batchResult?.results) ? batchResult.results : [];
 
       const aiById = new Map(aiRows.filter(Boolean).map((row) => [Number(row.questionId), row]));
       for (const { question, answer } of batch) {
@@ -1298,7 +1304,7 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
 
   // Không gọi Gemini thêm một lượt chỉ để viết summary: tiết kiệm request cho lớp đông.
   const summary = buildLocalAssignmentSummary(results, weakTopics);
-  return { results, score, maxScore, percentage, weakTopics, summary, aiUsed: results.some((item) => item.gradedByAi) };
+  return { results, score, maxScore, percentage, weakTopics, summary, aiUsed: results.some((item) => item.gradedByAi), aiStats };
 }
 
 async function createFinalSubmission({ assignment, studentId, grade, attemptId = null }) {
