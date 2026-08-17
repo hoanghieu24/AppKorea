@@ -540,6 +540,23 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .student-ai-overview > div { display: grid; gap: 3px; }
 .student-ai-overview strong { color: #4338ca; font-size: .78rem; }
 .student-ai-overview p { margin: 0; color: #4b475f; font-size: .78rem; line-height: 1.55; }
+.latest-attempt-detail { margin-top: 9px; border: 1px solid var(--line); border-radius: 11px; background: #fff; overflow: hidden; }
+.latest-attempt-detail > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 11px; background: #faf9fc; color: #4b475f; font-size: .76rem; font-weight: 750; }
+.latest-attempt-detail > summary::-webkit-details-marker { display: none; }
+.latest-attempt-detail > summary b { color: var(--purple); }
+.latest-attempt-detail > article { display: grid; gap: 9px; padding: 10px 11px 12px; border-top: 1px solid var(--line); }
+.latest-attempt-detail > article > small { color: var(--muted); font-size: .68rem; }
+.latest-attempt-results { display: grid; gap: 8px; }
+.latest-attempt-question { border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; background: #fff; }
+.latest-attempt-question.correct { border-left: 3px solid #2ca879; }
+.latest-attempt-question.wrong { border-left: 3px solid #d6606b; }
+.latest-attempt-question-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.latest-attempt-question-head strong { font-size: .76rem; }
+.latest-attempt-question-head span { color: var(--muted); font-size: .7rem; font-weight: 700; }
+.latest-question-prompt { margin: 6px 0 0; color: #484557; font-size: .75rem; line-height: 1.5; font-weight: 650; }
+.latest-answer-box { display: grid; gap: 4px; margin-top: 7px; padding: 8px 9px; border-radius: 8px; background: #f8f8fb; }
+.latest-answer-box p { margin: 0; color: #5f5b6d; font-size: .72rem; line-height: 1.5; }
+.latest-answer-box b { color: #403c50; }
 
 /* Toast for completed actions */
 .app-toast { position: fixed; right: 20px; top: 20px; z-index: 200; width: min(390px, calc(100vw - 32px)); min-height: 50px; display: flex; align-items: center; gap: 9px; padding: 11px 12px; border: 1px solid #cceedd; border-radius: 13px; color: #236c50; background: rgba(242,255,249,.98); box-shadow: 0 14px 38px rgba(32,70,55,.15); animation: toast-in .2s ease-out; }
@@ -925,3 +942,21 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
   .ai-checking-steps span { font-size: .54rem; }
 }
 
+
+/* 2.3.9 - Admin presence tracking */
+.presence-toolbar-stats { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.presence-toolbar-stats strong { color: #168258; }
+.presence-live-dot, .presence-dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: #b8b4c4; flex: 0 0 auto; }
+.presence-live-dot { background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,.10); animation: presencePulse 1.8s ease-in-out infinite; }
+.presence-table { min-width: 980px; }
+.presence-state { display: flex; align-items: center; gap: 8px; min-width: 132px; }
+.presence-state > span:last-child { display: grid; gap: 2px; }
+.presence-state strong { font-size: .7rem; }
+.presence-state small { color: var(--muted); font-size: .59rem; white-space: nowrap; }
+.presence-state.online .presence-dot { background: #22c55e; box-shadow: 0 0 0 4px rgba(34,197,94,.10); }
+.presence-state.online strong { color: #168258; }
+.presence-state.offline .presence-dot { background: #b8b4c4; }
+.presence-date { color: #565267; font-size: .68rem; white-space: nowrap; }
+.login-count-badge { display: inline-flex; align-items: center; padding: 5px 8px; border-radius: 999px; background: #f3f0ff; color: #6556e8; font-size: .64rem; font-weight: 800; white-space: nowrap; }
+@keyframes presencePulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.82); opacity: .62; } }
+@media (max-width: 720px) { .presence-toolbar-stats { font-size: .64rem; } }

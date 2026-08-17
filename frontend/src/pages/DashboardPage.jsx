@@ -27,6 +27,7 @@ function AdminDashboard({ user }) {
 
   const teachers = users.filter((item) => item.role === 'TEACHER');
   const students = users.filter((item) => item.role === 'STUDENT');
+  const onlineUsers = users.filter((item) => item.isOnline);
   const createUser = async (event) => {
     event.preventDefault();
     try {
@@ -56,7 +57,8 @@ function AdminDashboard({ user }) {
     {message && <div className="notice">{message}</div>}
     <div className="stats-grid">
       <StatCard label="Lớp đang có" value={classes.length} note="Do admin quản lý" icon={School} />
-      <StatCard label="Giáo viên" value={teachers.length} note="Tài khoản hoạt động" tone="green" icon={GraduationCap} />
+      <StatCard label="Đang online" value={onlineUsers.length} note="Cập nhật theo hoạt động gần nhất" tone="green" icon={Users} />
+      <StatCard label="Giáo viên" value={teachers.length} note="Tài khoản hoạt động" icon={GraduationCap} />
       <StatCard label="Học sinh" value={students.length} note="Trên toàn hệ thống" tone="orange" icon={Users} />
     </div>
     <div className="two-col admin-grid">

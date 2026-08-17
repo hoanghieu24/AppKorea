@@ -44,6 +44,9 @@ ok(app.includes("SELECT DISTINCT cs.student_id") && app.includes("ct.teacher_id 
 ok(app.includes('Bạn không có quyền gửi thông báo cho lớp này.'), 'Thiếu ownership check khi Teacher gửi thông báo theo classId.');
 ok(app.includes('Bạn không có quyền dùng AI với dữ liệu bài này.'), 'Teacher AI context thiếu ownership check chống IDOR.');
 ok(app.includes('loginIpRateLimiter, loginRateLimiter'), 'Login chưa có rate limit chống spray + giới hạn theo tài khoản.');
+ok(schema.includes('CREATE TABLE IF NOT EXISTS user_presence'), 'Thiếu bảng user_presence cho trạng thái online.');
+ok(app.includes("app.post('/api/auth/heartbeat', requireAuth"), 'Thiếu heartbeat presence có auth.');
+ok(app.includes('presenceSummary()') && app.includes('presenceSelectSql'), 'Admin users chưa trả presence summary/trạng thái online.');
 
 const config = await text('backend/src/config.js');
 ok(config.includes('validateProductionConfig'), 'Thiếu production ENV validation.');
@@ -53,6 +56,10 @@ ok(config.includes('DB_QUEUE_LIMIT'), 'DB queue chưa có giới hạn cấu hì
 const frontendApi = await text('frontend/src/api.js');
 ok(!/localStorage\.setItem\([^\n]*token/i.test(frontendApi), 'Frontend đang persist token trực tiếp vào localStorage.');
 ok(frontendApi.includes("credentials: 'include'"), 'Frontend fetch chưa gửi HttpOnly session cookie.');
+const shell = await text('frontend/src/components/Shell.jsx');
+ok(shell.includes("api('/auth/heartbeat'") && shell.includes('60_000'), 'Frontend chưa gửi heartbeat 60 giây.');
+const adminManagement = await text('frontend/src/pages/AdminManagementPage.jsx');
+ok(adminManagement.includes('Đăng nhập gần nhất') && adminManagement.includes('Số lần đăng nhập'), 'Admin chưa hiển thị lịch sử đăng nhập/presence.');
 
 const legacy = await text('frontend/public/legacy/app.js');
 const legacyHtml = await text('frontend/public/legacy/index.html');

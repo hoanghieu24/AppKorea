@@ -41,6 +41,22 @@ export default function Shell({ user, onLogout, children }) {
     return () => { clearTimeout(timer); window.removeEventListener('app-toast', handler); };
   }, []);
   useEffect(() => { localStorage.setItem('hanquoc_classroom_sidebar_collapsed', sidebarCollapsed ? '1' : '0'); }, [sidebarCollapsed]);
+  useEffect(() => {
+    let disposed = false;
+    const heartbeat = () => {
+      if (disposed || document.visibilityState === 'hidden') return;
+      api('/auth/heartbeat', { method: 'POST', toast: false }).catch(() => {});
+    };
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 60_000);
+    const onVisibility = () => { if (document.visibilityState === 'visible') heartbeat(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [user.id]);
   const navItems = useMemo(() => {
     const items = [{ to: '/', label: 'Tổng quan', icon: Home }];
     if (user.role !== 'ADMIN') items.push({ to: '/learning', label: 'Phòng tự học', icon: BrainCircuit });

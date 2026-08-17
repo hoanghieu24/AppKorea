@@ -1,10 +1,13 @@
 import app from './app.js';
 import { config } from './config.js';
-import { closePool, ensureSchema } from './db.js';
+import { closePool } from './db.js';
+import { ensurePresenceSchema } from './presence.js';
+
+await ensurePresenceSchema();
+console.log('[DB] User presence schema ready.');
 
 const server = app.listen(config.port, () => {
   console.log(`HanQuoc Classroom API listening on port ${config.port} (${config.nodeEnv}).`);
-  ensureSchema().catch(() => {});
 });
 
 server.keepAliveTimeout = 65_000;

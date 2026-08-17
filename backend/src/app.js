@@ -11,6 +11,7 @@ import { gradeEssayFallback, gradeObjective } from './grading.js';
 import { ensureTextbookCatalog, getTextbookLessons, getTextbookVocabulary } from './textbook.js';
 import { createConcurrencyGuard, createRateLimiter } from './rateLimit.js';
 import { recordSystemError, requestContextMiddleware, sanitizeLogText } from './monitoring.js';
+import { markLogin, markLogout, markSeen, presenceOrderSql, presenceSelectSql, presenceSummary } from './presence.js';
 
 const app = express();
 
@@ -113,7 +114,12 @@ function paginationLimitSql(pagination) {
 }
 
 function userDto(row) {
-  return { id: row.id, email: row.email, fullName: row.full_name, role: row.role, active: Boolean(row.active) };
+  const dto = { id: row.id, email: row.email, fullName: row.full_name, role: row.role, active: Boolean(row.active) };
+  if (Object.prototype.hasOwnProperty.call(row, 'is_online')) dto.isOnline = Boolean(row.is_online);
+  if (Object.prototype.hasOwnProperty.call(row, 'last_login_at')) dto.lastLoginAt = row.last_login_at || null;
+  if (Object.prototype.hasOwnProperty.call(row, 'last_seen_at')) dto.lastSeenAt = row.last_seen_at || null;
+  if (Object.prototype.hasOwnProperty.call(row, 'login_count')) dto.loginCount = Number(row.login_count || 0);
+  return dto;
 }
 
 async function teacherOwnsClass(teacherId, classId) {
@@ -152,6 +158,7 @@ app.get('/api/health', async (_req, res) => {
       query('SELECT 1 FROM ai_api_keys LIMIT 0', [], { timeout: healthTimeout }),
       query('SELECT 1 FROM ai_usage_events LIMIT 0', [], { timeout: healthTimeout }),
       query('SELECT 1 FROM system_error_logs LIMIT 0', [], { timeout: healthTimeout }),
+      query('SELECT 1 FROM user_presence LIMIT 0', [], { timeout: healthTimeout }),
     ]);
     res.setHeader('Cache-Control', 'no-store');
     res.json({
@@ -184,6 +191,7 @@ app.post('/api/auth/login', loginIpRateLimiter, loginRateLimiter, async (req, re
     return res.status(401).json({ message: 'Email hoặc mật khẩu không đúng.' });
   }
   await issueRefreshToken(user.id, req, res);
+  await markLogin(user.id).catch((error) => console.warn('[presence] markLogin failed:', error?.message || error));
   res.setHeader('Cache-Control', 'no-store');
   res.json({ token: signToken(user), user: userDto(user) });
 });
@@ -191,12 +199,14 @@ app.post('/api/auth/login', loginIpRateLimiter, loginRateLimiter, async (req, re
 app.post('/api/auth/refresh', refreshRateLimiter, async (req, res) => {
   const user = await rotateRefreshToken(req, res);
   if (!user) return res.status(401).json({ message: 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.' });
+  await markSeen(user.id).catch((error) => console.warn('[presence] markSeen on refresh failed:', error?.message || error));
   res.setHeader('Cache-Control', 'no-store');
   return res.json({ token: signToken(user), user: userDto(user) });
 });
 
-app.post('/api/auth/logout', async (req, res) => {
+app.post('/api/auth/logout', requireAuth, async (req, res) => {
   await revokeRefreshToken(req, res);
+  await markLogout(req.user.id).catch((error) => console.warn('[presence] markLogout failed:', error?.message || error));
   res.setHeader('Cache-Control', 'no-store');
   return res.json({ message: 'Đã đăng xuất.' });
 });
@@ -204,6 +214,7 @@ app.post('/api/auth/logout', async (req, res) => {
 app.post('/api/auth/session', requireAuth, async (req, res) => {
   // Endpoint chuyển phiên bản cũ (JWT từng lưu localStorage) sang refresh cookie HttpOnly.
   await issueRefreshToken(req.user.id, req, res);
+  await markSeen(req.user.id).catch((error) => console.warn('[presence] markSeen on session failed:', error?.message || error));
   res.setHeader('Cache-Control', 'no-store');
   return res.json({ token: signToken(req.user), user: userDto(req.user) });
 });
@@ -211,6 +222,12 @@ app.post('/api/auth/session', requireAuth, async (req, res) => {
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ user: userDto(req.user) });
+});
+
+app.post('/api/auth/heartbeat', requireAuth, async (req, res) => {
+  await markSeen(req.user.id);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(204).end();
 });
 
 app.get('/api/classes', requireAuth, async (req, res) => {
@@ -345,18 +362,21 @@ app.get('/api/admin/users', requireAuth, requireRole('ADMIN'), async (req, res) 
   const keyword = String(req.query.q || '').trim().slice(0, 120);
   const conditions = [];
   const params = [];
-  if (role) { conditions.push('role = ?'); params.push(role); }
-  if (keyword) { conditions.push('(full_name LIKE ? OR email LIKE ?)'); params.push(`%${keyword}%`, `%${keyword}%`); }
+  if (role) { conditions.push('u.role = ?'); params.push(role); }
+  if (keyword) { conditions.push('(u.full_name LIKE ? OR u.email LIKE ?)'); params.push(`%${keyword}%`, `%${keyword}%`); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const pagination = req.query.all === '1' ? null : getPagination(req, 10);
+  const select = `SELECT u.id, u.email, u.full_name, u.role, u.active, ${presenceSelectSql}
+                  FROM users u LEFT JOIN user_presence p ON p.user_id = u.id`;
+  const [summary] = await Promise.all([presenceSummary()]);
   let rows;
   if (pagination) {
-    const totals = await query(`SELECT COUNT(*) total FROM users ${where}`, params);
-    rows = await query(`SELECT id, email, full_name, role, active FROM users ${where} ORDER BY role, full_name${paginationLimitSql(pagination)}`, params);
-    return res.json({ users: rows.map(userDto), pagination: paginationMeta(totals[0]?.total, pagination) });
+    const totals = await query(`SELECT COUNT(*) total FROM users u ${where}`, params);
+    rows = await query(`${select} ${where} ORDER BY ${presenceOrderSql}${paginationLimitSql(pagination)}`, params);
+    return res.json({ users: rows.map(userDto), pagination: paginationMeta(totals[0]?.total, pagination), presence: summary });
   }
-  rows = await query(`SELECT id, email, full_name, role, active FROM users ${where} ORDER BY role, full_name`, params);
-  res.json({ users: rows.map(userDto), pagination: null });
+  rows = await query(`${select} ${where} ORDER BY ${presenceOrderSql}`, params);
+  res.json({ users: rows.map(userDto), pagination: null, presence: summary });
 });
 
 app.post('/api/admin/users', requireAuth, requireRole('ADMIN'), async (req, res) => {
@@ -1417,12 +1437,38 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
     WHERE cs.class_id = ? ORDER BY u.full_name${limitSql}`, studentParams);
   const studentIds = students.map((student) => student.id);
   const attemptCountByStudent = new Map();
+  const latestAttemptByStudent = new Map();
   if (studentIds.length) {
     const placeholders = studentIds.map(() => '?').join(',');
     const attemptCounts = await query(`SELECT student_id studentId, COUNT(*) attemptCount
       FROM assignment_attempts WHERE assignment_id = ? AND student_id IN (${placeholders})
       GROUP BY student_id`, [assignmentId, ...studentIds]);
     for (const row of attemptCounts) attemptCountByStudent.set(Number(row.studentId), Number(row.attemptCount || 0));
+
+    // Chỉ lấy lần Check AI gần nhất của mỗi học sinh. Giáo viên vẫn xem được
+    // chi tiết câu trả lời cuối cùng nhưng API không trả toàn bộ lịch sử attempt nữa.
+    const latestAttempts = await query(`SELECT aa.id, aa.student_id studentId, aa.attempt_no attemptNo, aa.score,
+      aa.max_score maxScore, aa.percentage, aa.result_json resultJson, aa.ai_summary summary,
+      aa.ai_used aiUsed, aa.submission_id submissionId, aa.created_at createdAt, aa.submitted_at submittedAt
+      FROM assignment_attempts aa
+      INNER JOIN (
+        SELECT student_id, MAX(attempt_no) maxAttemptNo
+        FROM assignment_attempts
+        WHERE assignment_id = ? AND student_id IN (${placeholders})
+        GROUP BY student_id
+      ) latest ON latest.student_id = aa.student_id AND latest.maxAttemptNo = aa.attempt_no
+      WHERE aa.assignment_id = ?`, [assignmentId, ...studentIds, assignmentId]);
+
+    for (const attempt of latestAttempts) {
+      const results = typeof attempt.resultJson === 'string' ? JSON.parse(attempt.resultJson) : attempt.resultJson || [];
+      const { resultJson: _hiddenResultJson, ...safeAttempt } = attempt;
+      latestAttemptByStudent.set(Number(attempt.studentId), {
+        ...safeAttempt,
+        results,
+        aiUsed: Boolean(attempt.aiUsed),
+        submitted: Boolean(attempt.submissionId),
+      });
+    }
   }
   let stats = [];
   if (studentIds.length) {
@@ -1446,6 +1492,7 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
       ...student,
       submitted: Boolean(student.submissionId),
       attemptCount: attemptCountByStudent.get(Number(student.id)) || 0,
+      latestAttempt: latestAttemptByStudent.get(Number(student.id)) || null,
       weakTopics: weakByStudent.get(student.id) || weakByStudent.get(Number(student.id)) || [],
     })),
   });

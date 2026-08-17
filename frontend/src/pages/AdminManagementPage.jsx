@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { GraduationCap, Pencil, Plus, RotateCcw, Save, School, Search, Trash2, UserMinus, UserPlus, Users, X } from 'lucide-react';
-import { api, roleLabel } from '../api.js';
+import { api, formatDate, roleLabel } from '../api.js';
 import { Empty, PageHeader, Pagination } from '../components/Shell.jsx';
 
 const emptyUser = (role = 'STUDENT') => ({ fullName: '', email: '', password: '', role, active: true });
@@ -22,25 +22,39 @@ function UserManagement({ fixedRole, currentUser }) {
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState(null);
   const [listLoading, setListLoading] = useState(false);
+  const [presence, setPresence] = useState({ onlineTotal: 0, onlineStudents: 0, onlineTeachers: 0, onlineAdmins: 0 });
 
-  const load = async (targetPage = page, search = queryText) => {
-    setListLoading(true);
+  const load = async (targetPage = page, search = queryText, { silent = false } = {}) => {
+    if (!silent) setListLoading(true);
     const params = new URLSearchParams({ page: String(targetPage), pageSize: '10' });
     if (fixedRole) params.set('role', fixedRole);
     if (search.trim()) params.set('q', search.trim());
     try {
-      const data = await api(`/admin/users?${params.toString()}`);
+      const data = await api(`/admin/users?${params.toString()}`, { toast: false });
       setUsers(data.users || []); setPagination(data.pagination);
-    } finally { setListLoading(false); }
+      if (data.presence) setPresence(data.presence);
+    } finally { if (!silent) setListLoading(false); }
   };
   useEffect(() => {
     const timer = window.setTimeout(() => load(page, queryText), queryText ? 220 : 0);
     return () => window.clearTimeout(timer);
   }, [fixedRole, page, queryText]);
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') load(page, queryText, { silent: true }).catch(() => {});
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [fixedRole, page, queryText]);
 
   const title = fixedRole === 'STUDENT' ? 'Quản lý học sinh' : fixedRole === 'TEACHER' ? 'Quản lý giáo viên' : 'Quản lý người dùng';
   const eyebrow = fixedRole === 'STUDENT' ? 'ADMIN · HỌC SINH' : fixedRole === 'TEACHER' ? 'ADMIN · GIÁO VIÊN' : 'ADMIN · NGƯỜI DÙNG';
   const visible = users;
+  const onlineCount = fixedRole === 'STUDENT' ? presence.onlineStudents : fixedRole === 'TEACHER' ? presence.onlineTeachers : presence.onlineTotal;
+  const lastAccessText = (item) => {
+    if (item.isOnline) return 'Đang sử dụng';
+    if (item.lastSeenAt) return `Hoạt động cuối ${formatDate(item.lastSeenAt)}`;
+    return 'Chưa có hoạt động';
+  };
 
   const openCreate = () => {
     setEditingId(null); setForm(emptyUser(fixedRole || 'STUDENT')); setShowForm(true);
@@ -78,7 +92,7 @@ function UserManagement({ fixedRole, currentUser }) {
     <PageHeader eyebrow={eyebrow} title={title} subtitle="Tạo, xem, sửa, khóa/khôi phục tài khoản. Dữ liệu học tập cũ luôn được bảo toàn." action={<button className="btn primary" onClick={openCreate}><Plus size={17} /> Thêm mới</button>} />
     <div className="management-toolbar">
       <label className="management-search"><Search size={17} /><input value={queryText} onChange={(e) => { setQueryText(e.target.value); setPage(1); }} placeholder="Tìm theo tên, email..." /></label>
-      <span>{pagination?.total ?? visible.length} tài khoản</span>
+      <div className="presence-toolbar-stats"><span className="presence-live-dot" /> <strong>{onlineCount}</strong> đang online <span>·</span> <span>{pagination?.total ?? visible.length} tài khoản</span></div>
     </div>
 
     {showForm && <section className="panel management-form-panel">
@@ -94,9 +108,12 @@ function UserManagement({ fixedRole, currentUser }) {
     </section>}
 
     <section className="panel management-table-panel">
-      {listLoading ? <Empty>Đang tải trang tài khoản...</Empty> : visible.length ? <div className="management-table-wrap"><table className="management-table"><thead><tr><th>Người dùng</th><th>Vai trò</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{visible.map((item) => <tr key={item.id} className={!item.active ? 'inactive-row' : ''}>
+      {listLoading ? <Empty>Đang tải trang tài khoản...</Empty> : visible.length ? <div className="management-table-wrap"><table className="management-table presence-table"><thead><tr><th>Người dùng</th><th>Vai trò</th><th>Trực tuyến</th><th>Đăng nhập gần nhất</th><th>Số lần đăng nhập</th><th>Tài khoản</th><th>Thao tác</th></tr></thead><tbody>{visible.map((item) => <tr key={item.id} className={!item.active ? 'inactive-row' : ''}>
         <td><div className="user-cell"><div className="avatar small">{item.fullName?.slice(0, 1).toUpperCase()}</div><span><strong>{item.fullName}</strong><small>{item.email}</small></span></div></td>
         <td><span className={`role-chip ${item.role.toLowerCase()}`}>{roleLabel[item.role]}</span></td>
+        <td><div className={`presence-state ${item.isOnline ? 'online' : 'offline'}`}><span className="presence-dot" /><span><strong>{item.isOnline ? 'Online' : 'Offline'}</strong><small>{lastAccessText(item)}</small></span></div></td>
+        <td><span className="presence-date">{item.lastLoginAt ? formatDate(item.lastLoginAt) : 'Chưa đăng nhập'}</span></td>
+        <td><span className="login-count-badge">{Number(item.loginCount || 0)} lần</span></td>
         <td><span className={`status-chip ${item.active ? 'active' : 'inactive'}`}>{item.active ? 'Hoạt động' : 'Đã khóa'}</span></td>
         <td><div className="row-actions"><button className="icon-button" title="Sửa" onClick={() => openEdit(item)}><Pencil size={16} /></button>{item.active ? <button className="icon-button danger" title="Xóa" disabled={Number(item.id) === Number(currentUser.id)} onClick={() => remove(item)}><Trash2 size={16} /></button> : <button className="icon-button restore" title="Khôi phục" onClick={() => restore(item)}><RotateCcw size={16} /></button>}</div></td>
       </tr>)}</tbody></table></div> : <Empty>Không tìm thấy tài khoản.</Empty>}
