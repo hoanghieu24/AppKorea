@@ -8,7 +8,7 @@ Nền tảng lớp học và tự học tiếng Hàn cho **Admin / Giáo viên /
 - AI: Gemini API, hỗ trợ pool nhiều API key + failover
 - Production hardening: phiên đăng nhập HttpOnly refresh token, rate limit, timeout AI/TTS, monitoring, backup/restore, security headers
 
-## 1. Cấu trúc project
+## 1. Cấu trúc projec
 
 ```text
 AppKorea/
