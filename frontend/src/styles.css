@@ -984,3 +984,140 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .shared-question-context p { margin: 0; color: #2f2c3d; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; }
 .teacher-questions .shared-question-context { margin: 0 0 10px; }
 .teacher-questions .shared-question-context p { font-size: .78rem; }
+
+
+/* 2.3.14 — Excel semantic QC + answer key outside question cards */
+.question-format-preview {
+  padding: 10px 12px;
+  border: 1px dashed #cfc7ff;
+  border-radius: 12px;
+  background: #f8f6ff;
+}
+.question-format-preview > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #7568e9;
+  font-size: .65rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.question-format-preview p {
+  margin: 0;
+  color: #302c42;
+  font-size: .84rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+.question-format-preview strong,
+.answer-key-question strong {
+  color: #4f3fd3;
+  font-weight: 900;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+.answer-key-panel {
+  margin-top: 22px;
+  padding: 17px;
+  border: 1px solid #d7d1ff;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfaff 0%, #f8f7ff 100%);
+  scroll-margin-top: 90px;
+}
+.answer-key-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e4e0ff;
+}
+.answer-key-head > div:first-child { min-width: 0; }
+.answer-key-head > div:first-child > span {
+  color: #6656e8;
+  font-size: .66rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.answer-key-head h3 { margin: 3px 0 4px; font-size: .95rem; }
+.answer-key-head p { margin: 0; color: var(--muted); font-size: .72rem; line-height: 1.5; }
+.answer-key-stats {
+  min-width: 132px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 4px 14px rgba(75, 65, 160, .07);
+  text-align: center;
+}
+.answer-key-stats b { display: block; color: #5f4df6; font-size: 1.05rem; }
+.answer-key-stats span { color: var(--muted); font-size: .62rem; }
+.answer-key-list { display: grid; gap: 8px; margin-top: 12px; }
+.answer-key-item {
+  display: grid;
+  grid-template-columns: 62px minmax(180px, .85fr) minmax(320px, 1.5fr) 96px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #e6e3f3;
+  border-radius: 12px;
+  background: #fff;
+}
+.answer-key-item.missing {
+  border-color: #f0c6c6;
+  background: #fffafa;
+}
+.answer-key-number {
+  color: #5c4ee2;
+  font-size: .72rem;
+  font-weight: 900;
+}
+.answer-key-question { min-width: 0; }
+.answer-key-question > span {
+  color: #8b8799;
+  font-size: .59rem;
+  font-weight: 800;
+}
+.answer-key-question p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: #373344;
+  font-size: .71rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+.answer-key-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.answer-key-inputs input {
+  min-width: 0;
+  padding: 9px 10px;
+  font-size: .73rem;
+}
+.answer-key-state {
+  justify-self: end;
+  padding: 5px 7px;
+  border-radius: 999px;
+  font-size: .58rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+.answer-key-state.ok { color: #157754; background: #eaf9f2; }
+.answer-key-state.missing { color: #b44848; background: #fdeeee; }
+
+@media (max-width: 1000px) {
+  .answer-key-item { grid-template-columns: 58px 1fr 92px; }
+  .answer-key-inputs { grid-column: 2 / 4; }
+}
+@media (max-width: 720px) {
+  .answer-key-head { flex-direction: column; }
+  .answer-key-stats { width: 100%; }
+  .answer-key-item { grid-template-columns: 1fr auto; }
+  .answer-key-number { grid-column: 1; }
+  .answer-key-state { grid-column: 2; grid-row: 1; }
+  .answer-key-question, .answer-key-inputs { grid-column: 1 / -1; }
+  .answer-key-inputs { grid-template-columns: 1fr; }
+}

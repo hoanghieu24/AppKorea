@@ -17,9 +17,23 @@ function splitQuestionPrompt(value = '') {
   return { sharedContext, prompt };
 }
 
+function FormattedQuestionText({ text }) {
+  const value = String(text || '');
+  const lines = value.split(/\r?\n/);
+  return <>{lines.map((line, lineIndex) => {
+    const parts = line.split(/(\*\*[^*]+\*\*)/g);
+    return <span key={`line-${lineIndex}`}>
+      {parts.map((part, index) => /^\*\*[^*]+\*\*$/.test(part)
+        ? <strong key={`${lineIndex}-${index}-${part}`}>{part.slice(2, -2)}</strong>
+        : <span key={`${lineIndex}-${index}-${part}`}>{part}</span>)}
+      {lineIndex < lines.length - 1 ? <br /> : null}
+    </span>;
+  })}</>;
+}
+
 function SharedContext({ text }) {
   if (!text) return null;
-  return <div className="shared-question-context"><div className="shared-question-context-head">ĐỀ CHUNG</div><p>{text}</p></div>;
+  return <div className="shared-question-context"><div className="shared-question-context-head">ĐỀ CHUNG</div><p><FormattedQuestionText text={text} /></p></div>;
 }
 
 
@@ -139,13 +153,13 @@ function StudentWork({ assignment, questions, submission, answers, setAnswer, pr
       <section className="question-list result-questions">{questions.map((question, index) => {
         const result = answerMap.get(Number(question.id));
         const parts = splitQuestionPrompt(question.prompt);
-        return <article className={`question-card ${result?.isCorrect ? 'correct' : 'wrong'}`} key={question.id}><SharedContext text={parts.sharedContext} /><div className="q-head"><span>Câu {index + 1} · {question.points} điểm</span>{result?.isCorrect ? <CheckCircle2 /> : <XCircle />}</div><h3>{parts.prompt}</h3><div className="answer-review"><span>Bạn trả lời</span><strong>{result?.answerText || '—'}</strong></div><div className="answer-review correct-answer"><span>Đáp án tham khảo</span><strong>{question.correctAnswer || 'Tự luận'}</strong></div><p className="feedback">{result?.gradedByAi && <Bot size={16} />} {result?.feedback}</p></article>;
+        return <article className={`question-card ${result?.isCorrect ? 'correct' : 'wrong'}`} key={question.id}><SharedContext text={parts.sharedContext} /><div className="q-head"><span>Câu {index + 1} · {question.points} điểm</span>{result?.isCorrect ? <CheckCircle2 /> : <XCircle />}</div><h3><FormattedQuestionText text={parts.prompt} /></h3><div className="answer-review"><span>Bạn trả lời</span><strong>{result?.answerText || '—'}</strong></div><div className="answer-review correct-answer"><span>Đáp án tham khảo</span><strong>{question.correctAnswer || 'Tự luận'}</strong></div><p className="feedback">{result?.gradedByAi && <Bot size={16} />} {result?.feedback}</p></article>;
       })}</section>
     </div>;
   }
   return <form onSubmit={submit} className="student-work">
     <div className="work-info"><Sparkles size={18} /><span>{assignment.type === 'HOMEWORK' ? (aiEnabled ? 'Làm xong → Check bằng AI → sửa nếu cần → khi ổn mới nộp chính thức cho giáo viên.' : 'AI tạm thời chưa sẵn sàng; hệ thống vẫn kiểm tra bài bằng cơ chế dự phòng rồi mới cho nộp.') : 'Bài kiểm tra chỉ nộp chính thức một lần; không có bước xem trước đáp án.'}</span></div>
-    <div className="question-list">{questions.map((question, index) => { const parts = splitQuestionPrompt(question.prompt); return <article className="question-card" key={question.id}><SharedContext text={parts.sharedContext} /><div className="q-head"><span>Câu {index + 1}</span><b>{question.points} điểm · {question.topic}</b></div><h3>{parts.prompt}</h3>
+    <div className="question-list">{questions.map((question, index) => { const parts = splitQuestionPrompt(question.prompt); return <article className="question-card" key={question.id}><SharedContext text={parts.sharedContext} /><div className="q-head"><span>Câu {index + 1}</span><b>{question.points} điểm · {question.topic}</b></div><h3><FormattedQuestionText text={parts.prompt} /></h3>
       {question.type === 'MULTIPLE_CHOICE' ? <div className="option-list">{question.options.map((option) => <label key={option} className={answers[String(question.id)] === option ? 'selected' : ''}><input type="radio" name={`q-${question.id}`} value={option} checked={answers[String(question.id)] === option} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} /><span>{option}</span></label>)}</div> : question.type === 'SHORT_TEXT' ? <input className="student-answer-input" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Nhập câu trả lời..." /> : <textarea className="student-answer-input" rows="4" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Viết câu trả lời của bạn..." />}
     </article>; })}</div>
     {assignment.type === 'HOMEWORK' && checking && <AiCheckingStatus progress={checkingProgress} elapsed={checkingElapsed} />}
@@ -259,7 +273,7 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
               return <div key={q.id}>
                 <SharedContext text={parts.sharedContext} />
                 <span>Câu {index + 1} · {q.topic}</span>
-                <strong>{parts.prompt}</strong>
+                <strong><FormattedQuestionText text={parts.prompt} /></strong>
                 <small>Đáp án: {q.correctAnswer || 'AI đánh giá theo đáp án tham khảo'} · {q.points} điểm</small>
               </div>;
             })}
@@ -361,7 +375,7 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
                                   <strong>Câu {index + 1}</strong>
                                   <span>{result.awarded}/{result.points} điểm</span>
                                 </div>
-                                {question?.prompt && (() => { const parts = splitQuestionPrompt(question.prompt); return <><SharedContext text={parts.sharedContext} /><p className="latest-question-prompt">{parts.prompt}</p></>; })()}
+                                {question?.prompt && (() => { const parts = splitQuestionPrompt(question.prompt); return <><SharedContext text={parts.sharedContext} /><p className="latest-question-prompt"><FormattedQuestionText text={parts.prompt} /></p></>; })()}
                                 <div className="latest-answer-box">
                                   <p><b>Bài làm:</b> {result.answer || '—'}</p>
                                   <p><b>AI nhận xét:</b> {result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>
