@@ -17,14 +17,16 @@ const headerKey = (value) => String(value || '')
   .toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 const splitOptions = (value) => String(value || '').split(/\r?\n|\||;/).map((item) => item.trim()).filter(Boolean);
-const normalizeType = (value, hasOptions, hasAnswer) => {
+
+// Từ 2.3.12, giao diện tạo bài chỉ còn 2 loại:
+// - MULTIPLE_CHOICE: có từ 2 lựa chọn trở lên.
+// - ESSAY: mọi câu tự nhập/điền/dịch/viết, AI chấm theo đáp án tham khảo nếu có.
+// SHORT_TEXT vẫn được backend giữ để tương thích dữ liệu cũ, nhưng importer/UI mới không sinh loại này nữa.
+const normalizeType = (value, hasOptions) => {
   const key = headerKey(value);
   if (['multiplechoice', 'tracnghiem', 'mcq'].includes(key)) return 'MULTIPLE_CHOICE';
-  if (['shorttext', 'traloinho', 'dientu', 'short'].includes(key)) return 'SHORT_TEXT';
-  if (['essay', 'tuluan'].includes(key)) return 'ESSAY';
-  if (hasOptions) return 'MULTIPLE_CHOICE';
-  if (hasAnswer) return 'SHORT_TEXT';
-  return 'ESSAY';
+  if (['essay', 'tuluan', 'shorttext', 'traloinho', 'dientu', 'short'].includes(key)) return 'ESSAY';
+  return hasOptions ? 'MULTIPLE_CHOICE' : 'ESSAY';
 };
 
 function extractJson(text) {
@@ -232,7 +234,7 @@ CHỈ trả JSON thuần, không markdown, không giải thích ngoài JSON:
 {
   "questions": [
     {
-      "type": "MULTIPLE_CHOICE|SHORT_TEXT|ESSAY",
+      "type": "MULTIPLE_CHOICE|ESSAY",
       "prompt": "câu hỏi đã phục dựng sạch, không còn OCR rác",
       "options": [],
       "correctAnswer": "",
@@ -244,7 +246,8 @@ CHỈ trả JSON thuần, không markdown, không giải thích ngoài JSON:
 }
 
 Nếu có lựa chọn A/B/C/D hoặc ①②③④ thì đưa vào options.
-Nếu đáp án không hiện rõ trong ảnh thì correctAnswer = "".
+Chỉ dùng 2 loại: MULTIPLE_CHOICE hoặc ESSAY. Mọi câu điền từ, trả lời ngắn, dịch, viết câu đều là ESSAY để AI chấm.
+Nếu đáp án tham khảo không hiện rõ trong ảnh thì correctAnswer = "".
 Nếu không chắc loại câu thì dùng ESSAY.
 Tối đa 25 câu/lần.
 ${previous}
@@ -288,7 +291,7 @@ function importedQuestion(raw = {}) {
   const options = Array.isArray(raw.options) ? raw.options.map(String).filter(Boolean) : splitOptions(raw.optionsText ?? raw.options ?? raw.luaChon ?? raw.luachon);
   const answer = String(raw.correctAnswer ?? raw.answer ?? raw.dapAn ?? raw.dapan ?? '').trim();
   const prompt = String(raw.prompt ?? raw.question ?? raw.cauHoi ?? raw.cauhoi ?? raw.noiDung ?? raw.noidung ?? '').trim();
-  const type = normalizeType(raw.type ?? raw.loai, options.length > 0, Boolean(answer));
+  const type = normalizeType(raw.type ?? raw.loai, options.length >= 2);
   return freshQuestion({
     type,
     prompt,
@@ -313,7 +316,7 @@ const normalizeQuestionNumber = (value) => cleanExcelText(value)
 const looksLikeSectionHeading = (value) => {
   const text = cleanExcelText(value);
   if (!text) return false;
-  return /^(?:câu|cau|question)\s*\d+\s*[-–—]\s*\d+/i.test(text)
+  return /^(?:câu|cau|question)\s*\d+\s*[-–—]\s*(?:(?:câu|cau|question)\s*)?\d+/i.test(text)
     || /^(?:phần|phan|section)\s+(?:[ivxlcdm]+|\d+)/i.test(text);
 };
 
@@ -327,6 +330,24 @@ const stripListMarker = (value) => canonicalExcelLine(value)
   .replace(/^(?:[A-Ha-h]|\d+|[①②③④⑤⑥⑦⑧])[.)\-:]\s*/, '')
   .trim();
 
+const sectionQuestionRange = (value) => {
+  const text = cleanExcelText(value);
+  const match = text.match(/(?:câu|cau|question)?\s*(\d+)\s*[-–—]\s*(?:(?:câu|cau|question)\s*)?(\d+)/i);
+  if (!match) return null;
+  const from = Number(match[1]);
+  const to = Number(match[2]);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return null;
+  return { from: Math.min(from, to), to: Math.max(from, to) };
+};
+
+const inSectionRange = (number, range) => {
+  const value = Number(number);
+  return Boolean(range && Number.isFinite(value) && value >= range.from && value <= range.to);
+};
+
+const looksLikeReadingSection = (value) => /đọc|doan\s*van|đoạn\s*văn|reading|읽|글을/i.test(cleanExcelText(value));
+const looksLikeAudioSection = (value) => /nghe|listening|듣/i.test(cleanExcelText(value));
+
 function parseExcelRuleBased(semanticRows = []) {
   const questions = [];
   const answerMap = new Map();
@@ -334,9 +355,20 @@ function parseExcelRuleBased(semanticRows = []) {
   let assignmentTitle = '';
   let instructions = '';
   let currentSection = '';
+  let currentSectionRange = null;
   let current = null;
   let answerKeyMode = false;
   let sawQuestion = false;
+  let pendingContext = '';
+
+  const attachPendingContext = (prompt) => {
+    const questionText = cleanExcelText(prompt);
+    if (!pendingContext) return questionText;
+    const combined = `${pendingContext}\n\n${questionText}`.trim();
+    detachedValues.add(cleanExcelText(pendingContext).toLowerCase());
+    pendingContext = '';
+    return combined;
+  };
 
   const flushCurrent = () => {
     if (!current) return;
@@ -346,7 +378,7 @@ function parseExcelRuleBased(semanticRows = []) {
       // Câu 1: ...
       // 1. /한구거/
       // Câu 2: ...
-      // Khi chỉ có DUY NHẤT một dòng đánh số trước câu kế tiếp, coi đó là đáp án.
+      // Khi chỉ có DUY NHẤT một dòng đánh số trước câu kế tiếp, coi đó là đáp án tham khảo.
       current.correctAnswer = current.numericItems[0].text;
       detachedValues.add(current.numericItems[0].text.toLowerCase());
     } else if (current.numericItems.length >= 2 && !current.options.length) {
@@ -355,11 +387,11 @@ function parseExcelRuleBased(semanticRows = []) {
       current.numericItems.forEach((item) => detachedValues.add(item.text.toLowerCase()));
     }
 
-    const prompt = cleanExcelText(current.prompt);
+    const prompt = String(current.prompt || '').trim();
     if (prompt && !looksLikeSectionHeading(prompt)) {
       questions.push({
         number: current.number,
-        type: normalizeType('', current.options.length > 0, Boolean(current.correctAnswer)),
+        type: normalizeType('', current.options.length >= 2),
         prompt,
         options: current.options,
         correctAnswer: current.correctAnswer,
@@ -371,25 +403,43 @@ function parseExcelRuleBased(semanticRows = []) {
     current = null;
   };
 
+  const startQuestion = (number, prompt) => {
+    flushCurrent();
+    sawQuestion = true;
+    answerKeyMode = false;
+    current = {
+      number: String(number),
+      prompt: attachPendingContext(prompt),
+      options: [],
+      numericItems: [],
+      correctAnswer: '',
+      explanation: '',
+    };
+  };
+
   for (const row of semanticRows) {
     const values = (row.cells || []).map((cell) => canonicalExcelLine(cell.value)).filter(Boolean);
     if (!values.length) continue;
+    const primaryText = canonicalExcelLine(values[0]);
     const rowText = canonicalExcelLine(values.join(' '));
     const sheetKey = headerKey(row.sheet || '');
 
     if (/dapan|answer|answerkey/.test(sheetKey) || /đáp\s*án/i.test(String(row.sheet || ''))) answerKeyMode = true;
 
-    if (/^(?:đáp\s*án|dap\s*an|answer\s*key|answers?)\s*:?[\s]*$/i.test(rowText)) {
+    if (/^(?:đáp\s*án|dap\s*an|answer\s*key|answers?)\s*:?\s*$/i.test(rowText)) {
       flushCurrent();
       answerKeyMode = true;
+      pendingContext = '';
       continue;
     }
 
-    // "Câu 1 - 5: Chọn phương án đúng" là tiêu đề phần, không phải câu hỏi.
-    if (looksLikeSectionHeading(rowText)) {
+    // "Câu 26-28: Đọc đoạn văn..." là tiêu đề phần, không phải một câu hỏi.
+    if (looksLikeSectionHeading(primaryText)) {
       flushCurrent();
-      currentSection = rowText;
+      currentSection = primaryText;
+      currentSectionRange = sectionQuestionRange(primaryText);
       answerKeyMode = false;
+      pendingContext = '';
       continue;
     }
 
@@ -410,40 +460,39 @@ function parseExcelRuleBased(semanticRows = []) {
       }
     }
 
-    // Hỗ trợ cả "Câu 1: ..." trong một ô và "Câu 1" | "..." ở hai cột.
-    const questionMatch = rowText.match(/^(?:câu|cau|question|q)\s*(\d+)\s*(?:[.):\-]\s*|\s+)(.+)$/i);
+    // Hỗ trợ "Câu 1: ...", "Câu 7. ..." và cả "Câu 1" | "...".
+    const questionMatch = primaryText.match(/^(?:câu|cau|question|q)\s*(\d+)\s*(?:[.):\-]\s*|\s+)(.+)$/i);
     if (questionMatch) {
-      flushCurrent();
-      sawQuestion = true;
-      answerKeyMode = false;
-      current = {
-        number: questionMatch[1],
-        prompt: cleanExcelText(questionMatch[2]),
-        options: [],
-        numericItems: [],
-        correctAnswer: '',
-        explanation: '',
-      };
+      startQuestion(questionMatch[1], questionMatch[2]);
       continue;
     }
 
-    // Dòng chỉ có "Câu 1" ở cột A và nội dung ở cột B.
+    // Có đề chỉ ghi đúng "Câu 21" rồi nội dung/hội thoại nằm ở các dòng bên dưới.
+    const questionMarkerOnly = primaryText.match(/^(?:câu|cau|question|q)\s*(\d+)\s*[.):\-]?$/i);
+    if (questionMarkerOnly) {
+      startQuestion(questionMarkerOnly[1], '');
+      continue;
+    }
+
     if (values.length >= 2) {
       const marker = values[0].match(/^(?:câu|cau|question|q)\s*(\d+)\s*[.):\-]?$/i);
       if (marker) {
-        flushCurrent();
-        sawQuestion = true;
-        answerKeyMode = false;
-        current = {
-          number: marker[1],
-          prompt: cleanExcelText(values.slice(1).join(' ')),
-          options: [],
-          numericItems: [],
-          correctAnswer: '',
-          explanation: '',
-        };
+        startQuestion(marker[1], values.slice(1).join(' '));
         continue;
       }
+    }
+
+    // Một số đề dùng trực tiếp "26. ...", "27. ...", "34. ..." thay vì chữ "Câu".
+    // Chỉ coi đây là câu hỏi khi số đó nằm trong range của tiêu đề phần hiện tại,
+    // nhờ vậy 1./2./3./4. bên dưới vẫn được hiểu là đáp án/lựa chọn.
+    const bareQuestion = primaryText.match(/^(\d+)\s*[.)]\s*(.+)$/);
+    const bareQuestionNumber = Number(bareQuestion?.[1]);
+    const currentQuestionNumber = Number(current?.number);
+    if (bareQuestion
+      && inSectionRange(bareQuestion[1], currentSectionRange)
+      && (!current || !Number.isFinite(currentQuestionNumber) || bareQuestionNumber > currentQuestionNumber)) {
+      startQuestion(bareQuestion[1], bareQuestion[2]);
+      continue;
     }
 
     if (current) {
@@ -460,9 +509,29 @@ function parseExcelRuleBased(semanticRows = []) {
         continue;
       }
 
-      const letterChoice = rowText.match(/^([A-Ha-h])[.)\-:]\s*(.+)$/);
+      // Hội thoại A: / B: là phần thân đề, không phải lựa chọn A/B.
+      if (/^[A-Z]:\s*/.test(rowText)) {
+        current.prompt = `${String(current.prompt || '').trim()}\n${rowText}`.trim();
+        continue;
+      }
+
+      // Nhiều lựa chọn 1./2./3./4. nằm cùng một hàng nhưng ở các cột khác nhau.
+      const numericCells = values.map((value) => value.match(/^(\d+)\s*[.)\-:]?\s+(.+)$/)).filter(Boolean);
+      if (numericCells.length >= 2) {
+        for (const matched of numericCells) {
+          const optionText = cleanExcelText(matched[2]);
+          if (optionText) {
+            current.numericItems.push({ marker: matched[1], text: optionText });
+            detachedValues.add(optionText.toLowerCase());
+          }
+        }
+        continue;
+      }
+
+      // A./B./C./D. là lựa chọn. Không dùng dấu ':' để tránh nhầm hội thoại A:/B:.
+      const letterChoice = rowText.match(/^([A-Ha-h])[.)\-]\s*(.+)$/);
       const circledChoice = rowText.match(/^([①②③④⑤⑥⑦⑧])\s*(.+)$/);
-      const splitLetterChoice = values.length >= 2 && /^[A-Ha-h][.)\-:]?$/.test(values[0])
+      const splitLetterChoice = values.length >= 2 && /^[A-Ha-h][.)\-]?$/.test(values[0])
         ? [values[0], values[0].charAt(0), values.slice(1).join(' ')] : null;
       if (letterChoice || circledChoice || splitLetterChoice) {
         const optionText = cleanExcelText((letterChoice || circledChoice || splitLetterChoice)[2]);
@@ -478,15 +547,37 @@ function parseExcelRuleBased(semanticRows = []) {
         ? [values[0], values[0].match(/^\d+/)?.[0] || '', values.slice(1).join(' ')] : null;
       if (numericLine || splitNumericLine) {
         const matched = numericLine || splitNumericLine;
-        const text = cleanExcelText(matched[2]);
-        if (text) current.numericItems.push({ marker: matched[1], text });
+        const optionText = cleanExcelText(matched[2]);
+        if (optionText) current.numericItems.push({ marker: matched[1], text: optionText });
         continue;
       }
+
+      // Dòng chấm để học sinh tự viết trong Excel không phải câu hỏi/đáp án.
+      if (/^[.…_\-\s]{8,}$/.test(rowText)) continue;
+    }
+
+    // Đoạn văn dùng chung của một nhóm câu đọc hiểu là NGỮ CẢNH/ĐỀ,
+    // không được biến thành câu hỏi riêng. Vì DB hiện chưa có cột stimulus,
+    // ta gắn đoạn văn vào prompt của CÂU ĐẦU TIÊN trong nhóm để học sinh chỉ thấy 1 lần.
+    if (!current && currentSectionRange && looksLikeReadingSection(currentSection) && rowText.length >= 80) {
+      pendingContext = pendingContext ? `${pendingContext}\n${rowText}` : rowText;
+      detachedValues.add(cleanExcelText(rowText).toLowerCase());
+      continue;
+    }
+
+    // Với phần nghe, một đoạn mô tả/transcript độc lập cũng là ngữ cảnh chứ không phải câu hỏi.
+    if (!current && currentSectionRange && looksLikeAudioSection(currentSection) && rowText.length >= 80) {
+      pendingContext = pendingContext ? `${pendingContext}\n${rowText}` : rowText;
+      detachedValues.add(cleanExcelText(rowText).toLowerCase());
+      continue;
     }
 
     // Trước câu hỏi đầu tiên, dòng ngắn độc lập thường là tiêu đề toàn bài.
-    if (!sawQuestion && !assignmentTitle && rowText.length <= 140 && !/^(?:stt|số\s*câu|loại|câu\s*hỏi|question|prompt|nội\s*dung)/i.test(rowText)) {
-      assignmentTitle = rowText;
+    if (!sawQuestion && !assignmentTitle && rowText.length <= 220 && !/^(?:stt|số\s*câu|loại|câu\s*hỏi|question|prompt|nội\s*dung)/i.test(rowText)) {
+      // File đề thi thường gộp "ĐỀ THI ... / Thời gian ... / Họ và Tên ..." vào cùng một ô.
+      // Chỉ lấy phần tên đề làm Tiêu đề, không kéo cả thông tin thí sinh vào.
+      const titleOnly = rowText.split(/\s+(?:thời\s*gian(?:\s*làm\s*bài)?|họ\s*và\s*tên|ho\s*va\s*ten)\s*[:：]/i)[0].trim();
+      assignmentTitle = titleOnly || rowText;
     }
   }
 
@@ -496,8 +587,8 @@ function parseExcelRuleBased(semanticRows = []) {
     const mapped = question.number ? answerMap.get(question.number) : '';
     if (mapped && !question.correctAnswer) {
       question.correctAnswer = resolveChoiceAnswer(mapped, question.options);
-      question.type = normalizeType('', question.options.length > 0, true);
     }
+    question.type = normalizeType(question.type, question.options.length >= 2);
   }
 
   return { assignmentTitle, instructions, questions, answerMap, detachedValues };
@@ -529,14 +620,22 @@ function mergeRuleQuestionsWithAI(ruleParsed, aiQuestions = [], aiAnswerMap = ne
       correctAnswer,
       explanation: aiQuestion.explanation || ruleQuestion.explanation || '',
       topic: ruleQuestion.topic || aiQuestion.topic || 'Tổng hợp',
-      type: normalizeType(aiQuestion.type || ruleQuestion.type, options.length > 0, Boolean(correctAnswer)),
+      type: normalizeType(aiQuestion.type || ruleQuestion.type, options.length >= 2),
     };
   });
 
   const detached = ruleParsed.detachedValues || new Set();
   const cleanLeftovers = [...aiByNumber.values(), ...leftovers].filter((question) => {
     const prompt = stripListMarker(question?.prompt || '').toLowerCase();
-    return !prompt || !detached.has(prompt);
+    if (!prompt) return false;
+    for (const detachedText of detached) {
+      if (!detachedText) continue;
+      if (prompt === detachedText) return false;
+      // Đoạn văn dài đôi khi AI thêm/bớt dấu cách vài ký tự. Nếu phần lớn nội dung trùng
+      // với một context/option đã rule-parser nhận diện thì không được tạo câu hỏi rác.
+      if (detachedText.length >= 80 && (prompt.includes(detachedText) || detachedText.includes(prompt))) return false;
+    }
+    return true;
   });
 
   return [...merged, ...cleanLeftovers];
@@ -627,16 +726,19 @@ function excelSemanticPrompt({ rowsText, chunkIndex, chunkCount, knownTitle = ''
 MỤC TIÊU:
 - Nếu là TIÊU ĐỀ TOÀN BÀI (ví dụ: "Ôn tập Bài 5") -> assignmentTitle.
 - Nếu là TIÊU ĐỀ NHÓM/PHẦN (ví dụ: "Câu 1-5: Chọn phương án đúng") -> KHÔNG tạo thành câu hỏi. Dùng nó làm topic/section cho các câu phía sau.
-- Nếu là CÂU HỎI -> prompt.
-- Nếu là LỰA CHỌN A/B/C/D, ①②③④ hoặc danh sách đáp án -> options của đúng câu.
+- Nếu sau tiêu đề kiểu "Câu 26-28: Đọc đoạn văn..." có một ĐOẠN VĂN DÀI rồi mới tới câu 26, 27, 28 -> đoạn văn đó là NGỮ CẢNH/ĐỀ CHUNG, TUYỆT ĐỐI KHÔNG tạo thành một question riêng. Vì JSON không có trường context, hãy gắn đoạn văn vào đầu prompt của CÂU ĐẦU TIÊN trong nhóm (câu 26), còn câu 27/28 chỉ giữ câu hỏi riêng.
+- Nếu là CÂU HỎI -> prompt. Nhận biết cả "Câu 26: ..." và dạng chỉ có "26. ..." khi số 26 nằm trong range của tiêu đề phần hiện tại.
+- Nếu là LỰA CHỌN A/B/C/D, ①②③④ hoặc 1./2./3./4. -> options của đúng câu, không tạo câu mới.
+- Nếu là hội thoại dạng "A: ..." / "B: ..." nằm dưới một câu -> đó là NỘI DUNG CÂU HỎI, không phải lựa chọn A/B.
 - Nếu là ĐÁP ÁN / ĐÁP ÁN ĐÚNG / ANSWER KEY -> correctAnswer của đúng câu, KHÔNG tạo thành câu hỏi mới.
 - Nếu là GIẢI THÍCH -> explanation.
 - Nếu là HƯỚNG DẪN chung -> instructions.
 - Giữ nguyên tiếng Hàn/Hangul. Không tự dịch nếu đề không yêu cầu.
-- Không tự bịa đáp án. Nếu Excel không ghi đáp án thì correctAnswer="".
+- Nếu Excel ghi rõ đáp án thì dùng đúng đáp án đó. Với câu MULTIPLE_CHOICE có từ 2 lựa chọn trở lên nhưng không có answer key, được phép tự xác định đáp án đúng CHỈ khi chắc chắn theo nội dung/kiến thức tiếng Hàn; nếu không chắc thì correctAnswer="". Với ESSAY, correctAnswer là đáp án tham khảo nếu file có, nếu không thì để trống.
 - Nhận biết cả file có cột chuẩn lẫn file trình bày tự do, ô gộp, đáp án nằm ở cuối đề hoặc sheet khác.
 - Dựa vào số câu (1, 2, Câu 3...) để nối answer key với đúng câu.
 - Các dòng như "Câu 1 - 5: Chọn phương án đúng" chỉ là tiêu đề phần, tuyệt đối không đưa vào questions.
+- Chỉ dùng HAI loại câu: MULTIPLE_CHOICE và ESSAY. Không trả SHORT_TEXT. Câu điền từ, trả lời ngắn, dịch, viết câu đều là ESSAY để AI chấm.
 
 QUY TẮC RẤT QUAN TRỌNG VỚI DÒNG ĐÁNH SỐ:
 Ví dụ Excel có liên tiếp:
@@ -646,6 +748,16 @@ Câu 2: ...
 => "Câu 1: ..." là prompt của câu 1; "1. /한구거/" là correctAnswer của câu 1. TUYỆT ĐỐI không tạo "1. /한구거/" thành câu hỏi mới.
 Nếu sau một câu hỏi có NHIỀU dòng liên tiếp 1./2./3./4. (hoặc A./B./C./D.) trước khi sang "Câu X" tiếp theo thì các dòng đó là options.
 Nếu chỉ có DUY NHẤT một dòng 1. ... rồi chuyển sang "Câu X" tiếp theo thì ưu tiên hiểu đó là đáp án của câu hiện tại.
+Ví dụ đọc hiểu:
+Câu 26-28: Đọc đoạn văn và trả lời câu hỏi
+<đoạn văn tiếng Hàn dài>
+26. 이 글의 제목으로 ...
+1. ...
+2. ...
+3. ...
+4. ...
+27. ...
+=> CHỈ tạo câu 26, 27, 28. KHÔNG tạo <đoạn văn> thành câu hỏi. Gắn <đoạn văn> ở đầu prompt câu 26 một lần duy nhất.
 
 Đây là phần ${chunkIndex + 1}/${chunkCount} của workbook.
 ${knownTitle ? `Tiêu đề toàn bài đã nhận diện trước đó: ${JSON.stringify(knownTitle)}\n` : ''}${knownSection ? `Ngữ cảnh phần gần nhất: ${JSON.stringify(knownSection)}\n` : ''}
@@ -657,7 +769,7 @@ CHỈ TRẢ JSON THUẦN theo dạng:
   "questions": [
     {
       "number": "1",
-      "type": "MULTIPLE_CHOICE|SHORT_TEXT|ESSAY",
+      "type": "MULTIPLE_CHOICE|ESSAY",
       "prompt": "",
       "options": [],
       "correctAnswer": "",
@@ -699,7 +811,7 @@ function normalizeExcelAIQuestion(raw = {}, sectionFallback = '') {
   const answer = cleanExcelText(raw.correctAnswer ?? raw.answer ?? raw.dapAn ?? raw.dapan);
   return {
     number: normalizeQuestionNumber(raw.number ?? raw.no ?? raw.stt ?? raw.index ?? ''),
-    type: normalizeType(raw.type ?? raw.loai, options.length > 0, Boolean(answer)),
+    type: normalizeType(raw.type ?? raw.loai, options.length >= 2),
     prompt,
     options,
     correctAnswer: answer,
@@ -1002,7 +1114,7 @@ export default function AssignmentsPage({ user }) {
     const XLSX = await import('xlsx');
     const rows = [
       { 'Câu hỏi': '저는 학생___ 입니다. Chọn đáp án đúng.', 'Loại': 'MULTIPLE_CHOICE', 'Lựa chọn': '은|는|이|가', 'Đáp án': '은', 'Giải thích': 'Dùng 은 sau phụ âm.', 'Chủ đề': 'Trợ từ', 'Điểm': 1 },
-      { 'Câu hỏi': 'Dịch sang tiếng Hàn: Tôi là học sinh.', 'Loại': 'SHORT_TEXT', 'Lựa chọn': '', 'Đáp án': '저는 학생입니다.', 'Giải thích': '', 'Chủ đề': 'Bài 1', 'Điểm': 1 },
+      { 'Câu hỏi': 'Dịch sang tiếng Hàn: Tôi là học sinh.', 'Loại': 'ESSAY', 'Lựa chọn': '', 'Đáp án': '저는 학생입니다.', 'Giải thích': '', 'Chủ đề': 'Bài 1', 'Điểm': 1 },
       { 'Câu hỏi': 'Viết 3 câu giới thiệu bản thân bằng tiếng Hàn.', 'Loại': 'ESSAY', 'Lựa chọn': '', 'Đáp án': '', 'Giải thích': '', 'Chủ đề': 'Viết', 'Điểm': 2 },
     ];
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -1281,9 +1393,9 @@ export default function AssignmentsPage({ user }) {
           {modes.map(([id, Icon, title, note]) => <button key={id} type="button" className={`question-source-card ${inputMode === id ? 'active' : ''}`} onClick={() => setInputMode(id)}><Icon size={19} /><span><strong>{title}</strong><small>{note}</small></span></button>)}
         </div>
         {inputMode === 'single' && <div className="question-source-action single"><span>Thêm một câu trống rồi nhập nội dung ở danh sách bên dưới.</span><button type="button" className="btn secondary small" onClick={() => setForm((old) => ({ ...old, questions: [...old.questions, freshQuestion()] }))}><Plus size={16} /> Thêm từng câu</button></div>}
-        {inputMode === 'excel' && <div className={`question-source-action ${importing === 'excel' ? 'ocr-running' : ''}`}><div><strong>Excel → AI đọc cấu trúc đề</strong><p>Bộ đọc nhận diện mẫu rõ ràng trước, AI xử lý phần mơ hồ: tiêu đề → ô Tiêu đề, câu hỏi → Nội dung câu hỏi, lựa chọn → Lựa chọn, đáp án → ô Đáp án. Dòng kiểu “Câu 1-5: Chọn phương án đúng” là tiêu đề phần; mẫu “Câu 1: ...” + “1. /한구거/” được hiểu là câu hỏi + đáp án.</p>{importing === 'excel' && <div className="ocr-processing-card excel-processing-card"><div className="ocr-processing-head"><div className={`ocr-orb ${excelStatus.stage === 'ai' ? 'ai' : excelStatus.stage === 'done' ? 'done' : ''}`}><FileSpreadsheet size={18} /></div><div className="ocr-status-copy"><strong>{excelStatus.title || 'Đang đọc Excel...'}</strong><small>{excelStatus.detail || 'Hệ thống vẫn đang xử lý file.'}</small></div><div className="ocr-time"><b>{excelProgress}%</b><span>{excelSeconds}s</span></div></div><div className="ocr-progress excel-progress"><i style={{ width: `${excelProgress}%` }} /><em /></div><div className="ocr-stepper five">{[['read', 'Đọc file'], ['structure', 'Hiểu bố cục'], ['ai', 'AI phân loại'], ['apply', 'Gắn dữ liệu'], ['done', 'Hoàn tất']].map(([stage, label]) => { const current = EXCEL_STAGE_ORDER.indexOf(excelStatus.stage); const index = EXCEL_STAGE_ORDER.indexOf(stage); const done = current > index || excelStatus.stage === 'done'; const active = current === index && excelStatus.stage !== 'done'; return <span key={stage} className={`${done ? 'done' : ''} ${active ? 'active' : ''}`}><i>{done ? '✓' : active ? <Sparkles size={11} /> : '•'}</i>{label}</span>; })}</div><div className="ocr-wait-note"><span className="ocr-live-dot" />AI đang đọc theo ngữ nghĩa, không phải cứ mỗi dòng Excel là một câu hỏi.</div></div>}{importing !== 'excel' && excelSummary && <div className={`excel-import-summary ${excelSummary.fallback ? 'fallback' : ''}`}><span><CheckCircle2 size={14} /> {excelSummary.aiUsed ? 'AI đã phân loại' : 'Đã nhập dự phòng'}</span>{excelSummary.title && <span>Tiêu đề: <b>{excelSummary.title}</b></span>}<span><b>{excelSummary.questionCount}</b> câu hỏi</span><span><b>{excelSummary.answerCount}</b> đáp án</span></div>}</div><div className="source-buttons"><button type="button" className="btn ghost small" onClick={downloadExcelTemplate} disabled={Boolean(importing)}><FileSpreadsheet size={16} /> Tải file mẫu</button><label className={`btn secondary small file-button ${importing ? 'disabled' : ''}`}>{importing === 'excel' ? <LoaderCircle className="spin" size={16} /> : <FileSpreadsheet size={16} />} {importing === 'excel' ? 'AI đang đọc...' : 'Chọn Excel'}<input type="file" accept=".xlsx,.xls" onChange={importExcel} disabled={Boolean(importing)} /></label></div></div>}
+        {inputMode === 'excel' && <div className={`question-source-action ${importing === 'excel' ? 'ocr-running' : ''}`}><div><strong>Excel → AI đọc cấu trúc đề</strong><p>Bộ đọc nhận diện mẫu rõ ràng trước, AI xử lý phần mơ hồ: tiêu đề → ô Tiêu đề, câu hỏi → Nội dung câu hỏi, lựa chọn → Lựa chọn, đáp án → ô Đáp án. Đoạn văn dùng chung cho “Câu 26-28” được giữ làm đề/ngữ cảnh và không bị tính thành câu riêng. Chỉ có 2 loại: Trắc nghiệm và Tự luận · AI chấm.</p>{importing === 'excel' && <div className="ocr-processing-card excel-processing-card"><div className="ocr-processing-head"><div className={`ocr-orb ${excelStatus.stage === 'ai' ? 'ai' : excelStatus.stage === 'done' ? 'done' : ''}`}><FileSpreadsheet size={18} /></div><div className="ocr-status-copy"><strong>{excelStatus.title || 'Đang đọc Excel...'}</strong><small>{excelStatus.detail || 'Hệ thống vẫn đang xử lý file.'}</small></div><div className="ocr-time"><b>{excelProgress}%</b><span>{excelSeconds}s</span></div></div><div className="ocr-progress excel-progress"><i style={{ width: `${excelProgress}%` }} /><em /></div><div className="ocr-stepper five">{[['read', 'Đọc file'], ['structure', 'Hiểu bố cục'], ['ai', 'AI phân loại'], ['apply', 'Gắn dữ liệu'], ['done', 'Hoàn tất']].map(([stage, label]) => { const current = EXCEL_STAGE_ORDER.indexOf(excelStatus.stage); const index = EXCEL_STAGE_ORDER.indexOf(stage); const done = current > index || excelStatus.stage === 'done'; const active = current === index && excelStatus.stage !== 'done'; return <span key={stage} className={`${done ? 'done' : ''} ${active ? 'active' : ''}`}><i>{done ? '✓' : active ? <Sparkles size={11} /> : '•'}</i>{label}</span>; })}</div><div className="ocr-wait-note"><span className="ocr-live-dot" />AI đang đọc theo ngữ nghĩa, không phải cứ mỗi dòng Excel là một câu hỏi.</div></div>}{importing !== 'excel' && excelSummary && <div className={`excel-import-summary ${excelSummary.fallback ? 'fallback' : ''}`}><span><CheckCircle2 size={14} /> {excelSummary.aiUsed ? 'AI đã phân loại' : 'Đã nhập dự phòng'}</span>{excelSummary.title && <span>Tiêu đề: <b>{excelSummary.title}</b></span>}<span><b>{excelSummary.questionCount}</b> câu hỏi</span><span><b>{excelSummary.answerCount}</b> đáp án</span></div>}</div><div className="source-buttons"><button type="button" className="btn ghost small" onClick={downloadExcelTemplate} disabled={Boolean(importing)}><FileSpreadsheet size={16} /> Tải file mẫu</button><label className={`btn secondary small file-button ${importing ? 'disabled' : ''}`}>{importing === 'excel' ? <LoaderCircle className="spin" size={16} /> : <FileSpreadsheet size={16} />} {importing === 'excel' ? 'AI đang đọc...' : 'Chọn Excel'}<input type="file" accept=".xlsx,.xls" onChange={importExcel} disabled={Boolean(importing)} /></label></div></div>}
         {inputMode === 'image' && <div className={`question-source-action ${importing === 'image' ? 'ocr-running' : ''}`}><div><strong>Ảnh → OCR → AI tách câu</strong><p>Ảnh rõ sẽ chỉ OCR một lượt cho nhanh; ảnh khó đọc mới tự tăng nét và quét lại. Không cần nhập API key ở máy giáo viên.</p>{importing === 'image' && <div className="ocr-processing-card"><div className="ocr-processing-head"><div className={`ocr-orb ${ocrStatus.stage}`}><ScanLine size={18} /></div><div className="ocr-status-copy"><strong>{ocrStatus.title || 'Đang xử lý ảnh...'}</strong><small>{ocrStatus.detail || 'Hệ thống vẫn đang chạy.'}</small></div><div className="ocr-time"><b>{ocrProgress}%</b><span>{ocrSeconds}s</span></div></div><div className="ocr-progress"><i style={{ width: `${ocrProgress}%` }} /><em /></div><div className="ocr-stepper four">{[['prepare', 'Khởi động'], ['scan', 'Đọc ảnh'], ['ai', 'AI tách câu'], ['done', 'Hoàn tất']].map(([stage, label]) => { const normalizedStage = ocrStatus.stage === 'enhance' ? 'scan' : ocrStatus.stage; const current = OCR_STAGE_ORDER.indexOf(normalizedStage); const index = OCR_STAGE_ORDER.indexOf(stage); const done = current > index || normalizedStage === 'done'; const active = current === index && normalizedStage !== 'done'; return <span key={stage} className={`${done ? 'done' : ''} ${active ? 'active' : ''}`}><i>{done ? '✓' : active ? <Sparkles size={11} /> : '•'}</i>{label}</span>; })}</div><div className="ocr-wait-note"><span className="ocr-live-dot" />Trang không bị treo · cứ để tab mở, hệ thống đang xử lý thật.</div></div>}</div><label className={`btn secondary small file-button ${importing ? 'disabled' : ''}`}>{importing === 'image' ? <LoaderCircle className="spin" size={16} /> : <ImagePlus size={16} />} {importing === 'image' ? 'Đang quét...' : 'Chọn ảnh'}<input type="file" accept="image/*" multiple onChange={importImagesWithAI} disabled={Boolean(importing)} /></label></div>}
-        {inputMode === 'bulk' && <div className="question-source-action bulk"><div><strong>Dán nhiều câu vào một ô</strong><p>Mỗi câu chỉ cần xuống dòng. Hệ thống thêm thành câu tự luận; sau đó có thể đổi từng câu sang trắc nghiệm/điền từ và thêm đáp án.</p></div><textarea rows="7" value={bulkText} onChange={(e) => setBulkText(e.target.value)} placeholder={'Câu 1: Dịch câu sau sang tiếng Hàn...\nCâu 2: Viết 3 câu về cuối tuần...\nCâu 3: Hãy đặt câu với -고 싶다...'} /><button type="button" className="btn secondary small" onClick={addBulkQuestions} disabled={!bulkText.trim()}><ListPlus size={16} /> Thêm các dòng</button></div>}
+        {inputMode === 'bulk' && <div className="question-source-action bulk"><div><strong>Dán nhiều câu vào một ô</strong><p>Mỗi câu chỉ cần xuống dòng. Hệ thống thêm thành Tự luận · AI chấm; sau đó có thể đổi từng câu sang Trắc nghiệm nếu có các lựa chọn.</p></div><textarea rows="7" value={bulkText} onChange={(e) => setBulkText(e.target.value)} placeholder={'Câu 1: Dịch câu sau sang tiếng Hàn...\nCâu 2: Viết 3 câu về cuối tuần...\nCâu 3: Hãy đặt câu với -고 싶다...'} /><button type="button" className="btn secondary small" onClick={addBulkQuestions} disabled={!bulkText.trim()}><ListPlus size={16} /> Thêm các dòng</button></div>}
       </div>
 
       <div className="question-builder-head"><div><strong>Câu hỏi đã thêm</strong><span>{form.questions.length} câu</span></div><button type="button" className="btn secondary small" onClick={() => setForm({ ...form, questions: [...form.questions, freshQuestion()] })}><Plus size={16} /> Thêm câu</button></div>
@@ -1292,7 +1404,7 @@ export default function AssignmentsPage({ user }) {
           <div className="question-number">{index + 1}</div>
           <div className="question-edit-main">
             <div className="question-meta-row">
-              <select value={question.type} onChange={(e) => updateQuestion(index, { type: e.target.value })}><option value="MULTIPLE_CHOICE">Trắc nghiệm</option><option value="SHORT_TEXT">Điền / trả lời ngắn</option><option value="ESSAY">Tự luận · AI chấm</option></select>
+              <select value={question.type === 'SHORT_TEXT' ? 'ESSAY' : question.type} onChange={(e) => updateQuestion(index, { type: e.target.value })}><option value="MULTIPLE_CHOICE">Trắc nghiệm</option><option value="ESSAY">Tự luận · AI chấm</option></select>
               <input value={question.topic} onChange={(e) => updateQuestion(index, { topic: e.target.value })} placeholder="Chủ đề: Ngữ pháp bài 5" />
               <label className="points-input"><input type="number" min="0.25" step="0.25" value={question.points} onChange={(e) => updateQuestion(index, { points: e.target.value })} /> điểm</label>
               {form.questions.length > 1 && <button type="button" className="icon-button danger" onClick={() => removeQuestion(index)}><Trash2 size={17} /></button>}
