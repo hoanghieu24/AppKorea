@@ -986,7 +986,104 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .teacher-questions .shared-question-context p { font-size: .78rem; }
 
 
-/* 2.3.14 — Excel semantic QC + answer key outside question cards */
+/* 2.3.15 — Excel source-row fix, semantic QC, preview + separate answer key */
+.excel-review-card {
+  margin: 14px 0 20px;
+  overflow: hidden;
+  border: 1px solid #cbc5ff;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fff 0%, #faf9ff 100%);
+  box-shadow: 0 14px 34px rgba(80, 68, 176, .09);
+}
+.excel-review-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 15px 16px;
+  border-bottom: 1px solid #ebe8ff;
+  background: linear-gradient(135deg, #f7f5ff 0%, #fff 72%);
+}
+.excel-review-title { display: flex; align-items: flex-start; gap: 11px; min-width: 0; }
+.excel-review-icon {
+  width: 39px;
+  height: 39px;
+  flex: 0 0 39px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #6757f5, #8b5cf6);
+  box-shadow: 0 7px 16px rgba(103, 87, 245, .22);
+}
+.excel-review-title > div { min-width: 0; }
+.excel-review-title > div > span { color: #6e60df; font-size: .62rem; font-weight: 900; letter-spacing: .07em; }
+.excel-review-title h4 { margin: 3px 0; overflow: hidden; color: #322d46; font-size: .92rem; text-overflow: ellipsis; white-space: nowrap; }
+.excel-review-title p { margin: 0; color: var(--muted); font-size: .66rem; }
+.excel-review-stats { display: flex; flex-wrap: wrap; gap: 7px; padding: 11px 16px 4px; }
+.excel-review-stats > span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 6px 9px;
+  border: 1px solid #e3dfff;
+  border-radius: 999px;
+  color: #777188;
+  background: #fff;
+  font-size: .62rem;
+}
+.excel-review-stats b { color: #5042d1; font-size: .72rem; }
+.excel-review-stats .ready { border-color: #cdebdc; background: #f2fbf7; }
+.excel-review-stats .ready b { color: #19805a; }
+.excel-review-stats .needs-review { border-color: #f1d9b0; background: #fff9ec; }
+.excel-review-stats .needs-review b { color: #a56b19; }
+.excel-review-warnings {
+  margin: 8px 16px 11px;
+  padding: 10px 12px;
+  border: 1px solid #f0d8ad;
+  border-radius: 12px;
+  color: #76501d;
+  background: #fffaf0;
+}
+.excel-review-warnings > strong { display: flex; align-items: center; gap: 6px; font-size: .7rem; }
+.excel-review-warnings ul { margin: 6px 0 0; padding-left: 18px; }
+.excel-review-warnings li { margin: 3px 0; color: #85683e; font-size: .66rem; line-height: 1.4; }
+.excel-review-ok { display: flex; align-items: center; gap: 7px; margin: 8px 16px 11px; padding: 9px 11px; border-radius: 11px; color: #207c59; background: #edf9f3; font-size: .68rem; font-weight: 750; }
+.excel-review-list { display: grid; gap: 8px; padding: 0 16px 12px; }
+.excel-review-question {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 11px;
+  padding: 11px;
+  border: 1px solid #e7e4f4;
+  border-radius: 13px;
+  background: #fff;
+}
+.excel-review-question-number { display: grid; align-content: start; gap: 4px; padding-right: 10px; border-right: 1px solid #eeecf7; }
+.excel-review-question-number b { color: #5849dc; font-size: .72rem; }
+.excel-review-question-number span { color: #9993a8; font-size: .57rem; line-height: 1.35; }
+.excel-review-question-body { min-width: 0; }
+.excel-review-question-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.excel-review-question-meta span { max-width: 360px; overflow: hidden; color: #817b90; font-size: .58rem; text-overflow: ellipsis; white-space: nowrap; }
+.excel-review-question-meta em,
+.excel-review-question-meta i { padding: 3px 6px; border-radius: 99px; font-size: .54rem; font-style: normal; font-weight: 800; }
+.excel-review-question-meta em { color: #6757e7; background: #f0eeff; }
+.excel-review-question-meta i { margin-left: auto; }
+.excel-review-question-meta i.has-answer { color: #1d805c; background: #eaf8f1; }
+.excel-review-question-meta i.missing-answer { color: #a66d1e; background: #fff5df; }
+.excel-review-question-body > p { margin: 6px 0 0; color: #302c3e; font-size: .78rem; line-height: 1.55; white-space: pre-wrap; }
+.excel-review-question-body > p strong { color: #4f3fd3; font-weight: 900; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+.excel-review-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 8px; }
+.excel-review-options > span { display: flex; align-items: flex-start; gap: 6px; min-width: 0; padding: 6px 8px; border-radius: 8px; color: #575165; background: #f8f7fc; font-size: .64rem; line-height: 1.4; }
+.excel-review-options b { width: 17px; height: 17px; flex: 0 0 17px; display: grid; place-items: center; border-radius: 50%; color: #6153df; background: #ebe8ff; font-size: .55rem; }
+.excel-review-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; width: calc(100% - 32px); margin: 0 16px 12px; padding: 8px; border: 1px dashed #d8d3fa; border-radius: 10px; color: #685be0; background: #faf9ff; font-size: .66rem; font-weight: 800; cursor: pointer; }
+.excel-review-toggle svg { transition: transform .2s ease; }
+.excel-review-toggle svg.up { transform: rotate(180deg); }
+.excel-review-actions { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid #e9e6fa; background: #f8f7ff; }
+.excel-review-actions > div { min-width: 0; margin-right: auto; }
+.excel-review-actions > div strong { display: block; color: #403a55; font-size: .7rem; }
+.excel-review-actions > div span { display: block; margin-top: 2px; color: var(--muted); font-size: .6rem; }
+
 .question-format-preview {
   padding: 10px 12px;
   border: 1px dashed #cfc7ff;
@@ -1113,6 +1210,12 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
   .answer-key-inputs { grid-column: 2 / 4; }
 }
 @media (max-width: 720px) {
+  .excel-review-question { grid-template-columns: 1fr; }
+  .excel-review-question-number { display: flex; align-items: center; justify-content: space-between; padding: 0 0 7px; border-right: 0; border-bottom: 1px solid #eeecf7; }
+  .excel-review-options { grid-template-columns: 1fr; }
+  .excel-review-actions { align-items: stretch; flex-direction: column; }
+  .excel-review-actions > div { margin: 0 0 4px; }
+  .excel-review-actions .btn { width: 100%; justify-content: center; }
   .answer-key-head { flex-direction: column; }
   .answer-key-stats { width: 100%; }
   .answer-key-item { grid-template-columns: 1fr auto; }

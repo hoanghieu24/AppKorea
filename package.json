@@ -1,7 +1,7 @@
 {
   "name": "hanquoc-classroom",
   "private": true,
-  "version": "2.3.11",
+  "version": "2.3.15",
   "workspaces": [
     "backend",
     "frontend"
@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "concurrently -n API,WEB -c green,cyan \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "build": "npm run build -w backend && npm run build -w frontend",
-    "test": "npm test -w backend",
+    "test": "npm test -w backend && npm test -w frontend",
     "db:init": "npm run db:init -w backend",
     "db:seed": "npm run db:seed -w backend",
     "db:backup": "npm run db:backup -w backend",
