@@ -4,6 +4,25 @@ import { Link, useParams } from 'react-router-dom';
 import { api, formatDate } from '../api.js';
 import { Empty, Pagination } from '../components/Shell.jsx';
 
+const SHARED_CONTEXT_START = '[[APPKOREA_SHARED_CONTEXT]]';
+const SHARED_CONTEXT_END = '[[/APPKOREA_SHARED_CONTEXT]]';
+
+function splitQuestionPrompt(value = '') {
+  const raw = String(value || '');
+  const start = raw.indexOf(SHARED_CONTEXT_START);
+  const end = raw.indexOf(SHARED_CONTEXT_END);
+  if (start !== 0 || end < 0) return { sharedContext: '', prompt: raw.trim() };
+  const sharedContext = raw.slice(SHARED_CONTEXT_START.length, end).trim();
+  const prompt = raw.slice(end + SHARED_CONTEXT_END.length).trim();
+  return { sharedContext, prompt };
+}
+
+function SharedContext({ text }) {
+  if (!text) return null;
+  return <div className="shared-question-context"><div className="shared-question-context-head">ĐỀ CHUNG</div><p>{text}</p></div>;
+}
+
+
 export default function AssignmentDetailPage({ user }) {
   const { id } = useParams();
   const [data, setData] = useState(null);
@@ -119,15 +138,16 @@ function StudentWork({ assignment, questions, submission, answers, setAnswer, pr
       <section className="panel result-summary"><div className="score-ring" style={{ '--score': `${submission.percentage}%` }}><div><strong>{Math.round(submission.percentage)}</strong><span>/ 100</span></div></div><h2>Đã chấm xong</h2><p>{submission.ai_summary}</p><div className="score-line"><span>Điểm</span><strong>{submission.score}/{submission.max_score}</strong></div></section>
       <section className="question-list result-questions">{questions.map((question, index) => {
         const result = answerMap.get(Number(question.id));
-        return <article className={`question-card ${result?.isCorrect ? 'correct' : 'wrong'}`} key={question.id}><div className="q-head"><span>Câu {index + 1} · {question.points} điểm</span>{result?.isCorrect ? <CheckCircle2 /> : <XCircle />}</div><h3>{question.prompt}</h3><div className="answer-review"><span>Bạn trả lời</span><strong>{result?.answerText || '—'}</strong></div><div className="answer-review correct-answer"><span>Đáp án tham khảo</span><strong>{question.correctAnswer || 'Tự luận'}</strong></div><p className="feedback">{result?.gradedByAi && <Bot size={16} />} {result?.feedback}</p></article>;
+        const parts = splitQuestionPrompt(question.prompt);
+        return <article className={`question-card ${result?.isCorrect ? 'correct' : 'wrong'}`} key={question.id}><SharedContext text={parts.sharedContext} /><div className="q-head"><span>Câu {index + 1} · {question.points} điểm</span>{result?.isCorrect ? <CheckCircle2 /> : <XCircle />}</div><h3>{parts.prompt}</h3><div className="answer-review"><span>Bạn trả lời</span><strong>{result?.answerText || '—'}</strong></div><div className="answer-review correct-answer"><span>Đáp án tham khảo</span><strong>{question.correctAnswer || 'Tự luận'}</strong></div><p className="feedback">{result?.gradedByAi && <Bot size={16} />} {result?.feedback}</p></article>;
       })}</section>
     </div>;
   }
   return <form onSubmit={submit} className="student-work">
     <div className="work-info"><Sparkles size={18} /><span>{assignment.type === 'HOMEWORK' ? (aiEnabled ? 'Làm xong → Check bằng AI → sửa nếu cần → khi ổn mới nộp chính thức cho giáo viên.' : 'AI tạm thời chưa sẵn sàng; hệ thống vẫn kiểm tra bài bằng cơ chế dự phòng rồi mới cho nộp.') : 'Bài kiểm tra chỉ nộp chính thức một lần; không có bước xem trước đáp án.'}</span></div>
-    <div className="question-list">{questions.map((question, index) => <article className="question-card" key={question.id}><div className="q-head"><span>Câu {index + 1}</span><b>{question.points} điểm · {question.topic}</b></div><h3>{question.prompt}</h3>
+    <div className="question-list">{questions.map((question, index) => { const parts = splitQuestionPrompt(question.prompt); return <article className="question-card" key={question.id}><SharedContext text={parts.sharedContext} /><div className="q-head"><span>Câu {index + 1}</span><b>{question.points} điểm · {question.topic}</b></div><h3>{parts.prompt}</h3>
       {question.type === 'MULTIPLE_CHOICE' ? <div className="option-list">{question.options.map((option) => <label key={option} className={answers[String(question.id)] === option ? 'selected' : ''}><input type="radio" name={`q-${question.id}`} value={option} checked={answers[String(question.id)] === option} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} /><span>{option}</span></label>)}</div> : question.type === 'SHORT_TEXT' ? <input className="student-answer-input" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Nhập câu trả lời..." /> : <textarea className="student-answer-input" rows="4" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Viết câu trả lời của bạn..." />}
-    </article>)}</div>
+    </article>; })}</div>
     {assignment.type === 'HOMEWORK' && checking && <AiCheckingStatus progress={checkingProgress} elapsed={checkingElapsed} />}
     {assignment.type === 'HOMEWORK' && preview && <section className="ai-preview panel"><div className="ai-preview-head"><div><Bot /><span><strong>AI check lần {preview.attemptNo}</strong><small>Đây chưa phải bài nộp chính thức.</small></span></div><b>{Math.round(preview.percentage)}%</b></div><p>{preview.summary}</p><div className="preview-results">{preview.results?.map((result, index) => <div className={result.isCorrect ? 'preview-result correct' : 'preview-result wrong'} key={result.questionId}><span>{result.isCorrect ? <CheckCircle2 size={17} /> : <XCircle size={17} />} Câu {index + 1}</span><strong>{result.awarded}/{result.points} điểm</strong><p>{result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>{!result.isCorrect && result.referenceAnswer && <small>Đáp án tham khảo: {result.referenceAnswer}</small>}</div>)}</div></section>}
     <div className="submit-bar"><div><strong>{assignment.type === 'HOMEWORK' ? (preview ? 'Ổn rồi thì nộp cho giáo viên' : 'Bước 1: Check bằng AI') : 'Kiểm tra kỹ trước khi nộp'}</strong><span>{assignment.type === 'HOMEWORK' ? (preview ? `Đã check ${preview.attemptNo} lần. Sửa đáp án sẽ cần check lại.` : 'Có thể check lại nhiều lần trước khi nộp chính thức.') : 'Bài kiểm tra chỉ nộp chính thức một lần.'}</span></div><div className="submit-actions">{assignment.type === 'HOMEWORK' && <button type="button" className="btn secondary" onClick={checkWithAi} disabled={checking || submitting}><Bot size={17} /> {checking ? 'AI đang check...' : preview ? 'Check lại bằng AI' : 'Check bằng AI'}</button>}<button className="btn primary" disabled={submitting || checking || (assignment.type === 'HOMEWORK' && !preview)}><Send size={17} /> {submitting ? 'Đang nộp...' : 'Nộp cho giáo viên'}</button></div></div>
@@ -234,13 +254,15 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
         </div>
         {!contentCollapsed && (
           <div className="teacher-questions">
-            {questions.map((q, index) => (
-              <div key={q.id}>
+            {questions.map((q, index) => {
+              const parts = splitQuestionPrompt(q.prompt);
+              return <div key={q.id}>
+                <SharedContext text={parts.sharedContext} />
                 <span>Câu {index + 1} · {q.topic}</span>
-                <strong>{q.prompt}</strong>
+                <strong>{parts.prompt}</strong>
                 <small>Đáp án: {q.correctAnswer || 'AI đánh giá theo đáp án tham khảo'} · {q.points} điểm</small>
-              </div>
-            ))}
+              </div>;
+            })}
           </div>
         )}
         {contentCollapsed && (
@@ -318,10 +340,40 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
                 <div className="avatar small">{student.fullName.slice(0, 1)}</div>
                 <div className="grow">
                   <strong>{student.fullName}</strong>
-                  <span>{student.submitted ? `Đã nộp · ${Math.round(student.percentage)}%` : 'Chưa nộp bài'}</span>
+                  <span>{student.submitted ? `Đã nộp · ${Math.round(student.percentage)}%` : student.attemptCount ? 'Đang làm bài' : 'Chưa nộp bài'}</span>
                   {student.attemptCount > 0 && <small className="student-check-count">{student.fullName} đã Check AI {student.attemptCount} lần</small>}
-                  {student.submitted && student.summary && <div className="student-ai-overview"><Bot size={15} /><div><strong>Đánh giá chung của AI</strong><p>{student.summary}</p></div></div>}
+                  {(student.summary || student.latestAttempt?.summary) && <div className="student-ai-overview"><Bot size={15} /><div><strong>Đánh giá chung của AI</strong><p>{student.summary || student.latestAttempt?.summary}</p></div></div>}
                   {student.weakTopics?.length ? <small>Cần ôn: {student.weakTopics.map((t) => `${t.topic} (${t.mastery}%)`).join(', ')}</small> : null}
+                  {student.latestAttempt?.results?.length ? (
+                    <details className="latest-attempt-detail" open={student.submitted}>
+                      <summary>
+                        <span>{student.submitted ? 'Chi tiết bài nộp cuối cùng' : 'Chi tiết lần Check AI gần nhất'}</span>
+                        <b>{Math.round(student.latestAttempt.percentage)}%</b>
+                      </summary>
+                      <article>
+                        <small>{student.latestAttempt.createdAt ? new Date(student.latestAttempt.createdAt).toLocaleString('vi-VN') : ''}</small>
+                        <div className="latest-attempt-results">
+                          {student.latestAttempt.results.map((result, index) => {
+                            const question = questions.find((item) => Number(item.id) === Number(result.questionId));
+                            return (
+                              <div className={`latest-attempt-question ${result.isCorrect ? 'correct' : 'wrong'}`} key={result.questionId ?? index}>
+                                <div className="latest-attempt-question-head">
+                                  <strong>Câu {index + 1}</strong>
+                                  <span>{result.awarded}/{result.points} điểm</span>
+                                </div>
+                                {question?.prompt && (() => { const parts = splitQuestionPrompt(question.prompt); return <><SharedContext text={parts.sharedContext} /><p className="latest-question-prompt">{parts.prompt}</p></>; })()}
+                                <div className="latest-answer-box">
+                                  <p><b>Bài làm:</b> {result.answer || '—'}</p>
+                                  <p><b>AI nhận xét:</b> {result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>
+                                  {!result.isCorrect && result.referenceAnswer && <p><b>Đáp án tham khảo:</b> {result.referenceAnswer}</p>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </article>
+                    </details>
+                  ) : null}
                 </div>
                 <span className={`submit-state ${student.submitted ? 'done' : ''}`}>{student.submitted ? 'Đã nộp' : 'Chưa nộp'}</span>
               </div>

@@ -971,3 +971,16 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
   .presence-toolbar-right { width: 100%; justify-content: space-between; }
   .presence-toolbar-stats { white-space: normal; }
 }
+
+
+/* 2.3.13 — đề chung/đoạn văn tách khỏi câu hỏi */
+.shared-context-editor { margin: 10px 0; padding: 12px; border: 1px solid #d9d4ff; border-radius: 14px; background: #faf9ff; }
+.shared-context-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.shared-context-label strong { color: #5f4df6; font-size: .82rem; }
+.shared-context-label span { color: #8c879e; font-size: .72rem; }
+.shared-context-editor textarea { width: 100%; background: #fff; white-space: pre-wrap; }
+.shared-question-context { margin: 0 0 14px; padding: 14px 16px; border: 1px solid #d9d4ff; border-radius: 14px; background: linear-gradient(180deg, #faf9ff 0%, #f6f4ff 100%); }
+.shared-question-context-head { margin-bottom: 8px; color: #6554f5; font-size: .72rem; font-weight: 850; letter-spacing: .08em; }
+.shared-question-context p { margin: 0; color: #2f2c3d; font-size: .92rem; line-height: 1.7; white-space: pre-wrap; }
+.teacher-questions .shared-question-context { margin: 0 0 10px; }
+.teacher-questions .shared-question-context p { font-size: .78rem; }

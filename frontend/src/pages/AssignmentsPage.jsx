@@ -8,7 +8,7 @@ import { api, formatDate } from '../api.js';
 import { Empty, PageHeader, Pagination } from '../components/Shell.jsx';
 
 const freshQuestion = (patch = {}) => ({
-  type: 'MULTIPLE_CHOICE', prompt: '', optionsText: '', correctAnswer: '', explanation: '', topic: 'Từ vựng', points: 1,
+  type: 'MULTIPLE_CHOICE', prompt: '', sharedContext: '', optionsText: '', correctAnswer: '', explanation: '', topic: 'Từ vựng', points: 1,
   ...patch,
 });
 
@@ -287,14 +287,26 @@ async function repairBrokenQuestionsWithAI(api, ocrPair, questions) {
   return repaired.length ? repaired : questions;
 }
 
+const SHARED_CONTEXT_START = '[[APPKOREA_SHARED_CONTEXT]]';
+const SHARED_CONTEXT_END = '[[/APPKOREA_SHARED_CONTEXT]]';
+
+function encodeSharedContextPrompt(prompt, sharedContext = '') {
+  const question = String(prompt || '').trim();
+  const context = String(sharedContext || '').trim();
+  if (!context) return question;
+  return `${SHARED_CONTEXT_START}\n${context}\n${SHARED_CONTEXT_END}\n${question}`;
+}
+
 function importedQuestion(raw = {}) {
   const options = Array.isArray(raw.options) ? raw.options.map(String).filter(Boolean) : splitOptions(raw.optionsText ?? raw.options ?? raw.luaChon ?? raw.luachon);
   const answer = String(raw.correctAnswer ?? raw.answer ?? raw.dapAn ?? raw.dapan ?? '').trim();
   const prompt = String(raw.prompt ?? raw.question ?? raw.cauHoi ?? raw.cauhoi ?? raw.noiDung ?? raw.noidung ?? '').trim();
   const type = normalizeType(raw.type ?? raw.loai, options.length >= 2);
+  const sharedContext = String(raw.sharedContext ?? raw.context ?? raw.stimulus ?? raw.passage ?? raw.deChung ?? '').trim();
   return freshQuestion({
     type,
     prompt,
+    sharedContext,
     optionsText: options.join('\n'),
     correctAnswer: answer,
     explanation: String(raw.explanation ?? raw.giaiThich ?? raw.giaithich ?? '').trim(),
@@ -361,13 +373,11 @@ function parseExcelRuleBased(semanticRows = []) {
   let sawQuestion = false;
   let pendingContext = '';
 
-  const attachPendingContext = (prompt) => {
-    const questionText = cleanExcelText(prompt);
-    if (!pendingContext) return questionText;
-    const combined = `${pendingContext}\n\n${questionText}`.trim();
-    detachedValues.add(cleanExcelText(pendingContext).toLowerCase());
+  const takePendingContext = () => {
+    const context = String(pendingContext || '').trim();
+    if (context) detachedValues.add(cleanExcelText(context).toLowerCase());
     pendingContext = '';
-    return combined;
+    return context;
   };
 
   const flushCurrent = () => {
@@ -393,6 +403,7 @@ function parseExcelRuleBased(semanticRows = []) {
         number: current.number,
         type: normalizeType('', current.options.length >= 2),
         prompt,
+        sharedContext: current.sharedContext || '',
         options: current.options,
         correctAnswer: current.correctAnswer,
         explanation: current.explanation,
@@ -409,7 +420,8 @@ function parseExcelRuleBased(semanticRows = []) {
     answerKeyMode = false;
     current = {
       number: String(number),
-      prompt: attachPendingContext(prompt),
+      prompt: cleanExcelText(prompt),
+      sharedContext: takePendingContext(),
       options: [],
       numericItems: [],
       correctAnswer: '',
@@ -557,8 +569,8 @@ function parseExcelRuleBased(semanticRows = []) {
     }
 
     // Đoạn văn dùng chung của một nhóm câu đọc hiểu là NGỮ CẢNH/ĐỀ,
-    // không được biến thành câu hỏi riêng. Vì DB hiện chưa có cột stimulus,
-    // ta gắn đoạn văn vào prompt của CÂU ĐẦU TIÊN trong nhóm để học sinh chỉ thấy 1 lần.
+    // không được biến thành câu hỏi riêng. Giữ riêng ở sharedContext của CÂU ĐẦU TIÊN
+    // để UI hiển thị thành 'Đề chung' một lần, không trộn vào nội dung câu hỏi.
     if (!current && currentSectionRange && looksLikeReadingSection(currentSection) && rowText.length >= 80) {
       pendingContext = pendingContext ? `${pendingContext}\n${rowText}` : rowText;
       detachedValues.add(cleanExcelText(rowText).toLowerCase());
@@ -726,7 +738,7 @@ function excelSemanticPrompt({ rowsText, chunkIndex, chunkCount, knownTitle = ''
 MỤC TIÊU:
 - Nếu là TIÊU ĐỀ TOÀN BÀI (ví dụ: "Ôn tập Bài 5") -> assignmentTitle.
 - Nếu là TIÊU ĐỀ NHÓM/PHẦN (ví dụ: "Câu 1-5: Chọn phương án đúng") -> KHÔNG tạo thành câu hỏi. Dùng nó làm topic/section cho các câu phía sau.
-- Nếu sau tiêu đề kiểu "Câu 26-28: Đọc đoạn văn..." có một ĐOẠN VĂN DÀI rồi mới tới câu 26, 27, 28 -> đoạn văn đó là NGỮ CẢNH/ĐỀ CHUNG, TUYỆT ĐỐI KHÔNG tạo thành một question riêng. Vì JSON không có trường context, hãy gắn đoạn văn vào đầu prompt của CÂU ĐẦU TIÊN trong nhóm (câu 26), còn câu 27/28 chỉ giữ câu hỏi riêng.
+- Nếu sau tiêu đề kiểu "Câu 26-28: Đọc đoạn văn..." có một ĐOẠN VĂN DÀI rồi mới tới câu 26, 27, 28 -> đoạn văn đó là NGỮ CẢNH/ĐỀ CHUNG, TUYỆT ĐỐI KHÔNG tạo thành một question riêng. Đưa đoạn văn đó vào trường sharedContext của CÂU ĐẦU TIÊN trong nhóm (câu 26). prompt của câu 26 CHỈ chứa câu hỏi 26; câu 27/28 chỉ giữ câu hỏi riêng và sharedContext="".
 - Nếu là CÂU HỎI -> prompt. Nhận biết cả "Câu 26: ..." và dạng chỉ có "26. ..." khi số 26 nằm trong range của tiêu đề phần hiện tại.
 - Nếu là LỰA CHỌN A/B/C/D, ①②③④ hoặc 1./2./3./4. -> options của đúng câu, không tạo câu mới.
 - Nếu là hội thoại dạng "A: ..." / "B: ..." nằm dưới một câu -> đó là NỘI DUNG CÂU HỎI, không phải lựa chọn A/B.
@@ -757,7 +769,7 @@ Câu 26-28: Đọc đoạn văn và trả lời câu hỏi
 3. ...
 4. ...
 27. ...
-=> CHỈ tạo câu 26, 27, 28. KHÔNG tạo <đoạn văn> thành câu hỏi. Gắn <đoạn văn> ở đầu prompt câu 26 một lần duy nhất.
+=> CHỈ tạo câu 26, 27, 28. KHÔNG tạo <đoạn văn> thành câu hỏi. sharedContext của câu 26 = <đoạn văn>; prompt câu 26 = "이 글의 제목으로 ...". Câu 27/28 có sharedContext="".
 
 Đây là phần ${chunkIndex + 1}/${chunkCount} của workbook.
 ${knownTitle ? `Tiêu đề toàn bài đã nhận diện trước đó: ${JSON.stringify(knownTitle)}\n` : ''}${knownSection ? `Ngữ cảnh phần gần nhất: ${JSON.stringify(knownSection)}\n` : ''}
@@ -771,6 +783,7 @@ CHỈ TRẢ JSON THUẦN theo dạng:
       "number": "1",
       "type": "MULTIPLE_CHOICE|ESSAY",
       "prompt": "",
+      "sharedContext": "",
       "options": [],
       "correctAnswer": "",
       "explanation": "",
@@ -813,6 +826,7 @@ function normalizeExcelAIQuestion(raw = {}, sectionFallback = '') {
     number: normalizeQuestionNumber(raw.number ?? raw.no ?? raw.stt ?? raw.index ?? ''),
     type: normalizeType(raw.type ?? raw.loai, options.length >= 2),
     prompt,
+    sharedContext: cleanExcelText(raw.sharedContext ?? raw.context ?? raw.stimulus ?? raw.passage ?? raw.deChung),
     options,
     correctAnswer: answer,
     explanation: cleanExcelText(raw.explanation ?? raw.giaiThich ?? raw.giaithich),
@@ -1347,7 +1361,7 @@ export default function AssignmentsPage({ user }) {
         classId: Number(form.classId), type: form.type, title: form.title, instructions: form.instructions,
         dueAt: form.dueAt || null, timeLimitMinutes: form.timeLimitMinutes ? Number(form.timeLimitMinutes) : null,
         questions: form.questions.map((q) => ({
-          type: q.type, prompt: q.prompt, correctAnswer: q.correctAnswer, explanation: q.explanation, topic: q.topic,
+          type: q.type, prompt: encodeSharedContextPrompt(q.prompt, q.sharedContext), correctAnswer: q.correctAnswer, explanation: q.explanation, topic: q.topic,
           points: Number(q.points), options: q.type === 'MULTIPLE_CHOICE' ? q.optionsText.split('\n').map((x) => x.trim()).filter(Boolean) : [],
         })),
       };
@@ -1409,6 +1423,7 @@ export default function AssignmentsPage({ user }) {
               <label className="points-input"><input type="number" min="0.25" step="0.25" value={question.points} onChange={(e) => updateQuestion(index, { points: e.target.value })} /> điểm</label>
               {form.questions.length > 1 && <button type="button" className="icon-button danger" onClick={() => removeQuestion(index)}><Trash2 size={17} /></button>}
             </div>
+            {question.sharedContext && <div className="shared-context-editor"><div className="shared-context-label"><strong>Đề chung / đoạn văn</strong><span>Hiển thị 1 lần trước nhóm câu</span></div><textarea rows="5" value={question.sharedContext} onChange={(e) => updateQuestion(index, { sharedContext: e.target.value })} placeholder="Đoạn văn, hội thoại hoặc dữ liệu dùng chung cho nhóm câu" /></div>}
             <textarea rows="2" value={question.prompt} onChange={(e) => updateQuestion(index, { prompt: e.target.value })} placeholder="Nội dung câu hỏi" required />
             {question.type === 'MULTIPLE_CHOICE' && <textarea rows="3" value={question.optionsText} onChange={(e) => updateQuestion(index, { optionsText: e.target.value })} placeholder={'Các lựa chọn, mỗi dòng 1 đáp án\n학교\n병원\n은행'} required />}
             <div className="answer-row"><input value={question.correctAnswer} onChange={(e) => updateQuestion(index, { correctAnswer: e.target.value })} placeholder={question.type === 'ESSAY' ? 'Đáp án tham khảo cho AI (khuyên có)' : 'Đáp án đúng · có thể dùng A||B để chấp nhận nhiều đáp án'} required={question.type !== 'ESSAY'} /><input value={question.explanation} onChange={(e) => updateQuestion(index, { explanation: e.target.value })} placeholder="Giải thích khi sai (tùy chọn)" /></div>
