@@ -7,7 +7,7 @@ import { query, withTransaction } from './db.js';
 import { cleanupRefreshTokens, issueRefreshToken, requireAuth, requireRole, revokeAllRefreshTokensForUser, revokeRefreshToken, rotateRefreshToken, signToken, verifyPassword, hashPassword } from './auth.js';
 import { aiEnabled, aiErrorResponse, generateTextWithAI, gradeEssayBatchWithAI, testGeminiConnection } from './ai.js';
 import { addGeminiApiKeys, deleteGeminiApiKey, getAdminSettings, getGeminiApiKeySecretById, getSafeLearningSettings, saveAdminSettings, setGeminiApiKeyActive, updateGeminiKeyHealth } from './settings.js';
-import { gradeEssayFallback, gradeObjective } from './grading.js';
+import { gradeEssayFallback, gradeObjective, questionPromptForAi, shouldGradeWithAI } from './grading.js';
 import { ensureTextbookCatalog, getTextbookLessons, getTextbookVocabulary } from './textbook.js';
 import { createConcurrencyGuard, createRateLimiter } from './rateLimit.js';
 import { recordSystemError, requestContextMiddleware, sanitizeLogText } from './monitoring.js';
@@ -876,9 +876,6 @@ app.post('/api/assignments', requireAuth, requireRole('TEACHER'), async (req, re
   }).safeParse(req.body);
   if (!input.success) return badRequest(res, 'Bài tập/kiểm tra chưa hợp lệ. Kiểm tra lại câu hỏi và số điểm.');
   if (!(await teacherOwnsClass(req.user.id, input.data.classId))) return res.status(403).json({ message: 'Bạn chưa được giao lớp này.' });
-  if (input.data.questions.some((q) => q.type !== 'ESSAY' && !q.correctAnswer.trim())) {
-    return badRequest(res, 'Câu trắc nghiệm/điền từ phải có đáp án đúng.');
-  }
   if (input.data.questions.some((q) => q.type === 'MULTIPLE_CHOICE' && q.options.length < 2)) {
     return badRequest(res, 'Câu trắc nghiệm phải có ít nhất 2 lựa chọn.');
   }
@@ -1236,7 +1233,7 @@ function buildLocalAssignmentSummary(results, weakTopics) {
 async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
   const useAi = await aiEnabled();
   const resultByQuestionId = new Map();
-  const essayJobs = [];
+  const aiJobs = [];
   const aiStats = { essayQuestions: 0, batches: 0, providerCalls: 0 };
 
   // Các dạng có đáp án xác định được chấm local, không tiêu tốn Gemini request.
@@ -1248,8 +1245,13 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
       // Luôn có fallback trước. Nếu AI batch lỗi, học sinh vẫn nhận được kết quả thay vì treo cả bài.
       result = gradeEssayFallback(question, answer);
       if (useAi && answer.trim()) {
-        essayJobs.push({ question, answer });
+        aiJobs.push({ question, answer });
       }
+    } else if (shouldGradeWithAI(question)) {
+      result = answer.trim()
+        ? { awarded: 0, isCorrect: false, feedback: useAi ? 'AI đang đánh giá câu trả lời.' : 'Chưa có đáp án mẫu và AI hiện chưa được bật.', gradedByAi: false }
+        : { awarded: 0, isCorrect: false, feedback: 'Bạn chưa trả lời câu này.', gradedByAi: false };
+      if (useAi && answer.trim()) aiJobs.push({ question, answer });
     } else if (question.type === 'SHORT_TEXT') {
       result = gradeShortTextStrict(question, answer);
     } else {
@@ -1263,17 +1265,17 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
     });
   }
 
-  aiStats.essayQuestions = essayJobs.length;
+  aiStats.essayQuestions = aiJobs.length;
 
   // PHƯƠNG ÁN 2: tối đa 5 câu tự luận = 1 Gemini request.
   // Ví dụ 12 câu tự luận => 3 request (5 + 5 + 2), thay vì 12-24 request như trước.
-  for (const batch of chunkEssayJobs(essayJobs, config.aiGradingBatchSize)) {
+  for (const batch of chunkEssayJobs(aiJobs, config.aiGradingBatchSize)) {
     try {
       aiStats.batches += 1;
       const batchResult = await gradeEssayBatchWithAI({
         items: batch.map(({ question, answer }) => ({
           questionId: Number(question.id),
-          prompt: question.prompt,
+          prompt: questionPromptForAi(question),
           referenceAnswer: question.correct_answer,
           answer,
           maxPoints: Number(question.points),

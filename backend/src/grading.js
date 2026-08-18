@@ -14,6 +14,19 @@ export function acceptedAnswers(correctAnswer) {
     .filter(Boolean);
 }
 
+export function shouldGradeWithAI(question) {
+  return question?.type === 'ESSAY' || !String(question?.correct_answer || '').trim();
+}
+
+export function questionPromptForAi(question) {
+  let options = question?.options || [];
+  if (typeof options === 'string') {
+    try { options = JSON.parse(options); } catch { options = []; }
+  }
+  if (!Array.isArray(options) || !options.length) return String(question?.prompt || '');
+  return `${String(question?.prompt || '')}\nCác lựa chọn:\n${options.map((option, index) => `${index + 1}. ${option}`).join('\n')}`;
+}
+
 export function gradeObjective(question, answer) {
   const expected = acceptedAnswers(question.correct_answer);
   const actual = normalizeAnswer(answer);

@@ -795,7 +795,6 @@ function excelImportDiagnostics(ruleParsed, semanticRows = []) {
   if (missingNumbers.length) warnings.push(`Chưa dựng được câu ${missingNumbers.join(', ')} từ cấu trúc nguồn.`);
   if (duplicateNumbers.length) warnings.push(`Phát hiện số câu bị trùng: ${duplicateNumbers.join(', ')}.`);
   if (malformedQuestions.length) warnings.push(`${malformedQuestions.length} câu chưa đủ nội dung hoặc lựa chọn.`);
-  if (missingAnswers.length) warnings.push(`${missingAnswers.length} câu trắc nghiệm chưa có đáp án chắc chắn; cần giáo viên xác nhận.`);
   if (questionFormatSegments.length && preservedFormatCount < questionFormatSegments.length) {
     warnings.push(`Có ${questionFormatSegments.length - preservedFormatCount} cụm bôi đậm/gạch chân trong câu hỏi chưa được giữ đúng.`);
   }
@@ -1211,7 +1210,7 @@ function ExcelImportPreview({ preview, expanded, onToggle, onApply, onReplace, o
       <span><b>{diagnostics.essayCount || 0}</b> tự luận</span>
       <span><b>{diagnostics.sharedContextCount || 0}</b> đề chung</span>
       <span><b>{diagnostics.preservedFormatCount || 0}</b> cụm bôi đậm</span>
-      <span className={diagnostics.missingAnswerCount ? 'needs-review' : 'ready'}><b>{diagnostics.answerCount || 0}</b> đã có đáp án</span>
+      <span className="ready"><b>{diagnostics.answerCount || 0}</b> đáp án mẫu</span>
     </div>
 
     {preview.warnings?.length ? <div className="excel-review-warnings">
@@ -1233,7 +1232,7 @@ function ExcelImportPreview({ preview, expanded, onToggle, onApply, onReplace, o
               <span>{question.topic || 'Tổng hợp'}</span>
               {question.sharedContext && <em>Đề chung</em>}
               {question.prompt.includes('**') && <em>Giữ bôi đậm</em>}
-              <i className={hasAnswer ? 'has-answer' : 'missing-answer'}>{hasAnswer ? 'Đã có đáp án' : question.type === 'MULTIPLE_CHOICE' ? 'Chưa chắc đáp án' : 'Đáp án tùy chọn'}</i>
+              <i className={hasAnswer ? 'has-answer' : 'ai-answer'}>{hasAnswer ? 'Có đáp án mẫu' : 'AI tự chấm'}</i>
             </div>
             <p><FormattedPreview text={question.prompt} /></p>
             {options.length ? <div className="excel-review-options">{options.map((option, optionIndex) => <span key={`${optionIndex}-${option}`}><b>{optionIndex + 1}</b>{option}</span>)}</div> : null}
@@ -1248,7 +1247,7 @@ function ExcelImportPreview({ preview, expanded, onToggle, onApply, onReplace, o
     </button>}
 
     <div className="excel-review-actions">
-      <div><strong>Ổn rồi mới nhập</strong><span>Đáp án sẽ nằm ở khu riêng cuối form, không nhét vào từng thẻ câu hỏi.</span></div>
+      <div><strong>Ổn rồi mới nhập</strong><span>Đáp án mẫu nằm riêng ở cuối form và hoàn toàn không bắt buộc.</span></div>
       <button type="button" className="btn ghost small" onClick={onReplace}>Thay toàn bộ câu</button>
       <button type="button" className="btn primary small" onClick={onApply}><CheckCircle2 size={16} /> Đưa vào bài</button>
     </div>
@@ -1541,7 +1540,7 @@ export default function AssignmentsPage({ user }) {
       setExcelStatus({
         stage: 'done',
         title: `Đã đọc xong ${valid.length} câu · chờ bạn xác nhận`,
-        detail: `${answerCount} câu có đáp án · ${finalDiagnostics.sharedContextCount} đề chung · ${finalDiagnostics.preservedFormatCount} cụm bôi đậm đã giữ đúng.`,
+        detail: `${answerCount} câu có đáp án mẫu · câu còn lại AI tự chấm · ${finalDiagnostics.sharedContextCount} đề chung · ${finalDiagnostics.preservedFormatCount} cụm bôi đậm đã giữ đúng.`,
       });
       setMessage(`Đã tạo bản xem trước từ “${file.name}”. Kiểm tra nhanh rồi bấm “Đưa vào bài”.`);
     } catch (err) {
@@ -1583,7 +1582,7 @@ export default function AssignmentsPage({ user }) {
     });
     setExcelPreview(null);
     setExcelPreviewExpanded(false);
-    setMessage(`Đã đưa ${imported.length} câu từ Excel vào bài. Đáp án vẫn nằm riêng ở cuối để bạn rà soát lần cuối.`);
+    setMessage(`Đã đưa ${imported.length} câu từ Excel vào bài. Đáp án mẫu là tùy chọn; câu để trống sẽ do AI tự chấm.`);
   };
 
   const discardExcelPreview = () => {
@@ -1825,15 +1824,6 @@ export default function AssignmentsPage({ user }) {
   const createAssignment = async (event) => {
     event.preventDefault(); setMessage('');
     try {
-      const missingAnswers = form.questions
-        .map((question, index) => ({ question, index }))
-        .filter(({ question }) => question.type === 'MULTIPLE_CHOICE' && !String(question.correctAnswer || '').trim());
-      if (missingAnswers.length) {
-        const numbers = missingAnswers.slice(0, 12).map(({ index }) => index + 1).join(', ');
-        setMessage(`Còn ${missingAnswers.length} câu trắc nghiệm chưa có đáp án đúng: câu ${numbers}${missingAnswers.length > 12 ? '…' : ''}. Hãy xác nhận ở phần “Đáp án & chấm điểm” bên dưới.`);
-        window.setTimeout(() => document.getElementById('answer-key-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 30);
-        return;
-      }
       const payload = {
         classId: Number(form.classId), type: form.type, title: form.title, instructions: form.instructions,
         dueAt: form.dueAt || null, timeLimitMinutes: form.timeLimitMinutes ? Number(form.timeLimitMinutes) : null,
@@ -1920,20 +1910,20 @@ export default function AssignmentsPage({ user }) {
       <section className="answer-key-panel" id="answer-key-panel">
         <div className="answer-key-head">
           <div>
-            <span>ĐÁP ÁN & CHẤM ĐIỂM</span>
-            <h3>Xác nhận đáp án sau khi xem xong toàn bộ đề</h3>
-            <p>Đáp án được tách khỏi từng câu để dễ rà soát. AI sẽ điền khi đủ chắc; câu nào chưa chắc sẽ để trống để giáo viên xác nhận.</p>
+            <span>ĐÁP ÁN MẪU · TÙY CHỌN</span>
+            <h3>Có thể nhập đáp án hoặc bỏ trống</h3>
+            <p>Nếu có đáp án mẫu, hệ thống dùng để chấm nhanh và chính xác hơn. Nếu bỏ trống, AI sẽ tự đọc đề và chấm bài của học sinh.</p>
           </div>
           <div className="answer-key-stats">
-            <b>{form.questions.filter((q) => q.type === 'MULTIPLE_CHOICE' && String(q.correctAnswer || '').trim()).length}/{form.questions.filter((q) => q.type === 'MULTIPLE_CHOICE').length}</b>
-            <span>trắc nghiệm đã có đáp án</span>
+            <b>{form.questions.filter((q) => String(q.correctAnswer || '').trim()).length}</b>
+            <span>câu có đáp án mẫu</span>
           </div>
         </div>
         <div className="answer-key-list">
           {form.questions.map((question, index) => {
             const options = question.type === 'MULTIPLE_CHOICE' ? splitOptions(question.optionsText) : [];
-            const missing = question.type === 'MULTIPLE_CHOICE' && !String(question.correctAnswer || '').trim();
-            return <div className={`answer-key-item ${missing ? 'missing' : ''}`} key={`answer-${index}`}>
+            const hasAnswer = Boolean(String(question.correctAnswer || '').trim());
+            return <div className="answer-key-item" key={`answer-${index}`}>
               <div className="answer-key-number">Câu {index + 1}</div>
               <div className="answer-key-question">
                 <span>{question.type === 'MULTIPLE_CHOICE' ? 'Trắc nghiệm' : 'Tự luận · AI chấm'}</span>
@@ -1944,7 +1934,7 @@ export default function AssignmentsPage({ user }) {
                   list={options.length ? `answer-options-${index}` : undefined}
                   value={question.correctAnswer}
                   onChange={(e) => updateQuestion(index, { correctAnswer: e.target.value })}
-                  placeholder={question.type === 'MULTIPLE_CHOICE' ? 'Chọn / nhập đáp án đúng' : 'Đáp án tham khảo cho AI (tùy chọn)'}
+                  placeholder="Đáp án mẫu (tùy chọn)"
                   aria-label={`Đáp án câu ${index + 1}`}
                 />
                 {options.length ? <datalist id={`answer-options-${index}`}>{options.map((option) => <option value={option} key={option} />)}</datalist> : null}
@@ -1955,7 +1945,7 @@ export default function AssignmentsPage({ user }) {
                   aria-label={`Giải thích câu ${index + 1}`}
                 />
               </div>
-              <span className={`answer-key-state ${missing ? 'missing' : 'ok'}`}>{missing ? 'Chưa có đáp án' : question.correctAnswer ? 'Đã có đáp án' : 'Không bắt buộc'}</span>
+              <span className={`answer-key-state ${hasAnswer ? 'ok' : 'ai'}`}>{hasAnswer ? 'Có đáp án mẫu' : 'AI tự chấm'}</span>
             </div>;
           })}
         </div>

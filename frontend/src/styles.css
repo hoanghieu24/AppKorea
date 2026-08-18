@@ -1070,7 +1070,7 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .excel-review-question-meta em { color: #6757e7; background: #f0eeff; }
 .excel-review-question-meta i { margin-left: auto; }
 .excel-review-question-meta i.has-answer { color: #1d805c; background: #eaf8f1; }
-.excel-review-question-meta i.missing-answer { color: #a66d1e; background: #fff5df; }
+.excel-review-question-meta i.ai-answer { color: #5f4df6; background: #f0edff; }
 .excel-review-question-body > p { margin: 6px 0 0; color: #302c3e; font-size: .78rem; line-height: 1.55; white-space: pre-wrap; }
 .excel-review-question-body > p strong { color: #4f3fd3; font-weight: 900; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
 .excel-review-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; margin-top: 8px; }
@@ -1161,10 +1161,6 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
   border-radius: 12px;
   background: #fff;
 }
-.answer-key-item.missing {
-  border-color: #f0c6c6;
-  background: #fffafa;
-}
 .answer-key-number {
   color: #5c4ee2;
   font-size: .72rem;
@@ -1203,7 +1199,7 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
   white-space: nowrap;
 }
 .answer-key-state.ok { color: #157754; background: #eaf9f2; }
-.answer-key-state.missing { color: #b44848; background: #fdeeee; }
+.answer-key-state.ai { color: #5f4df6; background: #f0edff; }
 
 @media (max-width: 1000px) {
   .answer-key-item { grid-template-columns: 58px 1fr 92px; }

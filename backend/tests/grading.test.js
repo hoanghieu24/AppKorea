@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acceptedAnswers, gradeEssayFallback, gradeObjective, normalizeAnswer } from '../src/grading.js';
+import { acceptedAnswers, gradeEssayFallback, gradeObjective, normalizeAnswer, questionPromptForAi, shouldGradeWithAI } from '../src/grading.js';
 
 describe('grading', () => {
   it('chuẩn hóa câu trả lời nhưng giữ nguyên chữ Hàn', () => {
@@ -19,5 +19,16 @@ describe('grading', () => {
     const result = gradeEssayFallback({ correct_answer: '저는 한국어를 공부해요', points: 4 }, '저는 한국어를 공부해요');
     expect(result.awarded).toBe(4);
     expect(result.gradedByAi).toBe(false);
+  });
+
+  it('đưa câu không có đáp án mẫu sang luồng chấm AI', () => {
+    expect(shouldGradeWithAI({ type: 'MULTIPLE_CHOICE', correct_answer: '' })).toBe(true);
+    expect(shouldGradeWithAI({ type: 'MULTIPLE_CHOICE', correct_answer: '학교' })).toBe(false);
+    expect(shouldGradeWithAI({ type: 'ESSAY', correct_answer: '저는 학생입니다' })).toBe(true);
+  });
+
+  it('gửi cả lựa chọn cho AI khi câu trắc nghiệm không có đáp án mẫu', () => {
+    expect(questionPromptForAi({ prompt: '학교는 어디입니까?', options: '["집","학교"]' }))
+      .toBe('학교는 어디입니까?\nCác lựa chọn:\n1. 집\n2. 학교');
   });
 });
