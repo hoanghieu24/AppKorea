@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acceptedAnswers, gradeEssayFallback, gradeObjective, normalizeAnswer, questionPromptForAi, shouldGradeWithAI } from '../src/grading.js';
+import { acceptedAnswers, attemptAnswersMatch, gradeEssayFallback, gradeObjective, normalizeAnswer, normalizeAttemptAnswer, questionPromptForAi, reusableAttemptResult, shouldGradeWithAI, snapAiScoreRatio } from '../src/grading.js';
 
 describe('grading', () => {
   it('chuẩn hóa câu trả lời nhưng giữ nguyên chữ Hàn', () => {
@@ -30,5 +30,24 @@ describe('grading', () => {
   it('gửi cả lựa chọn cho AI khi câu trắc nghiệm không có đáp án mẫu', () => {
     expect(questionPromptForAi({ prompt: '학교는 어디입니까?', options: '["집","학교"]' }))
       .toBe('학교는 어디입니까?\nCác lựa chọn:\n1. 집\n2. 학교');
+  });
+
+  it('nhận ra đáp án không đổi để không reroll điểm AI', () => {
+    const questions = [{ id: 1 }, { id: 2 }];
+    expect(normalizeAttemptAnswer('  안녕하세요\r\n')).toBe('안녕하세요');
+    expect(attemptAnswersMatch(questions, { 1: '안녕하세요', 2: '학교' }, { 1: ' 안녕하세요 ', 2: '학교' })).toBe(true);
+    expect(attemptAnswersMatch(questions, { 1: '안녕하세요', 2: '병원' }, { 1: '안녕하세요', 2: '학교' })).toBe(false);
+  });
+
+  it('chỉ tái sử dụng kết quả của câu có đáp án giữ nguyên', () => {
+    const previousResults = [{ questionId: 1, awarded: 0.8 }, { questionId: 2, awarded: 1 }];
+    expect(reusableAttemptResult({ id: 1 }, '공원', { 1: ' 공원 ' }, previousResults)).toEqual(previousResults[0]);
+    expect(reusableAttemptResult({ id: 2 }, '학교', { 2: '병원' }, previousResults)).toBeNull();
+  });
+
+  it('đưa điểm AI về các mức cố định để tránh số lẻ tùy hứng', () => {
+    expect(snapAiScoreRatio(0.91)).toBe(0.8);
+    expect(snapAiScoreRatio(0.96)).toBe(1);
+    expect(snapAiScoreRatio(0.61)).toBe(0.5);
   });
 });

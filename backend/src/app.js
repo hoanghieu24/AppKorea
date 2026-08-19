@@ -7,7 +7,7 @@ import { query, withTransaction } from './db.js';
 import { cleanupRefreshTokens, issueRefreshToken, requireAuth, requireRole, revokeAllRefreshTokensForUser, revokeRefreshToken, rotateRefreshToken, signToken, verifyPassword, hashPassword } from './auth.js';
 import { aiEnabled, aiErrorResponse, generateTextWithAI, gradeEssayBatchWithAI, testGeminiConnection } from './ai.js';
 import { addGeminiApiKeys, deleteGeminiApiKey, getAdminSettings, getGeminiApiKeySecretById, getSafeLearningSettings, saveAdminSettings, setGeminiApiKeyActive, updateGeminiKeyHealth } from './settings.js';
-import { gradeEssayFallback, gradeObjective, questionPromptForAi, shouldGradeWithAI } from './grading.js';
+import { attemptAnswersMatch, gradeEssayFallback, gradeObjective, questionPromptForAi, reusableAttemptResult, shouldGradeWithAI } from './grading.js';
 import { ensureTextbookCatalog, getTextbookLessons, getTextbookVocabulary } from './textbook.js';
 import { createConcurrencyGuard, createRateLimiter } from './rateLimit.js';
 import { recordSystemError, requestContextMiddleware, sanitizeLogText } from './monitoring.js';
@@ -1230,15 +1230,57 @@ function buildLocalAssignmentSummary(results, weakTopics) {
   return `${topicText}${usefulFeedback ? ` ${usefulFeedback}` : ''}`.slice(0, 900);
 }
 
-async function gradeAssignmentAnswers(questions, answers, metadata = {}) {
+function parseAttemptJson(value, fallback) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
+
+function attemptGradeResponse(attempt, questions, { reused = false } = {}) {
+  const results = parseAttemptJson(attempt.result_json, []);
+  const weakTopics = [...new Set(results
+    .filter((item) => Number(item.points) > 0 && Number(item.awarded) / Number(item.points) < 0.7)
+    .map((item) => item.topic)
+    .filter(Boolean))];
+  return {
+    attemptId: Number(attempt.id),
+    attemptNo: Number(attempt.attempt_no),
+    results,
+    score: Number(attempt.score),
+    maxScore: Number(attempt.max_score),
+    percentage: Number(attempt.percentage),
+    summary: attempt.ai_summary || buildLocalAssignmentSummary(results, weakTopics),
+    weakTopics,
+    aiUsed: Boolean(attempt.ai_used),
+    reused,
+    aiStats: { essayQuestions: 0, batches: 0, providerCalls: 0, reusedQuestions: questions.length },
+  };
+}
+
+async function gradeAssignmentAnswers(questions, answers, metadata = {}, previousAttempt = null) {
   const useAi = await aiEnabled();
   const resultByQuestionId = new Map();
   const aiJobs = [];
-  const aiStats = { essayQuestions: 0, batches: 0, providerCalls: 0 };
+  const aiStats = { essayQuestions: 0, batches: 0, providerCalls: 0, reusedQuestions: 0 };
+  const previousAnswers = parseAttemptJson(previousAttempt?.answers_json, {});
+  const previousResults = parseAttemptJson(previousAttempt?.result_json, []);
 
   // Các dạng có đáp án xác định được chấm local, không tiêu tốn Gemini request.
   for (const question of questions) {
     const answer = String(answers[String(question.id)] ?? '');
+    const reused = reusableAttemptResult(question, answer, previousAnswers, previousResults);
+    if (reused) {
+      resultByQuestionId.set(Number(question.id), {
+        ...reused,
+        questionId: Number(question.id),
+        topic: question.topic,
+        points: Number(question.points),
+        answer,
+        referenceAnswer: question.correct_answer || '',
+      });
+      aiStats.reusedQuestions += 1;
+      continue;
+    }
     let result;
 
     if (question.type === 'ESSAY') {
@@ -1372,7 +1414,26 @@ app.post(['/api/assignments/:id/check', '/api/assignments/:id/attempt'], require
   if (existed[0]) return res.status(409).json({ message: 'Bài đã nộp chính thức nên không thể check thêm.' });
 
   const questions = await query('SELECT * FROM questions WHERE assignment_id = ? ORDER BY position', [assignmentId]);
-  const grade = await gradeAssignmentAnswers(questions, input.data.answers, { userId: req.user.id, route: 'assignment-check' });
+  const previousRows = await query(`SELECT * FROM assignment_attempts
+    WHERE assignment_id = ? AND student_id = ? AND submission_id IS NULL
+    ORDER BY attempt_no DESC LIMIT 1`, [assignmentId, req.user.id]);
+  const previousAttempt = previousRows[0] || null;
+  const previousAnswers = parseAttemptJson(previousAttempt?.answers_json, {});
+
+  if (previousAttempt && attemptAnswersMatch(questions, input.data.answers, previousAnswers)) {
+    const reusedGrade = attemptGradeResponse(previousAttempt, questions, { reused: true });
+    return res.json({
+      message: `Đáp án chưa thay đổi nên giữ nguyên kết quả lần ${reusedGrade.attemptNo}. AI không chấm lại.`,
+      ...reusedGrade,
+    });
+  }
+
+  const grade = await gradeAssignmentAnswers(
+    questions,
+    input.data.answers,
+    { userId: req.user.id, route: 'assignment-check' },
+    previousAttempt,
+  );
   const numberRows = await query('SELECT COALESCE(MAX(attempt_no), 0) + 1 nextAttempt FROM assignment_attempts WHERE assignment_id = ? AND student_id = ?', [assignmentId, req.user.id]);
   const attemptNo = Number(numberRows[0]?.nextAttempt || 1);
   const inserted = await query(
@@ -1382,7 +1443,7 @@ app.post(['/api/assignments/:id/check', '/api/assignments/:id/attempt'], require
   );
   res.status(201).json({
     message: `AI đã check lần ${attemptNo}. Đây chưa phải bài nộp chính thức.`,
-    attemptId: inserted.insertId, attemptNo, ...grade,
+    attemptId: inserted.insertId, attemptNo, reused: false, ...grade,
   });
 });
 

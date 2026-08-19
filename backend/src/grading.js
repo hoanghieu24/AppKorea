@@ -18,6 +18,33 @@ export function shouldGradeWithAI(question) {
   return question?.type === 'ESSAY' || !String(question?.correct_answer || '').trim();
 }
 
+export function normalizeAttemptAnswer(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .replace(/\r\n?/g, '\n')
+    .trim();
+}
+
+export function attemptAnswersMatch(questions = [], currentAnswers = {}, previousAnswers = {}) {
+  return questions.every((question) => normalizeAttemptAnswer(currentAnswers[String(question.id)])
+    === normalizeAttemptAnswer(previousAnswers[String(question.id)]));
+}
+
+export function reusableAttemptResult(question, answer, previousAnswers = {}, previousResults = []) {
+  const questionId = Number(question?.id);
+  if (!questionId) return null;
+  if (normalizeAttemptAnswer(answer) !== normalizeAttemptAnswer(previousAnswers[String(questionId)])) return null;
+  return previousResults.find((item) => Number(item?.questionId) === questionId) || null;
+}
+
+export function snapAiScoreRatio(value) {
+  const ratio = Math.max(0, Math.min(1, Number(value) || 0));
+  if (ratio >= 0.95) return 1;
+  if (ratio >= 0.7) return 0.8;
+  if (ratio >= 0.25) return 0.5;
+  return 0;
+}
+
 export function questionPromptForAi(question) {
   let options = question?.options || [];
   if (typeof options === 'string') {

@@ -55,7 +55,18 @@ export default function AssignmentDetailPage({ user }) {
     try {
       const result = await api(`/assignments/${id}`);
       setData(result);
-      if (result?.assignment && !result.assignment.submissionId) setAnswers({});
+      if (user.role === 'STUDENT' && !result?.submission) {
+        if (result?.latestAttempt) {
+          setAnswers(result.latestAttempt.answers || {});
+          setPreview({ ...result.latestAttempt, reused: true });
+        } else {
+          setAnswers({});
+          setPreview(null);
+        }
+      } else if (user.role === 'STUDENT') {
+        setAnswers({});
+        setPreview(null);
+      }
     } catch (err) { setMessage(err.message); }
   };
   useEffect(() => { load(); }, [id]);
@@ -98,6 +109,7 @@ export default function AssignmentDetailPage({ user }) {
       const result = await api(`/assignments/${id}/attempt`, { method: 'POST', toast: false, body: JSON.stringify({ answers }) });
       setCheckingProgress(100);
       setPreview(result);
+      setMessage(result.reused ? result.message : '');
       // Cho người học kịp thấy trạng thái “Hoàn tất” thay vì panel biến mất đột ngột.
       await new Promise((resolve) => window.setTimeout(resolve, 450));
     } catch (err) { setMessage(err.message); }
@@ -153,7 +165,8 @@ function StudentWork({ assignment, questions, submission, answers, setAnswer, pr
       <section className="question-list result-questions">{questions.map((question, index) => {
         const result = answerMap.get(Number(question.id));
         const parts = splitQuestionPrompt(question.prompt);
-        return <article className={`question-card ${result?.isCorrect ? 'correct' : 'wrong'}`} key={question.id}><SharedContext text={parts.sharedContext} /><div className="q-head"><span>Câu {index + 1} · {question.points} điểm</span>{result?.isCorrect ? <CheckCircle2 /> : <XCircle />}</div><h3><FormattedQuestionText text={parts.prompt} /></h3><div className="answer-review"><span>Bạn trả lời</span><strong>{result?.answerText || '—'}</strong></div><div className="answer-review correct-answer"><span>Đáp án tham khảo</span><strong>{question.correctAnswer || 'Tự luận'}</strong></div><p className="feedback">{result?.gradedByAi && <Bot size={16} />} {result?.feedback}</p></article>;
+        const partial = !result?.isCorrect && Number(result?.pointsAwarded || 0) > 0;
+        return <article className={`question-card ${result?.isCorrect ? 'correct' : partial ? 'partial' : 'wrong'}`} key={question.id}><SharedContext text={parts.sharedContext} /><div className="q-head"><span>Câu {index + 1} · {question.points} điểm</span>{result?.isCorrect ? <CheckCircle2 /> : partial ? <CircleAlert /> : <XCircle />}</div><h3><FormattedQuestionText text={parts.prompt} /></h3><div className="answer-review"><span>Bạn trả lời</span><strong>{result?.answerText || '—'}</strong></div><div className="answer-review correct-answer"><span>Đáp án tham khảo</span><strong>{question.correctAnswer || 'Tự luận'}</strong></div><p className="feedback">{result?.gradedByAi && <Bot size={16} />} {result?.feedback}</p></article>;
       })}</section>
     </div>;
   }
@@ -163,8 +176,11 @@ function StudentWork({ assignment, questions, submission, answers, setAnswer, pr
       {question.type === 'MULTIPLE_CHOICE' ? <div className="option-list">{question.options.map((option) => <label key={option} className={answers[String(question.id)] === option ? 'selected' : ''}><input type="radio" name={`q-${question.id}`} value={option} checked={answers[String(question.id)] === option} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} /><span>{option}</span></label>)}</div> : question.type === 'SHORT_TEXT' ? <input className="student-answer-input" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Nhập câu trả lời..." /> : <textarea className="student-answer-input" rows="4" value={answers[String(question.id)] || ''} disabled={checking || submitting} onChange={(e) => setAnswer(question.id, e.target.value)} placeholder="Viết câu trả lời của bạn..." />}
     </article>; })}</div>
     {assignment.type === 'HOMEWORK' && checking && <AiCheckingStatus progress={checkingProgress} elapsed={checkingElapsed} />}
-    {assignment.type === 'HOMEWORK' && preview && <section className="ai-preview panel"><div className="ai-preview-head"><div><Bot /><span><strong>AI check lần {preview.attemptNo}</strong><small>Đây chưa phải bài nộp chính thức.</small></span></div><b>{Math.round(preview.percentage)}%</b></div><p>{preview.summary}</p><div className="preview-results">{preview.results?.map((result, index) => <div className={result.isCorrect ? 'preview-result correct' : 'preview-result wrong'} key={result.questionId}><span>{result.isCorrect ? <CheckCircle2 size={17} /> : <XCircle size={17} />} Câu {index + 1}</span><strong>{result.awarded}/{result.points} điểm</strong><p>{result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>{!result.isCorrect && result.referenceAnswer && <small>Đáp án tham khảo: {result.referenceAnswer}</small>}</div>)}</div></section>}
-    <div className="submit-bar"><div><strong>{assignment.type === 'HOMEWORK' ? (preview ? 'Ổn rồi thì nộp cho giáo viên' : 'Bước 1: Check bằng AI') : 'Kiểm tra kỹ trước khi nộp'}</strong><span>{assignment.type === 'HOMEWORK' ? (preview ? `Đã check ${preview.attemptNo} lần. Sửa đáp án sẽ cần check lại.` : 'Có thể check lại nhiều lần trước khi nộp chính thức.') : 'Bài kiểm tra chỉ nộp chính thức một lần.'}</span></div><div className="submit-actions">{assignment.type === 'HOMEWORK' && <button type="button" className="btn secondary" onClick={checkWithAi} disabled={checking || submitting}><Bot size={17} /> {checking ? 'AI đang check...' : preview ? 'Check lại bằng AI' : 'Check bằng AI'}</button>}<button className="btn primary" disabled={submitting || checking || (assignment.type === 'HOMEWORK' && !preview)}><Send size={17} /> {submitting ? 'Đang nộp...' : 'Nộp cho giáo viên'}</button></div></div>
+    {assignment.type === 'HOMEWORK' && preview && <section className="ai-preview panel"><div className="ai-preview-head"><div><Bot /><span><strong>AI check lần {preview.attemptNo}</strong><small>Kết quả được khóa theo từng đáp án; câu không đổi sẽ không bị chấm lại.</small></span></div><b>{Math.round(preview.percentage)}%</b></div><p>{preview.summary}</p><div className="preview-results">{preview.results?.map((result, index) => {
+      const partial = !result.isCorrect && Number(result.awarded || 0) > 0;
+      return <div className={`preview-result ${result.isCorrect ? 'correct' : partial ? 'partial' : 'wrong'}`} key={result.questionId}><span>{result.isCorrect ? <CheckCircle2 size={17} /> : partial ? <CircleAlert size={17} /> : <XCircle size={17} />} Câu {index + 1}</span><strong>{result.awarded}/{result.points} điểm</strong><p>{result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>{!result.isCorrect && result.referenceAnswer && <small>Đáp án tham khảo: {result.referenceAnswer}</small>}</div>;
+    })}</div></section>}
+    <div className="submit-bar"><div><strong>{assignment.type === 'HOMEWORK' ? (preview ? 'Ổn rồi thì nộp cho giáo viên' : 'Bước 1: Check bằng AI') : 'Kiểm tra kỹ trước khi nộp'}</strong><span>{assignment.type === 'HOMEWORK' ? (preview ? `Đang dùng kết quả lần ${preview.attemptNo}. Muốn check lại phải sửa đáp án; chỉ câu đã sửa được chấm lại.` : 'Có thể sửa và check nhiều lần; đáp án không đổi luôn giữ nguyên kết quả.') : 'Bài kiểm tra chỉ nộp chính thức một lần.'}</span></div><div className="submit-actions">{assignment.type === 'HOMEWORK' && <button type="button" className="btn secondary" onClick={checkWithAi} disabled={checking || submitting || Boolean(preview)}><Bot size={17} /> {checking ? 'AI đang check...' : preview ? 'Sửa đáp án để check lại' : 'Check bằng AI'}</button>}<button className="btn primary" disabled={submitting || checking || (assignment.type === 'HOMEWORK' && !preview)}><Send size={17} /> {submitting ? 'Đang nộp...' : 'Nộp cho giáo viên'}</button></div></div>
   </form>;
 }
 

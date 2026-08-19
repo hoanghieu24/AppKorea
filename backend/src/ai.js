@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { recordAiUsage, sanitizeLogText } from './monitoring.js';
 import { getAiRuntimeSettings, updateGeminiKeyHealth } from './settings.js';
+import { snapAiScoreRatio } from './grading.js';
 
 class AiError extends Error {
   constructor(code, publicMessage, statusCode = 502, details = '') {
@@ -271,7 +272,7 @@ QUY TẮC BẮT BUỘC:
 3. Nếu không có đáp án cố định, chấm theo đúng yêu cầu đề và mức độ tự nhiên/chính xác của tiếng Hàn.
 4. Bỏ trống hoặc lạc đề phải 0 điểm.
 5. Sai thì feedback bằng tiếng Việt phải nói rõ sai ở đâu và gợi ý cách sửa. Đúng thì nhận xét ngắn gọn.
-6. scoreRatio là số từ 0 đến 1. isCorrect=true chỉ khi câu trả lời đạt yêu cầu đầy đủ.
+6. scoreRatio CHỈ được chọn một trong 4 mức: 0 (sai/bỏ trống), 0.5 (đúng một phần nhưng lỗi lớn), 0.8 (gần đúng nhưng còn lỗi nhỏ), 1 (đúng hoàn toàn). isCorrect=true chỉ khi scoreRatio=1.
 7. Phải trả đủ đúng ${batch.length} phần tử, một phần tử cho mỗi questionId đầu vào.
 8. Chỉ trả JSON thuần đúng schema, không markdown, không thêm chữ bên ngoài:
 {"results":[{"questionId":1,"scoreRatio":1,"isCorrect":true,"feedback":"..."}]}`;
@@ -299,11 +300,11 @@ QUY TẮC BẮT BUỘC:
     if (!row) return null;
     const ratioRaw = Number(row.scoreRatio);
     if (!Number.isFinite(ratioRaw)) return null;
-    const ratio = Math.max(0, Math.min(1, ratioRaw));
+    const ratio = snapAiScoreRatio(ratioRaw);
     return {
       questionId: item.questionId,
       awarded: Number((ratio * item.maxPoints).toFixed(2)),
-      isCorrect: Boolean(row.isCorrect) && ratio >= 0.8,
+      isCorrect: Boolean(row.isCorrect) && ratio === 1,
       feedback: String(row.feedback || 'Đã chấm bằng AI.').trim(),
       gradedByAi: true,
     };
