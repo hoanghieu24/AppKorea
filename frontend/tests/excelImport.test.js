@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import {
   applyExcelAuditCorrections,
+  assignmentTotalPoints,
   excelCellMarkedText,
   excelImportDiagnostics,
   parseExcelRuleBased,
@@ -24,6 +25,11 @@ const semanticRow = (row, values) => ({
 });
 
 describe('Excel assignment importer', () => {
+  it('cộng tổng điểm trực tiếp sau khi nạp hoặc sửa câu hỏi', () => {
+    expect(assignmentTotalPoints([{ prompt: 'Câu 1', points: 1 }, { prompt: 'Câu 2', points: '0.5' }, { prompt: 'Câu 3', points: 2.25 }])).toBe(3.75);
+    expect(assignmentTotalPoints([{ prompt: '', points: 1 }, { prompt: 'Câu 2', points: -1 }, { prompt: 'Câu 3', points: 'không hợp lệ' }])).toBe(0);
+  });
+
   it('keeps actual Excel row coordinates when blank rows exist', () => {
     const sheet = {
       A1: { t: 's', v: 'Tiêu đề', w: 'Tiêu đề', h: 'Tiêu đề' },

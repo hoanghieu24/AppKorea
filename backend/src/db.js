@@ -55,6 +55,30 @@ export async function closePool() {
   await current.end();
 }
 
+export async function ensureSubmissionReviewSchema() {
+  const columns = await query(`SELECT COLUMN_NAME columnName
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'submissions'
+      AND COLUMN_NAME IN ('teacher_feedback', 'teacher_reviewed_at')`);
+  const existing = new Set(columns.map((column) => column.columnName));
+  const additions = [
+    ['teacher_feedback', 'ALTER TABLE submissions ADD COLUMN teacher_feedback TEXT NULL AFTER ai_summary'],
+    ['teacher_reviewed_at', 'ALTER TABLE submissions ADD COLUMN teacher_reviewed_at DATETIME NULL AFTER teacher_feedback'],
+  ];
+
+  for (const [columnName, sql] of additions) {
+    if (existing.has(columnName)) continue;
+    try {
+      await query(sql);
+    } catch (error) {
+      // Hai instance Render có thể cùng khởi động và cùng nhìn thấy cột chưa tồn tại.
+      // Instance thêm sau được phép bỏ qua lỗi trùng cột, các lỗi DB khác vẫn phải báo thật.
+      if (error?.code !== 'ER_DUP_FIELDNAME') throw error;
+    }
+  }
+}
+
 export async function ensureSchema() {
   try {
     const { readFile } = await import('node:fs/promises');
@@ -72,4 +96,3 @@ export async function ensureSchema() {
     console.warn('[DB NOTICE] Schema verification notice:', err?.message);
   }
 }
-

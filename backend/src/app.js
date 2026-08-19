@@ -159,6 +159,7 @@ app.get('/api/health', async (_req, res) => {
       query('SELECT 1 FROM ai_usage_events LIMIT 0', [], { timeout: healthTimeout }),
       query('SELECT 1 FROM system_error_logs LIMIT 0', [], { timeout: healthTimeout }),
       query('SELECT 1 FROM user_presence LIMIT 0', [], { timeout: healthTimeout }),
+      query('SELECT teacher_feedback, teacher_reviewed_at FROM submissions LIMIT 0', [], { timeout: healthTimeout }),
     ]);
     res.setHeader('Cache-Control', 'no-store');
     res.json({
@@ -1494,7 +1495,8 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
   const limitSql = paginationLimitSql(pagination);
   const studentParams = [assignmentId, assignment.class_id];
   const students = await query(`SELECT u.id, u.full_name fullName, u.email, s.id submissionId, s.percentage,
-    s.score, s.max_score maxScore, s.submitted_at submittedAt, s.ai_summary summary
+    s.score, s.max_score maxScore, s.submitted_at submittedAt, s.ai_summary summary,
+    s.teacher_feedback teacherFeedback, s.teacher_reviewed_at teacherReviewedAt
     FROM class_students cs JOIN users u ON u.id = cs.student_id
     LEFT JOIN submissions s ON s.student_id = u.id AND s.assignment_id = ?
     WHERE cs.class_id = ? ORDER BY u.full_name${limitSql}`, studentParams);
@@ -1558,6 +1560,35 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
       latestAttempt: latestAttemptByStudent.get(Number(student.id)) || null,
       weakTopics: weakByStudent.get(student.id) || weakByStudent.get(Number(student.id)) || [],
     })),
+  });
+});
+
+app.patch('/api/assignments/:id/submissions/:submissionId/review', requireAuth, async (req, res) => {
+  const assignmentId = idSchema.parse(req.params.id);
+  const submissionId = idSchema.parse(req.params.submissionId);
+  const input = z.object({ teacherFeedback: z.string().trim().max(2000) }).safeParse(req.body);
+  if (!input.success) return badRequest(res, 'Đánh giá của giáo viên không được vượt quá 2.000 ký tự.');
+
+  const rows = await query(`SELECT s.id, a.class_id classId
+    FROM submissions s JOIN assignments a ON a.id = s.assignment_id
+    WHERE s.id = ? AND s.assignment_id = ? LIMIT 1`, [submissionId, assignmentId]);
+  const submission = rows[0];
+  if (!submission) return res.status(404).json({ message: 'Không tìm thấy bài nộp của học sinh.' });
+  if (!(await canManageClass(req.user, submission.classId))) {
+    return res.status(403).json({ message: 'Bạn không có quyền đánh giá bài nộp này.' });
+  }
+
+  const teacherFeedback = input.data.teacherFeedback || null;
+  await query(`UPDATE submissions
+    SET teacher_feedback = ?, teacher_reviewed_at = ${teacherFeedback ? 'NOW()' : 'NULL'}
+    WHERE id = ? AND assignment_id = ?`, [teacherFeedback, submissionId, assignmentId]);
+  const [updated] = await query(`SELECT teacher_feedback teacherFeedback,
+    teacher_reviewed_at teacherReviewedAt FROM submissions WHERE id = ? LIMIT 1`, [submissionId]);
+
+  return res.json({
+    message: teacherFeedback ? 'Đã lưu đánh giá cho học sinh.' : 'Đã xóa đánh giá của giáo viên.',
+    teacherFeedback: updated?.teacherFeedback || '',
+    teacherReviewedAt: updated?.teacherReviewedAt || null,
   });
 });
 

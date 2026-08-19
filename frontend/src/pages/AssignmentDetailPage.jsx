@@ -153,7 +153,7 @@ export default function AssignmentDetailPage({ user }) {
     </section>
     {message && <div className="notice">{message}</div>}
     {assignment.instructions && <div className="instruction-box"><strong>Hướng dẫn</strong><p>{assignment.instructions}</p></div>}
-    {user.role === 'STUDENT' ? <StudentWork assignment={assignment} questions={questions} submission={submission} answers={answers} setAnswer={setAnswer} preview={preview} checkWithAi={checkWithAi} checking={checking} checkingProgress={checkingProgress} checkingElapsed={checkingElapsed} submit={submit} submitting={submitting} aiEnabled={data.aiEnabled} /> : <TeacherView assignment={assignment} questions={questions} report={report} reportLoading={reportLoading} setReportPage={setReportPage} publish={publish} assignmentId={Number(id)} />}
+    {user.role === 'STUDENT' ? <StudentWork assignment={assignment} questions={questions} submission={submission} answers={answers} setAnswer={setAnswer} preview={preview} checkWithAi={checkWithAi} checking={checking} checkingProgress={checkingProgress} checkingElapsed={checkingElapsed} submit={submit} submitting={submitting} aiEnabled={data.aiEnabled} /> : <TeacherView assignment={assignment} questions={questions} report={report} setReport={setReport} reportLoading={reportLoading} setReportPage={setReportPage} publish={publish} assignmentId={Number(id)} />}
   </>;
 }
 
@@ -161,7 +161,7 @@ function StudentWork({ assignment, questions, submission, answers, setAnswer, pr
   const answerMap = useMemo(() => new Map((submission?.answers || []).map((answer) => [Number(answer.questionId), answer])), [submission]);
   if (submission) {
     return <div className="two-col result-layout">
-      <section className="panel result-summary"><div className="score-ring" style={{ '--score': `${submission.percentage}%` }}><div><strong>{Math.round(submission.percentage)}</strong><span>/ 100</span></div></div><h2>Đã chấm xong</h2><p>{submission.ai_summary}</p><div className="score-line"><span>Điểm</span><strong>{submission.score}/{submission.max_score}</strong></div></section>
+      <section className="panel result-summary"><div className="score-ring" style={{ '--score': `${submission.percentage}%` }}><div><strong>{Math.round(submission.percentage)}</strong><span>/ 100</span></div></div><h2>Đã chấm xong</h2><p>{submission.ai_summary}</p><div className="score-line"><span>Điểm</span><strong>{submission.score}/{submission.max_score}</strong></div>{submission.teacher_feedback && <div className="student-teacher-feedback"><div><MessageSquare size={17} /><strong>Nhận xét của giáo viên</strong></div><p>{submission.teacher_feedback}</p>{submission.teacher_reviewed_at && <small>Cập nhật {formatDate(submission.teacher_reviewed_at)}</small>}</div>}</section>
       <section className="question-list result-questions">{questions.map((question, index) => {
         const result = answerMap.get(Number(question.id));
         const parts = splitQuestionPrompt(question.prompt);
@@ -224,7 +224,45 @@ function AiCheckingStatus({ progress, elapsed }) {
   </aside>;
 }
 
-function TeacherView({ assignment, questions, report, reportLoading, setReportPage, publish, assignmentId }) {
+function TeacherFeedbackEditor({ assignmentId, student, onSaved }) {
+  const [value, setValue] = useState(student.teacherFeedback || '');
+  const [savedValue, setSavedValue] = useState(student.teacherFeedback || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setValue(student.teacherFeedback || '');
+    setSavedValue(student.teacherFeedback || '');
+  }, [student.submissionId, student.teacherFeedback]);
+
+  const save = async () => {
+    if (!student.submissionId || saving || value.trim() === savedValue.trim()) return;
+    setError('');
+    setSaving(true);
+    try {
+      const result = await api(`/assignments/${assignmentId}/submissions/${student.submissionId}/review`, {
+        method: 'PATCH',
+        body: JSON.stringify({ teacherFeedback: value }),
+      });
+      setValue(result.teacherFeedback || '');
+      setSavedValue(result.teacherFeedback || '');
+      onSaved(student.submissionId, result);
+    } catch (saveError) {
+      setError(saveError.message || 'Chưa lưu được đánh giá.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <div className="teacher-feedback-editor">
+    <div className="teacher-feedback-editor-head"><span><MessageSquare size={15} /><strong>Đánh giá của giáo viên</strong></span>{student.teacherReviewedAt && <small>{formatDate(student.teacherReviewedAt)}</small>}</div>
+    <textarea rows="3" maxLength="2000" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Ghi nhận xét, điều học sinh làm tốt và phần cần cải thiện..." />
+    {error && <small className="teacher-feedback-error">{error}</small>}
+    <div className="teacher-feedback-editor-actions"><span>{value.length}/2000 ký tự</span><button type="button" className="btn secondary small" onClick={save} disabled={saving || value.trim() === savedValue.trim()}>{saving ? 'Đang lưu...' : value.trim() ? 'Lưu đánh giá' : 'Xóa đánh giá'}</button></div>
+  </div>;
+}
+
+function TeacherView({ assignment, questions, report, setReport, reportLoading, setReportPage, publish, assignmentId }) {
   const submitted = report?.submittedCount ?? report?.students?.filter((s) => s.submitted).length ?? 0;
   const total = report?.total ?? report?.students?.length ?? 0;
   const [contentCollapsed, setContentCollapsed] = useState(false);
@@ -233,6 +271,15 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
   const [aiHistory, setAiHistory] = useState([]);
   const [aiLoading, setAiLoading] = useState(false);
   const aiBottomRef = useRef(null);
+
+  const updateSavedReview = (submissionId, result) => {
+    setReport((current) => current ? {
+      ...current,
+      students: current.students.map((student) => Number(student.submissionId) === Number(submissionId)
+        ? { ...student, teacherFeedback: result.teacherFeedback, teacherReviewedAt: result.teacherReviewedAt }
+        : student),
+    } : current);
+  };
 
   const sendAiQuestion = async () => {
     const q = aiQuestion.trim();
@@ -404,6 +451,7 @@ function TeacherView({ assignment, questions, report, reportLoading, setReportPa
                       </article>
                     </details>
                   ) : null}
+                  {student.submitted && <TeacherFeedbackEditor assignmentId={assignmentId} student={student} onSaved={updateSavedReview} />}
                 </div>
                 <span className={`submit-state ${student.submitted ? 'done' : ''}`}>{student.submitted ? 'Đã nộp' : 'Chưa nộp'}</span>
               </div>

@@ -117,6 +117,8 @@ CREATE TABLE IF NOT EXISTS submissions (
   max_score DECIMAL(7,2) NOT NULL DEFAULT 0,
   percentage DECIMAL(5,2) NOT NULL DEFAULT 0,
   ai_summary TEXT NULL,
+  teacher_feedback TEXT NULL,
+  teacher_reviewed_at DATETIME NULL,
   submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   graded_at DATETIME NULL,
   UNIQUE KEY uq_submission_student (assignment_id, student_id),
