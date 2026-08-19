@@ -230,10 +230,8 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 /* Assignment list + builder */
 .assignment-builder { margin-bottom: 18px; border-color: #dcd8ff; box-shadow: var(--shadow); }
 .question-builder-head { display: flex; justify-content: space-between; align-items: center; margin: 24px 0 11px; }
-.question-builder-head > div { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+.question-builder-head > div { display: flex; gap: 9px; align-items: center; }
 .question-builder-head span { color: var(--muted); font-size: .75rem; }
-.assignment-total-points { display: inline-flex; align-items: center; padding: 5px 9px; border: 1px solid #cfc9ff; border-radius: 999px; color: var(--purple) !important; background: var(--purple-soft); font-weight: 750; }
-.assignment-total-points b { margin-right: 3px; font-size: .84rem; }
 .question-builder-list { display: grid; gap: 11px; }
 .question-edit { display: flex; gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: #fbfbfd; }
 .question-number { width: 29px; height: 29px; display: grid; place-items: center; background: var(--purple); color: #fff; border-radius: 9px; font-size: .76rem; font-weight: 850; flex: 0 0 auto; }
@@ -551,7 +549,14 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .teacher-feedback-editor-head > span { justify-content: flex-start; color: var(--purple); }
 .teacher-feedback-editor-head strong { color: #403c50; font-size: .76rem; }
 .teacher-feedback-editor-head small, .teacher-feedback-editor-actions span { color: var(--muted); font-size: .64rem; }
+.teacher-feedback-send-note { color: #6d6780; font-size: .66rem; line-height: 1.45; }
 .teacher-feedback-editor textarea { min-height: 76px; resize: vertical; padding: 9px 10px; font-size: .76rem; line-height: 1.5; }
+.student-total-score { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 9px; padding: 11px 13px; border: 1px solid #cfc9ff; border-radius: 12px; background: linear-gradient(135deg, #f3f1ff, #fff); }
+.student-total-score > div { display: grid; gap: 2px; }
+.student-total-score > div > span { color: #6b5ce0; font-size: .58rem; font-weight: 900; letter-spacing: .06em; }
+.student-total-score strong { color: #312b54; font-size: 1.2rem; line-height: 1; }
+.student-total-score strong small { margin-left: 3px; color: #777188; font-size: .7rem; font-weight: 700; }
+.student-total-score > b { padding: 7px 10px; border-radius: 10px; color: #fff; background: linear-gradient(135deg, #6757f5, #8b5cf6); font-size: .85rem; }
 .student-teacher-feedback { display: grid; gap: 7px; margin-top: 15px; padding: 12px; border: 1px solid #dcd8ff; border-radius: 12px; background: #f8f6ff; text-align: left; }
 .student-teacher-feedback > div { display: flex; align-items: center; gap: 7px; color: var(--purple); }
 .student-teacher-feedback strong { color: #403c50; font-size: .78rem; }
@@ -1053,7 +1058,6 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .excel-review-stats b { color: #5042d1; font-size: .72rem; }
 .excel-review-stats .ready { border-color: #cdebdc; background: #f2fbf7; }
 .excel-review-stats .ready b { color: #19805a; }
-.excel-review-stats .total-points { border-color: #cfc9ff; color: #5548c9; background: #f3f1ff; font-weight: 750; }
 .excel-review-stats .needs-review { border-color: #f1d9b0; background: #fff9ec; }
 .excel-review-stats .needs-review b { color: #a56b19; }
 .excel-review-warnings {

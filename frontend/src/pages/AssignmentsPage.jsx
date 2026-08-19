@@ -12,15 +12,6 @@ const freshQuestion = (patch = {}) => ({
   ...patch,
 });
 
-function assignmentTotalPoints(questions = []) {
-  const total = questions.reduce((sum, question) => {
-    if (!String(question?.prompt || '').trim()) return sum;
-    const points = Number(question?.points);
-    return sum + (Number.isFinite(points) && points > 0 ? points : 0);
-  }, 0);
-  return Math.round(total * 100) / 100;
-}
-
 const headerKey = (value) => String(value || '')
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   .toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -1215,7 +1206,6 @@ function ExcelImportPreview({ preview, expanded, onToggle, onApply, onReplace, o
 
     <div className="excel-review-stats">
       <span><b>{preview.questions.length}</b> câu thật</span>
-      <span className="total-points"><b>{assignmentTotalPoints(preview.questions)}</b> tổng điểm</span>
       <span><b>{diagnostics.multipleChoiceCount || 0}</b> trắc nghiệm</span>
       <span><b>{diagnostics.essayCount || 0}</b> tự luận</span>
       <span><b>{diagnostics.sharedContextCount || 0}</b> đề chung</span>
@@ -1288,7 +1278,6 @@ export default function AssignmentsPage({ user }) {
   const [ocrStatus, setOcrStatus] = useState({ stage: 'prepare', title: '', detail: '' });
   const [ocrSeconds, setOcrSeconds] = useState(0);
   const [form, setForm] = useState({ classId: '', type: 'HOMEWORK', title: '', instructions: '', dueAt: '', timeLimitMinutes: '', questions: [freshQuestion()], publishNow: true });
-  const totalPoints = assignmentTotalPoints(form.questions);
 
   const load = async () => {
     setListLoading(true);
@@ -1899,7 +1888,7 @@ export default function AssignmentsPage({ user }) {
         onDiscard={discardExcelPreview}
       />}
 
-      <div className="question-builder-head"><div><strong>Câu hỏi đã thêm</strong><span>{form.questions.length} câu</span><span className="assignment-total-points"><b>{totalPoints}</b> tổng điểm</span></div><button type="button" className="btn secondary small" onClick={() => setForm({ ...form, questions: [...form.questions, freshQuestion()] })}><Plus size={16} /> Thêm câu</button></div>
+      <div className="question-builder-head"><div><strong>Câu hỏi đã thêm</strong><span>{form.questions.length} câu</span></div><button type="button" className="btn secondary small" onClick={() => setForm({ ...form, questions: [...form.questions, freshQuestion()] })}><Plus size={16} /> Thêm câu</button></div>
       <div className="question-builder-list">
         {form.questions.map((question, index) => <div className="question-edit" key={index}>
           <div className="question-number">{index + 1}</div>
@@ -1988,7 +1977,6 @@ function StudentAssignments({ assignments, message, filter, setFilter, paginatio
 }
 
 export {
-  assignmentTotalPoints,
   applyExcelAuditCorrections,
   buildExcelAuditItems,
   chunkExcelRows,

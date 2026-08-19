@@ -1569,7 +1569,8 @@ app.patch('/api/assignments/:id/submissions/:submissionId/review', requireAuth, 
   const input = z.object({ teacherFeedback: z.string().trim().max(2000) }).safeParse(req.body);
   if (!input.success) return badRequest(res, 'Đánh giá của giáo viên không được vượt quá 2.000 ký tự.');
 
-  const rows = await query(`SELECT s.id, a.class_id classId
+  const rows = await query(`SELECT s.id, s.student_id studentId, s.teacher_feedback currentFeedback,
+    s.teacher_reviewed_at teacherReviewedAt, a.class_id classId, a.title assignmentTitle
     FROM submissions s JOIN assignments a ON a.id = s.assignment_id
     WHERE s.id = ? AND s.assignment_id = ? LIMIT 1`, [submissionId, assignmentId]);
   const submission = rows[0];
@@ -1579,16 +1580,37 @@ app.patch('/api/assignments/:id/submissions/:submissionId/review', requireAuth, 
   }
 
   const teacherFeedback = input.data.teacherFeedback || null;
-  await query(`UPDATE submissions
-    SET teacher_feedback = ?, teacher_reviewed_at = ${teacherFeedback ? 'NOW()' : 'NULL'}
-    WHERE id = ? AND assignment_id = ?`, [teacherFeedback, submissionId, assignmentId]);
+  if (String(submission.currentFeedback || '').trim() === String(teacherFeedback || '').trim()) {
+    return res.json({
+      message: 'Nội dung đánh giá không thay đổi nên hệ thống không gửi lại thông báo.',
+      teacherFeedback: submission.currentFeedback || '',
+      teacherReviewedAt: submission.teacherReviewedAt || null,
+      notificationSent: false,
+    });
+  }
+
+  await withTransaction(async (connection) => {
+    await connection.execute(`UPDATE submissions
+      SET teacher_feedback = ?, teacher_reviewed_at = ${teacherFeedback ? 'NOW()' : 'NULL'}
+      WHERE id = ? AND assignment_id = ?`, [teacherFeedback, submissionId, assignmentId]);
+
+    if (teacherFeedback) {
+      const notificationMessage = `Bài “${submission.assignmentTitle}”: ${teacherFeedback}`.slice(0, 500);
+      await connection.execute(
+        `INSERT INTO notifications (user_id, type, title, message, reference_type, reference_id)
+         VALUES (?, 'TEACHER_REVIEW', 'Giáo viên đã đánh giá bài của bạn', ?, 'ASSIGNMENT', ?)`,
+        [submission.studentId, notificationMessage, assignmentId],
+      );
+    }
+  });
   const [updated] = await query(`SELECT teacher_feedback teacherFeedback,
     teacher_reviewed_at teacherReviewedAt FROM submissions WHERE id = ? LIMIT 1`, [submissionId]);
 
   return res.json({
-    message: teacherFeedback ? 'Đã lưu đánh giá cho học sinh.' : 'Đã xóa đánh giá của giáo viên.',
+    message: teacherFeedback ? 'Đã lưu và gửi đánh giá cho học sinh.' : 'Đã xóa đánh giá của giáo viên.',
     teacherFeedback: updated?.teacherFeedback || '',
     teacherReviewedAt: updated?.teacherReviewedAt || null,
+    notificationSent: Boolean(teacherFeedback),
   });
 });
 

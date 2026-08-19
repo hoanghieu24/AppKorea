@@ -36,6 +36,16 @@ function SharedContext({ text }) {
   return <div className="shared-question-context"><div className="shared-question-context-head">ĐỀ CHUNG</div><p><FormattedQuestionText text={text} /></p></div>;
 }
 
+function formatScoreValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '0';
+  return String(Math.round(numeric * 100) / 100);
+}
+
+function studentScoreText(student = {}) {
+  return `${formatScoreValue(student.score)}/${formatScoreValue(student.maxScore)} điểm · ${Math.round(Number(student.percentage) || 0)}%`;
+}
+
 
 export default function AssignmentDetailPage({ user }) {
   const { id } = useParams();
@@ -256,9 +266,10 @@ function TeacherFeedbackEditor({ assignmentId, student, onSaved }) {
 
   return <div className="teacher-feedback-editor">
     <div className="teacher-feedback-editor-head"><span><MessageSquare size={15} /><strong>Đánh giá của giáo viên</strong></span>{student.teacherReviewedAt && <small>{formatDate(student.teacherReviewedAt)}</small>}</div>
+    <small className="teacher-feedback-send-note">Khi lưu, nhận xét sẽ được gửi vào thông báo của học sinh và hiển thị trong kết quả bài làm.</small>
     <textarea rows="3" maxLength="2000" value={value} onChange={(event) => setValue(event.target.value)} placeholder="Ghi nhận xét, điều học sinh làm tốt và phần cần cải thiện..." />
     {error && <small className="teacher-feedback-error">{error}</small>}
-    <div className="teacher-feedback-editor-actions"><span>{value.length}/2000 ký tự</span><button type="button" className="btn secondary small" onClick={save} disabled={saving || value.trim() === savedValue.trim()}>{saving ? 'Đang lưu...' : value.trim() ? 'Lưu đánh giá' : 'Xóa đánh giá'}</button></div>
+    <div className="teacher-feedback-editor-actions"><span>{value.length}/2000 ký tự</span><button type="button" className="btn secondary small" onClick={save} disabled={saving || value.trim() === savedValue.trim()}>{saving ? 'Đang gửi...' : savedValue.trim() && !value.trim() ? 'Xóa đánh giá' : 'Lưu & gửi cho học sinh'}</button></div>
   </div>;
 }
 
@@ -417,15 +428,16 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
                 <div className="avatar small">{student.fullName.slice(0, 1)}</div>
                 <div className="grow">
                   <strong>{student.fullName}</strong>
-                  <span>{student.submitted ? `Đã nộp · ${Math.round(student.percentage)}%` : student.attemptCount ? 'Đang làm bài' : 'Chưa nộp bài'}</span>
+                  <span>{student.submitted ? `Đã nộp · ${studentScoreText(student)}` : student.attemptCount ? 'Đang làm bài' : 'Chưa nộp bài'}</span>
                   {student.attemptCount > 0 && <small className="student-check-count">{student.fullName} đã Check AI {student.attemptCount} lần</small>}
+                  {student.submitted && <div className="student-total-score"><div><span>TỔNG ĐIỂM HỌC SINH</span><strong>{formatScoreValue(student.score)}<small>/{formatScoreValue(student.maxScore)} điểm</small></strong></div><b>{Math.round(Number(student.percentage) || 0)}%</b></div>}
                   {(student.summary || student.latestAttempt?.summary) && <div className="student-ai-overview"><Bot size={15} /><div><strong>Đánh giá chung của AI</strong><p>{student.summary || student.latestAttempt?.summary}</p></div></div>}
                   {student.weakTopics?.length ? <small>Cần ôn: {student.weakTopics.map((t) => `${t.topic} (${t.mastery}%)`).join(', ')}</small> : null}
                   {student.latestAttempt?.results?.length ? (
                     <details className="latest-attempt-detail" open={student.submitted}>
                       <summary>
                         <span>{student.submitted ? 'Chi tiết bài nộp cuối cùng' : 'Chi tiết lần Check AI gần nhất'}</span>
-                        <b>{Math.round(student.latestAttempt.percentage)}%</b>
+                        <b>{student.submitted ? studentScoreText(student) : `${formatScoreValue(student.latestAttempt.score)}/${formatScoreValue(student.latestAttempt.maxScore)} điểm · ${Math.round(student.latestAttempt.percentage)}%`}</b>
                       </summary>
                       <article>
                         <small>{student.latestAttempt.createdAt ? new Date(student.latestAttempt.createdAt).toLocaleString('vi-VN') : ''}</small>
@@ -463,3 +475,5 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
     </div>
   </div>;
 }
+
+export { formatScoreValue, studentScoreText };

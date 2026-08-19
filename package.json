@@ -1,7 +1,7 @@
 {
   "name": "hanquoc-classroom",
   "private": true,
-  "version": "2.3.17",
+  "version": "2.3.18",
   "workspaces": [
     "backend",
     "frontend"
