@@ -2,6 +2,49 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpenCheck, RefreshCw, ShieldCheck } from 'lucide-react';
 import { api } from '../api.js';
 
+const CLASSROOM_STUDY_AIDS = Object.freeze({
+  위: { roman: 'wi', tip: '위 = trên: tưởng tượng chữ 위 đang nằm phía trên một chiếc bàn. Nhớ cụm 책상 위에 = ở trên bàn.', example: '책이 책상 위에 있어요.', exampleViet: 'Quyển sách ở trên bàn.' },
+  아래: { roman: 'arae', tip: '아래 = dưới: hình dung mũi tên ↓ kéo chữ 아래 xuống dưới. 책상 아래에 = ở dưới bàn.', example: '가방이 의자 아래에 있어요.', exampleViet: 'Cái cặp ở dưới ghế.' },
+  안: { roman: 'an', tip: '안 = trong: tưởng tượng đặt chữ 안 vào trong một chiếc hộp. 가방 안에 = ở trong cặp.', example: '책이 가방 안에 있어요.', exampleViet: 'Quyển sách ở trong cặp.' },
+  밖: { roman: 'bak', tip: '밖 = ngoài: tưởng tượng bật chữ 밖 ra ngoài cánh cửa. 집 밖에 = ở ngoài nhà.', example: '사람이 집 밖에 있어요.', exampleViet: 'Có người ở ngoài nhà.' },
+  옆: { roman: 'yeop', tip: '옆 = bên cạnh: hình dung hai đồ vật đứng sát cạnh nhau. 의자 옆에 = ở bên cạnh ghế.', example: '가방이 의자 옆에 있어요.', exampleViet: 'Cái cặp ở bên cạnh ghế.' },
+  사이: { roman: 'sai', tip: '사이 = giữa: chữ 사이 chen vào giữa hai vật. A와 B 사이에 = ở giữa A và B.', example: '은행과 식당 사이에 카페가 있어요.', exampleViet: 'Quán cà phê ở giữa ngân hàng và nhà hàng.' },
+  앞: { roman: 'ap', tip: '앞 = trước: liên tưởng “áp” sát về phía trước. 학교 앞에 = ở trước trường.', example: '학교 앞에서 만나요.', exampleViet: 'Chúng ta gặp nhau trước trường nhé.' },
+  뒤: { roman: 'dwi', tip: '뒤 = sau: liên tưởng “đuôi” luôn nằm phía sau. 건물 뒤에 = ở sau tòa nhà.', example: '건물 뒤에 주차장이 있어요.', exampleViet: 'Bãi đỗ xe ở phía sau tòa nhà.' },
+  왼쪽: { roman: 'oenjjok', tip: '왼쪽 = bên trái: 왼 là trái, 쪽 là phía. Tách từ ra là nhớ ngay “phía trái”.', example: '왼쪽으로 가세요.', exampleViet: 'Hãy đi về phía bên trái.' },
+  오른쪽: { roman: 'oreunjjok', tip: '오른쪽 = bên phải: 오른 là phải, 쪽 là phía. Tách từ ra là “phía phải”.', example: '오른쪽으로 가세요.', exampleViet: 'Hãy đi về phía bên phải.' },
+  양쪽: { roman: 'yangjjok', tip: '양쪽 = hai phía: 양 là cả hai, 쪽 là phía → cả hai phía.', example: '길 양쪽에 나무가 많아요.', exampleViet: 'Hai bên đường có nhiều cây.' },
+  건너편: { roman: 'geonneopyeon', tip: '건너편 = phía đối diện: 건너 là băng qua, 편 là phía → phía bên kia đường.', example: '은행은 학교 건너편에 있어요.', exampleViet: 'Ngân hàng ở đối diện trường học.' },
+  맞은편: { roman: 'majeunpyeon', tip: '맞은편 = đối diện: 맞다 gợi ý “đối mặt”, 편 là phía → phía đối mặt với mình.', example: '우체국 맞은편에 약국이 있어요.', exampleViet: 'Hiệu thuốc ở đối diện bưu điện.' },
+  똑바로: { roman: 'ttokbaro', tip: '똑바로 = thẳng: tưởng tượng một đường thẳng tắp, không nghiêng và không rẽ.', example: '똑바로 가세요.', exampleViet: 'Hãy đi thẳng.' },
+  쭉: { roman: 'jjuk', tip: '쭉 có âm kéo dài, hãy tưởng tượng đi thẳng một mạch thật dài: 쭉 가세요.', example: '이 길로 쭉 가세요.', exampleViet: 'Hãy đi thẳng theo con đường này.' },
+  동: { roman: 'dong', tip: '동 = đông. Âm “dong” gần với “đông”, nên gần như đọc lên là nhớ nghĩa.', example: '해는 동쪽에서 떠요.', exampleViet: 'Mặt trời mọc ở phía đông.' },
+  서: { roman: 'seo', tip: '서 = tây. Học theo cụm 동서남북 = đông – tây – nam – bắc để nhớ theo một chuỗi.', example: '서쪽으로 가세요.', exampleViet: 'Hãy đi về phía tây.' },
+  남: { roman: 'nam', tip: '남 = nam. Chữ Hàn đọc gần hệt tiếng Việt “nam”.', example: '남쪽은 따뜻해요.', exampleViet: 'Phía nam ấm áp.' },
+  북: { roman: 'buk', tip: '북 = bắc. Nhớ chung chuỗi 동서남북 = đông – tây – nam – bắc.', example: '북쪽은 추워요.', exampleViet: 'Phía bắc lạnh.' },
+});
+
+export function classroomStudyWord(word = {}) {
+  const korean = String(word.korean || '').trim();
+  const meaning = String(word.meaningVi || word.meaning || '').trim();
+  const aids = CLASSROOM_STUDY_AIDS[korean] || {};
+  const roman = String(word.romanization || word.roman || aids.roman || '').trim();
+  const providedTip = String(word.memoryTip || word.tip || '').trim();
+  const fallbackTip = roman
+    ? `Đọc “${roman}” và gắn ngay với hình ảnh “${meaning}”. Nói “${korean} = ${meaning}” 3 lần rồi tự đặt một câu ngắn.`
+    : `Hình dung một cảnh có “${meaning}”, sau đó dán nhãn ${korean} lên hình ảnh đó và đọc to 3 lần.`;
+
+  return {
+    korean,
+    roman,
+    meaning,
+    pos: word.partOfSpeech || word.pos || '',
+    tip: providedTip || aids.tip || fallbackTip,
+    example: word.exampleKr || word.example || aids.example || '',
+    exampleViet: word.exampleVi || word.exampleViet || aids.exampleViet || '',
+  };
+}
+
 export default function LearningHubPage({ user }) {
   const frameRef = useRef(null);
   const [classes, setClasses] = useState([]);
@@ -72,12 +115,7 @@ export default function LearningHubPage({ user }) {
       classId: classId || null,
       words: words.map((word) => ({
         id: Number(word.id),
-        korean: word.korean,
-        roman: word.romanization || '',
-        meaning: word.meaningVi,
-        pos: word.partOfSpeech || '',
-        example: word.exampleKr || '',
-        exampleViet: word.exampleVi || '',
+        ...classroomStudyWord(word),
         lesson: word.lessonTitle ? `Bài ${word.lessonId} · ${word.lessonTitle}` : `Bài ${word.lessonId}`,
       })),
       grammar: grammar.map((item) => ({

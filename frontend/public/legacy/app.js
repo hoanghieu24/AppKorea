@@ -489,6 +489,16 @@ function showToast(msg, type='info', dur=2500) {
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.className = 'toast', dur);
 }
+function getWordMemoryTip(word = {}) {
+  const existing = String(word.tip || '').trim();
+  if (existing) return existing;
+  const korean = String(word.korean || '').trim();
+  const meaning = String(word.meaning || '').trim();
+  const roman = String(word.roman || '').trim();
+  return roman
+    ? `Đọc “${roman}”, liên tưởng tới “${meaning}”, rồi nói “${korean} = ${meaning}” 3 lần.`
+    : `Hình dung “${meaning}”, dán nhãn ${korean} lên hình ảnh đó và đọc to 3 lần.`;
+}
 function addXP(n) {
   state.stats.xp += n;
   document.getElementById('xpCount').textContent = state.stats.xp + ' XP';
@@ -1243,7 +1253,7 @@ function renderLearnCard() {
   document.getElementById('lcMeaning').textContent = w.meaning||'';
   document.getElementById('lcExample').textContent = w.example||'';
   document.getElementById('lcExampleViet').textContent = w.exampleViet||'';
-  document.getElementById('lcTip').textContent = w.tip||'';
+  document.getElementById('lcTip').textContent = getWordMemoryTip(w);
   document.getElementById('aiExplainBox').style.display = 'none';
   const total = words.length, idx = state.learn.index;
   document.getElementById('learnCounter').textContent = `${idx+1} / ${total}`;
@@ -1426,7 +1436,7 @@ function renderBatchBody(batches, viewIdx, curIdx) {
           <div class="example-korean">${w.example||''}</div>
           <div class="example-viet">${w.exampleViet||''}</div>
         </div>
-        <div class="tip-block"><div class="tip-icon">💡</div><div class="tip-text">${w.tip||''}</div></div>
+        <div class="tip-block"><div class="tip-icon">💡</div><div class="tip-text"><strong>Mẹo ghi nhớ</strong><span>${getWordMemoryTip(w)}</span></div></div>
       </div>
     </div>
     <div class="learn-controls" style="justify-content:center;margin:14px 0">
@@ -2313,7 +2323,7 @@ function renderFlashCard() {
   document.getElementById('flashRoman').textContent=w.roman||'';
   document.getElementById('flashMeaning').textContent=w.meaning||'';
   document.getElementById('flashExample').textContent=w.example||'';
-  document.getElementById('flashTip').textContent='💡 '+(w.tip||'');
+  document.getElementById('flashTip').textContent='💡 '+getWordMemoryTip(w);
   const total=state.flash.shuffled.length;
   document.getElementById('flashCounter').textContent=`${state.flash.index+1} / ${total}`;
   document.getElementById('flashProgress').style.width=`${((state.flash.index+1)/total)*100}%`;
@@ -8644,7 +8654,6 @@ function testIrrConjugate() {
     `;
   }
 }
-
 
 
 
