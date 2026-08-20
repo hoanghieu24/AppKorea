@@ -1,12 +1,14 @@
 import app from './app.js';
 import { config } from './config.js';
-import { closePool, ensureSubmissionReviewSchema } from './db.js';
+import { closePool, ensureAssignmentAudioSchema, ensureSubmissionReviewSchema } from './db.js';
 import { ensurePresenceSchema } from './presence.js';
 
 await ensurePresenceSchema();
 console.log('[DB] User presence schema ready.');
 await ensureSubmissionReviewSchema();
 console.log('[DB] Submission review schema ready.');
+await ensureAssignmentAudioSchema();
+console.log('[DB] Assignment audio schema ready.');
 
 const server = app.listen(config.port, () => {
   console.log(`HanQuoc Classroom API listening on port ${config.port} (${config.nodeEnv}).`);

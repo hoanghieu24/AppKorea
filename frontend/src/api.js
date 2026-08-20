@@ -160,6 +160,35 @@ export async function api(path, options = {}) {
   return data;
 }
 
+export async function apiBlob(path, options = {}) {
+  const fetchOptions = { ...options, toast: false };
+  let response = await rawRequest(path, fetchOptions);
+  const canRefresh = response.status === 401
+    && !['/auth/login', '/auth/refresh', '/auth/logout'].includes(path)
+    && !fetchOptions._retried;
+
+  if (canRefresh) {
+    try {
+      await refreshAccessToken();
+      response = await rawRequest(path, { ...fetchOptions, _retried: true });
+    } catch {
+      // Giữ response 401 ban đầu để báo lỗi thống nhất bên dưới.
+    }
+  }
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401) clearSession();
+    const error = new Error(data.message || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.code = data.code;
+    error.requestId = data.requestId;
+    throw error;
+  }
+
+  return response.blob();
+}
+
 export const formatDate = (value) => {
   if (!value) return 'Không giới hạn';
   return new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));

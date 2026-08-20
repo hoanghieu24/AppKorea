@@ -12,6 +12,7 @@ import { ensureTextbookCatalog, getTextbookLessons, getTextbookVocabulary } from
 import { createConcurrencyGuard, createRateLimiter } from './rateLimit.js';
 import { recordSystemError, requestContextMiddleware, sanitizeLogText } from './monitoring.js';
 import { markLogin, markLogout, markSeen, presenceOrderSql, presenceSelectSql, presenceSummary } from './presence.js';
+import { ASSIGNMENT_AUDIO_MAX_BYTES, validateAssignmentAudio } from './assignmentAudio.js';
 
 const app = express();
 
@@ -160,6 +161,7 @@ app.get('/api/health', async (_req, res) => {
       query('SELECT 1 FROM system_error_logs LIMIT 0', [], { timeout: healthTimeout }),
       query('SELECT 1 FROM user_presence LIMIT 0', [], { timeout: healthTimeout }),
       query('SELECT teacher_feedback, teacher_reviewed_at FROM submissions LIMIT 0', [], { timeout: healthTimeout }),
+      query('SELECT assignment_id, file_name, mime_type, size_bytes FROM assignment_audio LIMIT 0', [], { timeout: healthTimeout }),
     ]);
     res.setHeader('Cache-Control', 'no-store');
     res.json({
@@ -901,6 +903,55 @@ app.post('/api/assignments', requireAuth, requireRole('TEACHER'), async (req, re
   res.status(201).json({ id: assignmentId, message: 'Đã lưu bản nháp. Bạn có thể kiểm tra rồi giao cho lớp.' });
 });
 
+const assignmentAudioBody = express.raw({
+  type: () => true,
+  limit: ASSIGNMENT_AUDIO_MAX_BYTES,
+});
+
+app.put('/api/assignments/:id/audio', requireAuth, requireRole('TEACHER'), assignmentAudioBody, async (req, res) => {
+  const assignmentId = idSchema.parse(req.params.id);
+  const rows = await query('SELECT id, status FROM assignments WHERE id = ? AND teacher_id = ? LIMIT 1', [assignmentId, req.user.id]);
+  const assignment = rows[0];
+  if (!assignment) return res.status(404).json({ message: 'Không tìm thấy bài của bạn.' });
+  if (assignment.status !== 'DRAFT') return res.status(409).json({ message: 'Chỉ được thêm hoặc đổi file nghe khi bài còn là bản nháp.' });
+
+  const validation = validateAssignmentAudio({
+    buffer: req.body,
+    fileName: req.get('x-audio-name'),
+  });
+  if (!validation.ok) return badRequest(res, validation.message);
+
+  await query(
+    `INSERT INTO assignment_audio (assignment_id, file_name, mime_type, size_bytes, audio_data)
+     VALUES (?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE file_name = VALUES(file_name), mime_type = VALUES(mime_type),
+       size_bytes = VALUES(size_bytes), audio_data = VALUES(audio_data), updated_at = CURRENT_TIMESTAMP`,
+    [assignmentId, validation.fileName, validation.mimeType, validation.sizeBytes, req.body],
+  );
+  return res.json({
+    message: 'Đã lưu file nghe vào bài.',
+    audio: { fileName: validation.fileName, mimeType: validation.mimeType, sizeBytes: validation.sizeBytes },
+  });
+});
+
+app.delete('/api/assignments/:id/audio', requireAuth, requireRole('TEACHER'), async (req, res) => {
+  const assignmentId = idSchema.parse(req.params.id);
+  const rows = await query('SELECT id, status FROM assignments WHERE id = ? AND teacher_id = ? LIMIT 1', [assignmentId, req.user.id]);
+  const assignment = rows[0];
+  if (!assignment) return res.status(404).json({ message: 'Không tìm thấy bài của bạn.' });
+  if (assignment.status !== 'DRAFT') return res.status(409).json({ message: 'Chỉ được xóa file nghe khi bài còn là bản nháp.' });
+  await query('DELETE FROM assignment_audio WHERE assignment_id = ?', [assignmentId]);
+  return res.json({ message: 'Đã bỏ file nghe khỏi bài.' });
+});
+
+// Chỉ dùng để hoàn tác lúc tạo bài nếu upload audio thất bại; không thể xóa bài đã giao.
+app.delete('/api/assignments/:id/draft', requireAuth, requireRole('TEACHER'), async (req, res) => {
+  const assignmentId = idSchema.parse(req.params.id);
+  const result = await query("DELETE FROM assignments WHERE id = ? AND teacher_id = ? AND status = 'DRAFT'", [assignmentId, req.user.id]);
+  if (!result.affectedRows) return res.status(404).json({ message: 'Không tìm thấy bản nháp có thể hoàn tác.' });
+  return res.json({ message: 'Đã hoàn tác bản nháp chưa hoàn chỉnh.' });
+});
+
 app.post('/api/assignments/:id/publish', requireAuth, requireRole('TEACHER'), async (req, res) => {
   const assignmentId = idSchema.parse(req.params.id);
   const rows = await query('SELECT id, class_id, title, type, status FROM assignments WHERE id = ? AND teacher_id = ? LIMIT 1', [assignmentId, req.user.id]);
@@ -935,7 +986,8 @@ app.get('/api/assignments', requireAuth, async (req, res) => {
   let countSql;
   let countParams;
   if (req.user.role === 'ADMIN') {
-    sql = `SELECT a.*, c.name className, u.full_name teacherName FROM assignments a
+    sql = `SELECT a.*, c.name className, u.full_name teacherName,
+      EXISTS(SELECT 1 FROM assignment_audio aa WHERE aa.assignment_id = a.id) hasAudio FROM assignments a
       JOIN classes c ON c.id = a.class_id JOIN users u ON u.id = a.teacher_id
       ${filterClassId ? 'WHERE a.class_id = ?' : ''} ORDER BY a.created_at DESC`;
     params = filterClassId ? [filterClassId] : [];
@@ -943,6 +995,7 @@ app.get('/api/assignments', requireAuth, async (req, res) => {
     countParams = [...params];
   } else if (req.user.role === 'TEACHER') {
     sql = `SELECT a.*, c.name className, COUNT(s.id) submittedCount,
+      EXISTS(SELECT 1 FROM assignment_audio aa WHERE aa.assignment_id = a.id) hasAudio,
       (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = a.class_id) studentCount
       FROM assignments a JOIN classes c ON c.id = a.class_id LEFT JOIN submissions s ON s.assignment_id = a.id
       WHERE a.teacher_id = ? ${filterClassId ? 'AND a.class_id = ?' : ''} GROUP BY a.id ORDER BY a.created_at DESC`;
@@ -951,7 +1004,8 @@ app.get('/api/assignments', requireAuth, async (req, res) => {
     countParams = [...params];
   } else {
     const viewCondition = studentView === 'PENDING' ? 'AND s.id IS NULL' : studentView === 'DONE' ? 'AND s.id IS NOT NULL' : '';
-    sql = `SELECT a.*, c.name className, s.id submissionId, s.percentage, s.score, s.max_score maxScore, s.submitted_at submittedAt
+    sql = `SELECT a.*, c.name className, s.id submissionId, s.percentage, s.score, s.max_score maxScore, s.submitted_at submittedAt,
+      EXISTS(SELECT 1 FROM assignment_audio aa WHERE aa.assignment_id = a.id) hasAudio
       FROM assignments a JOIN classes c ON c.id = a.class_id JOIN class_students cs ON cs.class_id = a.class_id
       LEFT JOIN submissions s ON s.assignment_id = a.id AND s.student_id = ?
       WHERE cs.student_id = ? AND a.status IN ('PUBLISHED','CLOSED') ${filterClassId ? 'AND a.class_id = ?' : ''} ${viewCondition}
@@ -979,6 +1033,9 @@ app.get('/api/assignments/:id', requireAuth, async (req, res) => {
 
   const questions = await query(`SELECT id, type, prompt, options, correct_answer correctAnswer, explanation, topic, points, position
     FROM questions WHERE assignment_id = ? ORDER BY position`, [assignmentId]);
+  const audioRows = await query(`SELECT file_name fileName, mime_type mimeType, size_bytes sizeBytes, updated_at updatedAt
+    FROM assignment_audio WHERE assignment_id = ? LIMIT 1`, [assignmentId]);
+  const audio = audioRows[0] ? { ...audioRows[0], sizeBytes: Number(audioRows[0].sizeBytes || 0) } : null;
   let submission = null;
   let latestAttempt = null;
   if (req.user.role === 'STUDENT') {
@@ -1016,8 +1073,29 @@ app.get('/api/assignments/:id', requireAuth, async (req, res) => {
     questions: questions.map((question) => ({ ...question, options: typeof question.options === 'string' ? JSON.parse(question.options) : question.options || [] })),
     submission,
     latestAttempt,
+    audio,
     aiEnabled: await aiEnabled(),
   });
+});
+
+app.get('/api/assignments/:id/audio', requireAuth, async (req, res) => {
+  const assignmentId = idSchema.parse(req.params.id);
+  const assignments = await query('SELECT class_id classId, status FROM assignments WHERE id = ? LIMIT 1', [assignmentId]);
+  const assignment = assignments[0];
+  if (!assignment) return res.status(404).json({ message: 'Không tìm thấy bài.' });
+  if (!(await canReadClass(req.user, assignment.classId))) return res.status(403).json({ message: 'Bạn không thuộc lớp của bài này.' });
+  if (req.user.role === 'STUDENT' && assignment.status === 'DRAFT') return res.status(404).json({ message: 'Bài chưa được giao.' });
+
+  const rows = await query(`SELECT file_name fileName, mime_type mimeType, size_bytes sizeBytes, audio_data audioData
+    FROM assignment_audio WHERE assignment_id = ? LIMIT 1`, [assignmentId]);
+  const audio = rows[0];
+  if (!audio) return res.status(404).json({ message: 'Bài này không có file nghe.' });
+
+  res.setHeader('Content-Type', audio.mimeType);
+  res.setHeader('Content-Length', Number(audio.sizeBytes));
+  res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(audio.fileName)}`);
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  return res.send(audio.audioData);
 });
 
 const answerInput = z.record(z.string(), z.union([z.string(), z.number(), z.null()]));
@@ -1916,6 +1994,9 @@ app.use((error, req, res, _next) => {
   if (error?.name === 'ZodError') return res.status(400).json({ message: 'ID hoặc dữ liệu gửi lên chưa hợp lệ.' });
   if (error?.message === 'CORS_ORIGIN_DENIED') return res.status(403).json({ message: 'Nguồn truy cập không được phép.' });
   if (error?.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'Dữ liệu đã tồn tại hoặc thao tác đã được thực hiện trước đó.' });
+  if (error?.type === 'entity.too.large' || error?.status === 413) {
+    return res.status(413).json({ message: 'File nghe vượt quá 8 MB. Hãy nén audio hoặc chọn file ngắn hơn.' });
+  }
 
   const isDbTimeout = ['PROTOCOL_SEQUENCE_TIMEOUT', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED'].includes(error?.code);
   const statusCode = isDbTimeout ? 503 : 500;

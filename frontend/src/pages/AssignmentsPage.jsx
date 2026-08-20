@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   CheckCircle2, ChevronDown, CircleAlert, ClipboardCheck, ClipboardList, Clock3, FilePlus2,
-  FileSpreadsheet, ImagePlus, ListPlus, LoaderCircle, Plus, ScanLine, School, Send, Sparkles, Trash2, Type,
+  FileSpreadsheet, Headphones, ImagePlus, ListPlus, LoaderCircle, Music2, Plus, ScanLine, School, Send, Sparkles, Trash2, Type, X,
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatDate } from '../api.js';
@@ -17,6 +17,14 @@ const headerKey = (value) => String(value || '')
   .toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 const splitOptions = (value) => String(value || '').split(/\r?\n|\||;/).map((item) => item.trim()).filter(Boolean);
+const ASSIGNMENT_AUDIO_MAX_BYTES = 8 * 1024 * 1024;
+const ASSIGNMENT_AUDIO_EXTENSIONS = /\.(mp3|m4a|mp4|wav|ogg|webm|aac)$/i;
+
+function formatAudioSize(bytes) {
+  const size = Number(bytes || 0);
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 // Từ 2.3.12, giao diện tạo bài chỉ còn 2 loại:
 // - MULTIPLE_CHOICE: có từ 2 lựa chọn trở lên.
@@ -1277,6 +1285,10 @@ export default function AssignmentsPage({ user }) {
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrStatus, setOcrStatus] = useState({ stage: 'prepare', title: '', detail: '' });
   const [ocrSeconds, setOcrSeconds] = useState(0);
+  const [audioFile, setAudioFile] = useState(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState('');
+  const [savingAssignment, setSavingAssignment] = useState(false);
+  const [savingStage, setSavingStage] = useState('');
   const [form, setForm] = useState({ classId: '', type: 'HOMEWORK', title: '', instructions: '', dueAt: '', timeLimitMinutes: '', questions: [freshQuestion()], publishNow: true });
 
   const load = async () => {
@@ -1318,6 +1330,12 @@ export default function AssignmentsPage({ user }) {
     const timer = window.setInterval(() => setOcrSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, [importing]);
+  useEffect(() => {
+    if (!audioFile) { setAudioPreviewUrl(''); return undefined; }
+    const objectUrl = URL.createObjectURL(audioFile);
+    setAudioPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [audioFile]);
 
   const updateQuestion = (index, patch) => setForm((old) => ({ ...old, questions: old.questions.map((question, i) => i === index ? { ...question, ...patch } : question) }));
   const removeQuestion = (index) => setForm((old) => ({ ...old, questions: old.questions.filter((_, i) => i !== index) }));
@@ -1338,6 +1356,26 @@ export default function AssignmentsPage({ user }) {
       appendQuestions(lines.map((prompt) => ({ prompt, type: 'ESSAY', topic: 'Tổng hợp', points: 1 })), 'ô nhập nhiều câu');
       setBulkText('');
     } catch (err) { setMessage(err.message); }
+  };
+
+  const chooseAudioFile = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!ASSIGNMENT_AUDIO_EXTENSIONS.test(file.name)) {
+      setMessage('File nghe phải là MP3, M4A, WAV, OGG, WebM hoặc AAC.');
+      return;
+    }
+    if (file.size > ASSIGNMENT_AUDIO_MAX_BYTES) {
+      setMessage('File nghe vượt quá 8 MB. Hãy nén audio hoặc chọn file ngắn hơn.');
+      return;
+    }
+    if (file.size === 0) {
+      setMessage('File nghe đang rỗng. Hãy chọn lại file khác.');
+      return;
+    }
+    setAudioFile(file);
+    setMessage(`Đã chọn ${file.name}. File sẽ được tải lên trước khi giao bài.`);
   };
 
   const importExcel = async (event) => {
@@ -1822,7 +1860,9 @@ export default function AssignmentsPage({ user }) {
   };
 
   const createAssignment = async (event) => {
-    event.preventDefault(); setMessage('');
+    event.preventDefault(); setMessage(''); setSavingAssignment(true); setSavingStage('Đang lưu câu hỏi...');
+    let createdId = null;
+    let audioStored = false;
     try {
       const payload = {
         classId: Number(form.classId), type: form.type, title: form.title, instructions: form.instructions,
@@ -1832,12 +1872,57 @@ export default function AssignmentsPage({ user }) {
           points: Number(q.points), options: q.type === 'MULTIPLE_CHOICE' ? q.optionsText.split('\n').map((x) => x.trim()).filter(Boolean) : [],
         })),
       };
-      const created = await api('/assignments', { method: 'POST', body: JSON.stringify(payload) });
-      if (form.publishNow) await api(`/assignments/${created.id}/publish`, { method: 'POST' });
+      const created = await api('/assignments', { method: 'POST', toast: false, body: JSON.stringify(payload) });
+      createdId = created.id;
+      if (audioFile) {
+        setSavingStage(`Đang tải file nghe · ${formatAudioSize(audioFile.size)}...`);
+        try {
+          await api(`/assignments/${created.id}/audio`, {
+            method: 'PUT',
+            toast: false,
+            headers: {
+              'Content-Type': audioFile.type || 'application/octet-stream',
+              'X-Audio-Name': encodeURIComponent(audioFile.name),
+            },
+            body: audioFile,
+          });
+          audioStored = true;
+        } catch (audioError) {
+          let rolledBack = false;
+          try {
+            await api(`/assignments/${created.id}/draft`, { method: 'DELETE', toast: false });
+            rolledBack = true;
+            createdId = null;
+          } catch {
+            // Nếu rollback DB lỗi, giữ bản nháp và báo rõ ID để giáo viên không tạo trùng không chủ ý.
+          }
+          throw new Error(rolledBack
+            ? `Không tải được file nghe: ${audioError.message} Bài chưa được tạo, bạn có thể chọn lại file và thử lại.`
+            : `Không tải được file nghe: ${audioError.message} Bản nháp #${created.id} đã được giữ lại.`);
+        }
+      }
+      if (form.publishNow) {
+        setSavingStage('Đang giao bài cho học sinh...');
+        try {
+          await api(`/assignments/${created.id}/publish`, { method: 'POST', toast: false });
+        } catch (publishError) {
+          setMessage(`Câu hỏi${audioStored ? ' và file nghe' : ''} đã được lưu ở bản nháp #${created.id}, nhưng chưa giao được: ${publishError.message}`);
+          setCreating(false);
+          setAudioFile(null);
+          setForm({ classId: form.classId, type: 'HOMEWORK', title: '', instructions: '', dueAt: '', timeLimitMinutes: '', questions: [freshQuestion()], publishNow: true });
+          await load();
+          return;
+        }
+      }
       setMessage(form.publishNow ? 'Đã tạo và giao bài cho toàn bộ học sinh trong lớp.' : created.message);
-      setCreating(false); setForm({ classId: form.classId, type: 'HOMEWORK', title: '', instructions: '', dueAt: '', timeLimitMinutes: '', questions: [freshQuestion()], publishNow: true });
+      setCreating(false); setAudioFile(null); setForm({ classId: form.classId, type: 'HOMEWORK', title: '', instructions: '', dueAt: '', timeLimitMinutes: '', questions: [freshQuestion()], publishNow: true });
       await load();
-    } catch (err) { setMessage(err.message); }
+    } catch (err) {
+      setMessage(createdId && audioStored ? `Bản nháp #${createdId} đã có file nghe. ${err.message}` : err.message);
+    } finally {
+      setSavingAssignment(false);
+      setSavingStage('');
+    }
   };
   const publish = async (id) => {
     try { const data = await api(`/assignments/${id}/publish`, { method: 'POST' }); setMessage(data.message); await load(); }
@@ -1867,6 +1952,25 @@ export default function AssignmentsPage({ user }) {
         <label>Thời gian (phút)<input type="number" min="1" max="360" value={form.timeLimitMinutes} onChange={(e) => setForm({ ...form, timeLimitMinutes: e.target.value })} placeholder="Tùy chọn" /></label>
         <label className="span-3">Hướng dẫn<textarea rows="2" value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} placeholder="Làm cẩn thận, kiểm tra lại trước khi nộp..." /></label>
       </div>
+
+      <section className={`assignment-audio-builder ${audioFile ? 'ready' : ''}`}>
+        <div className="assignment-audio-head">
+          <span className="assignment-audio-icon"><Headphones size={21} /></span>
+          <div><span>FILE NGHE · TÙY CHỌN</span><h3>Thêm audio cho phần nghe</h3><p>Học sinh sẽ nghe file ngay trên bài rồi trả lời các câu hỏi bên dưới.</p></div>
+          {audioFile ? <button type="button" className="icon-button danger" onClick={() => setAudioFile(null)} aria-label="Bỏ file nghe"><X size={17} /></button> : null}
+        </div>
+        {audioFile ? <div className="assignment-audio-preview">
+          <div className="assignment-audio-file"><Music2 size={18} /><span><strong>{audioFile.name}</strong><small>{formatAudioSize(audioFile.size)} · sẽ lưu bền cùng bài tập</small></span></div>
+          {audioPreviewUrl ? <audio controls preload="metadata" src={audioPreviewUrl}>Trình duyệt không phát được file nghe này.</audio> : null}
+          <label className="btn ghost small file-button">Đổi file<input type="file" accept="audio/*,.mp3,.m4a,.mp4,.wav,.ogg,.webm,.aac" onChange={chooseAudioFile} /></label>
+        </div> : <label className="assignment-audio-drop">
+          <Headphones size={25} />
+          <span><strong>Chọn 1 file nghe</strong><small>MP3, M4A, WAV, OGG, WebM hoặc AAC · tối đa 8 MB</small></span>
+          <b>Chọn file</b>
+          <input type="file" accept="audio/*,.mp3,.m4a,.mp4,.wav,.ogg,.webm,.aac" onChange={chooseAudioFile} />
+        </label>}
+        <div className="assignment-audio-note"><CheckCircle2 size={15} /> Sau khi chọn audio, giáo viên vẫn thêm câu hỏi, lựa chọn và đáp án bằng các cách bên dưới.</div>
+      </section>
 
       <div className="question-source-block">
         <div className="question-source-title"><div><Type size={18} /><strong>Chọn cách thêm câu hỏi</strong></div><span>Tối đa 100 câu / bài</span></div>
@@ -1951,12 +2055,12 @@ export default function AssignmentsPage({ user }) {
         </div>
       </section>
 
-      <div className="builder-actions"><label className="check-label"><input type="checkbox" checked={form.publishNow} onChange={(e) => setForm({ ...form, publishNow: e.target.checked })} /> Giao ngay cho toàn bộ học sinh</label><button className="btn primary"><Send size={17} /> {form.publishNow ? 'Tạo & giao bài' : 'Lưu bản nháp'}</button></div>
+      <div className="builder-actions"><label className="check-label"><input type="checkbox" checked={form.publishNow} onChange={(e) => setForm({ ...form, publishNow: e.target.checked })} disabled={savingAssignment} /> Giao ngay cho toàn bộ học sinh</label><button className="btn primary" disabled={savingAssignment}><Send size={17} /> {savingAssignment ? (savingStage || 'Đang lưu...') : form.publishNow ? 'Tạo & giao bài' : 'Lưu bản nháp'}</button></div>
     </form>}
     <section className="panel"><div className="panel-title"><div><span>DANH SÁCH</span><h3>{selectedClass ? `Bài của lớp ${selectedClass.name}` : 'Bài của tất cả lớp'}</h3></div>{selectedClass && <span className="class-context-badge"><School size={14} /> {selectedClass.code}</span>}</div>
       {listLoading ? <Empty>Đang tải trang bài tập...</Empty> : assignments.length ? <div className="assignment-cards">{assignments.map((item) => <article className="assignment-card" key={item.id}>
         <div className={`assignment-type ${item.type.toLowerCase()}`}>{item.type === 'TEST' ? <ClipboardCheck /> : <ClipboardList />}</div>
-        <div className="assignment-main"><div className="assignment-title-row"><strong>{item.title}</strong><span className={`status ${item.status.toLowerCase()}`}>{item.status === 'DRAFT' ? 'Bản nháp' : item.status === 'PUBLISHED' ? 'Đang mở' : 'Đã đóng'}</span></div><p className="assignment-class-name"><School size={14} /> Lớp: <strong>{item.className}</strong></p><div className="assignment-meta"><span><Clock3 size={15} /> {formatDate(item.due_at)}</span><span><CheckCircle2 size={15} /> {item.submittedCount || 0}/{item.studentCount || 0} đã nộp</span></div></div>
+        <div className="assignment-main"><div className="assignment-title-row"><strong>{item.title}</strong><span className={`status ${item.status.toLowerCase()}`}>{item.status === 'DRAFT' ? 'Bản nháp' : item.status === 'PUBLISHED' ? 'Đang mở' : 'Đã đóng'}</span>{item.hasAudio ? <span className="audio-assignment-badge"><Headphones size={13} /> Bài nghe</span> : null}</div><p className="assignment-class-name"><School size={14} /> Lớp: <strong>{item.className}</strong></p><div className="assignment-meta"><span><Clock3 size={15} /> {formatDate(item.due_at)}</span><span><CheckCircle2 size={15} /> {item.submittedCount || 0}/{item.studentCount || 0} đã nộp</span></div></div>
         <div className="assignment-actions">{item.status === 'DRAFT' && <button className="btn secondary small" onClick={() => publish(item.id)}><Send size={15} /> Giao bài</button>}<Link className="btn ghost small" to={`/assignments/${item.id}`}>Chi tiết</Link></div>
       </article>)}</div> : <Empty>Chưa có bài nào. Tạo bài đầu tiên nhé.</Empty>}
       <Pagination pagination={pagination} loading={listLoading} onPageChange={setPage} label="bài" />
@@ -1970,7 +2074,7 @@ function StudentAssignments({ assignments, message, filter, setFilter, paginatio
     {message && <div className="notice">{message}</div>}
     <div className="segmented"><button className={filter === 'PENDING' ? 'active' : ''} onClick={() => setFilter('PENDING')}>Cần làm</button><button className={filter === 'DONE' ? 'active' : ''} onClick={() => setFilter('DONE')}>Đã nộp</button><button className={filter === 'ALL' ? 'active' : ''} onClick={() => setFilter('ALL')}>Tất cả</button></div>
     <section className="panel">
-      {loading ? <Empty>Đang tải trang bài tập...</Empty> : assignments.length ? <div className="student-assignment-grid">{assignments.map((item) => <Link className="student-assignment-card" to={`/assignments/${item.id}`} key={item.id}><div className="student-assignment-top"><span className={`type-pill ${item.type.toLowerCase()}`}>{item.type === 'TEST' ? 'Bài kiểm tra' : 'Bài tập'}</span>{item.submissionId ? <span className="score-pill">{Math.round(item.percentage)} điểm</span> : <ChevronDown size={18} />}</div><h3>{item.title}</h3><p>{item.className}</p><div className="student-assignment-bottom"><span><Clock3 size={15} /> {formatDate(item.due_at)}</span><strong>{item.submissionId ? 'Xem kết quả' : 'Làm bài →'}</strong></div></Link>)}</div> : <Empty>{filter === 'PENDING' ? 'Không còn bài đang chờ.' : 'Chưa có bài phù hợp.'}</Empty>}
+      {loading ? <Empty>Đang tải trang bài tập...</Empty> : assignments.length ? <div className="student-assignment-grid">{assignments.map((item) => <Link className="student-assignment-card" to={`/assignments/${item.id}`} key={item.id}><div className="student-assignment-top"><span className={`type-pill ${item.type.toLowerCase()}`}>{item.type === 'TEST' ? 'Bài kiểm tra' : 'Bài tập'}</span><span className="student-assignment-tags">{item.hasAudio ? <span className="audio-assignment-badge"><Headphones size={13} /> Bài nghe</span> : null}{item.submissionId ? <span className="score-pill">{Math.round(item.percentage)} điểm</span> : <ChevronDown size={18} />}</span></div><h3>{item.title}</h3><p>{item.className}</p><div className="student-assignment-bottom"><span><Clock3 size={15} /> {formatDate(item.due_at)}</span><strong>{item.submissionId ? 'Xem kết quả' : 'Làm bài →'}</strong></div></Link>)}</div> : <Empty>{filter === 'PENDING' ? 'Không còn bài đang chờ.' : 'Chưa có bài phù hợp.'}</Empty>}
       <Pagination pagination={pagination} loading={loading} onPageChange={setPage} label="bài" />
     </section>
   </>;

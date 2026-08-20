@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Bot, CheckCircle2, CircleAlert, Clock3, ChevronLeft, ChevronRight, Maximize2, MessageSquare, Send, Sparkles, UserCheck, Users, X, XCircle } from 'lucide-react';
+import { ArrowLeft, Bot, CheckCircle2, CircleAlert, Clock3, ChevronLeft, ChevronRight, Headphones, LoaderCircle, Maximize2, MessageSquare, Music2, Send, Sparkles, UserCheck, Users, X, XCircle } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
-import { api, formatDate } from '../api.js';
+import { api, apiBlob, formatDate } from '../api.js';
 import { Empty, Pagination } from '../components/Shell.jsx';
 
 const SHARED_CONTEXT_START = '[[APPKOREA_SHARED_CONTEXT]]';
@@ -44,6 +44,55 @@ function formatScoreValue(value) {
 
 function studentScoreText(student = {}) {
   return `${formatScoreValue(student.score)}/${formatScoreValue(student.maxScore)} điểm · ${Math.round(Number(student.percentage) || 0)}%`;
+}
+
+function formatAudioSize(bytes) {
+  const size = Number(bytes || 0);
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function AssignmentAudioPlayer({ assignmentId, audio }) {
+  const [source, setSource] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = '';
+    setLoading(true);
+    setError('');
+    setSource('');
+    apiBlob(`/assignments/${assignmentId}/audio`)
+      .then((blob) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSource(objectUrl);
+      })
+      .catch((loadError) => {
+        if (active) setError(loadError.message || 'Chưa tải được file nghe.');
+      })
+      .finally(() => { if (active) setLoading(false); });
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [assignmentId, audio?.updatedAt]);
+
+  return <section className="assignment-listening-player">
+    <div className="assignment-listening-title">
+      <span><Headphones size={21} /></span>
+      <div><small>PHẦN NGHE</small><strong>Nghe audio rồi trả lời câu hỏi</strong></div>
+      <em>{formatAudioSize(audio.sizeBytes)}</em>
+    </div>
+    <div className="assignment-listening-body">
+      <div className="assignment-listening-file"><Music2 size={17} /><span>{audio.fileName}</span></div>
+      {loading ? <div className="assignment-audio-loading"><LoaderCircle className="spin" size={17} /> Đang tải file nghe...</div> : null}
+      {error ? <div className="assignment-audio-error"><CircleAlert size={17} /> {error}</div> : null}
+      {source ? <audio controls preload="metadata" src={source}>Trình duyệt không phát được file nghe này.</audio> : null}
+    </div>
+  </section>;
 }
 
 
@@ -161,6 +210,7 @@ export default function AssignmentDetailPage({ user }) {
       <div><span className={`type-pill ${assignment.type.toLowerCase()}`}>{assignment.type === 'TEST' ? 'BÀI KIỂM TRA' : 'BÀI TẬP VỀ NHÀ'}</span><h1>{assignment.title}</h1><p>{assignment.className} · {assignment.teacherName}</p></div>
       <div className="detail-meta"><div><Clock3 size={18} /><span>Hạn nộp<strong>{formatDate(assignment.due_at)}</strong></span></div>{assignment.time_limit_minutes && <div><CircleAlert size={18} /><span>Thời gian<strong>{assignment.time_limit_minutes} phút</strong></span></div>}</div>
     </section>
+    {data.audio ? <AssignmentAudioPlayer assignmentId={Number(id)} audio={data.audio} /> : null}
     {message && <div className="notice">{message}</div>}
     {assignment.instructions && <div className="instruction-box"><strong>Hướng dẫn</strong><p>{assignment.instructions}</p></div>}
     {user.role === 'STUDENT' ? <StudentWork assignment={assignment} questions={questions} submission={submission} answers={answers} setAnswer={setAnswer} preview={preview} checkWithAi={checkWithAi} checking={checking} checkingProgress={checkingProgress} checkingElapsed={checkingElapsed} submit={submit} submitting={submitting} aiEnabled={data.aiEnabled} /> : <TeacherView assignment={assignment} questions={questions} report={report} setReport={setReport} reportLoading={reportLoading} setReportPage={setReportPage} publish={publish} assignmentId={Number(id)} />}

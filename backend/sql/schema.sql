@@ -93,6 +93,17 @@ CREATE TABLE IF NOT EXISTS assignments (
   INDEX idx_assignment_class_status (class_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS assignment_audio (
+  assignment_id BIGINT UNSIGNED PRIMARY KEY,
+  file_name VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(80) NOT NULL,
+  size_bytes INT UNSIGNED NOT NULL,
+  audio_data LONGBLOB NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_assignment_audio_assignment FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS questions (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   assignment_id BIGINT UNSIGNED NOT NULL,
