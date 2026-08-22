@@ -8,6 +8,7 @@ export default function VocabularyPage({ user }) {
   const [lessons, setLessons] = useState([]);
   const [classId, setClassId] = useState('');
   const [lessonId, setLessonId] = useState('1');
+  const [studentLessonId, setStudentLessonId] = useState('');
   const [catalog, setCatalog] = useState([]);
   const [catalogPage, setCatalogPage] = useState(1);
   const [catalogPagination, setCatalogPagination] = useState(null);
@@ -46,17 +47,19 @@ export default function VocabularyPage({ user }) {
     setClassWordsLoading(true);
     try {
       const suffix = query.trim() ? `&q=${encodeURIComponent(query.trim())}` : '';
-      const data = await api(`/classes/${classId}/vocabulary?page=${page}&pageSize=8${suffix}`);
+      const lessonSuffix = studentLessonId ? `&lessonId=${studentLessonId}` : '';
+      const pageSize = studentLessonId ? 30 : 18;
+      const data = await api(`/classes/${classId}/vocabulary?page=${page}&pageSize=${pageSize}${suffix}${lessonSuffix}`);
       setClassWords(data.vocabulary); setClassPagination(data.pagination);
       if (user.role === 'TEACHER') setImportedIds((await api(`/classes/${classId}/vocabulary?idsOnly=1`)).ids || []);
     } catch (err) { setMessage(err.message); }
     finally { setClassWordsLoading(false); }
   };
-  useEffect(() => { setClassPage(1); setSelected(new Set()); }, [classId, query]);
+  useEffect(() => { setClassPage(1); setSelected(new Set()); }, [classId, query, studentLessonId]);
   useEffect(() => {
     const timer = window.setTimeout(() => loadClassWords(classPage), query ? 180 : 0);
     return () => window.clearTimeout(timer);
-  }, [classId, classPage, query]);
+  }, [classId, classPage, query, studentLessonId]);
 
   const imported = useMemo(() => new Set(importedIds.map(Number)), [importedIds]);
   const activeLesson = lessons.find((lesson) => String(lesson.id) === String(lessonId));
@@ -88,7 +91,28 @@ export default function VocabularyPage({ user }) {
       <label><span>{user.role === 'TEACHER' ? 'Lớp nhận học liệu' : 'Lớp'}</span><select value={classId} onChange={(e) => setClassId(e.target.value)}>{user.role === 'TEACHER' && classes.length > 1 && <option value="">-- Chọn đúng lớp cần giao --</option>}{classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}</select></label>
       {user.role === 'STUDENT' && <div className="segmented compact"><button className={mode === 'list' ? 'active' : ''} onClick={() => setMode('list')}>Danh sách</button><button className={mode === 'flash' ? 'active' : ''} onClick={() => setMode('flash')}>Flashcard</button></div>}
     </div>
-    {user.role === 'TEACHER' ? <TeacherCatalog lessons={lessons} lessonsLoading={lessonsLoading} catalogLoading={catalogLoading} classWordsLoading={classWordsLoading} selectingAll={selectingAll} lessonId={lessonId} setLessonId={setLessonId} activeLesson={activeLesson} activeClass={activeClass} catalog={catalog} catalogPagination={catalogPagination} setCatalogPage={setCatalogPage} selected={selected} setSelected={setSelected} imported={imported} toggle={toggle} selectAll={selectAll} importWords={importWords} classWords={classWords} classPagination={classPagination} setClassPage={setClassPage} classId={classId} /> : mode === 'flash' ? <><Flashcards words={classWords} /><Pagination pagination={classPagination} loading={classWordsLoading} onPageChange={setClassPage} label="từ" /></> : <StudentVocabulary words={classWords} query={query} setQuery={setQuery} pagination={classPagination} loading={classWordsLoading} setPage={setClassPage} tab={studentViewTab} setTab={setStudentViewTab} />}
+    {user.role === 'TEACHER' ? (
+      <TeacherCatalog lessons={lessons} lessonsLoading={lessonsLoading} catalogLoading={catalogLoading} classWordsLoading={classWordsLoading} selectingAll={selectingAll} lessonId={lessonId} setLessonId={setLessonId} activeLesson={activeLesson} activeClass={activeClass} catalog={catalog} catalogPagination={catalogPagination} setCatalogPage={setCatalogPage} selected={selected} setSelected={setSelected} imported={imported} toggle={toggle} selectAll={selectAll} importWords={importWords} classWords={classWords} classPagination={classPagination} setClassPage={setClassPage} classId={classId} />
+    ) : mode === 'flash' ? (
+      <>
+        <Flashcards words={classWords} lessons={lessons} studentLessonId={studentLessonId} setStudentLessonId={setStudentLessonId} />
+        <Pagination pagination={classPagination} loading={classWordsLoading} onPageChange={setClassPage} label="từ" />
+      </>
+    ) : (
+      <StudentVocabulary
+        words={classWords}
+        lessons={lessons}
+        studentLessonId={studentLessonId}
+        setStudentLessonId={setStudentLessonId}
+        query={query}
+        setQuery={setQuery}
+        pagination={classPagination}
+        loading={classWordsLoading}
+        setPage={setClassPage}
+        tab={studentViewTab}
+        setTab={setStudentViewTab}
+      />
+    )}
   </>;
 }
 
@@ -152,7 +176,7 @@ function TeacherCatalog({ lessons, lessonsLoading, catalogLoading, classWordsLoa
   </div>;
 }
 
-function StudentVocabulary({ words, query, setQuery, pagination, loading, setPage, tab, setTab }) {
+function StudentVocabulary({ words, lessons, studentLessonId, setStudentLessonId, query, setQuery, pagination, loading, setPage, tab, setTab }) {
   const grouped = useMemo(() => words.reduce((map, word) => {
     const key = `Bài ${word.lessonId} · ${word.lessonTitle || ''}`;
     if (!map[key]) map[key] = { lessonId: word.lessonId, title: word.lessonTitle, topic: word.topic, grammar: word.grammar || [], words: [] };
@@ -189,44 +213,173 @@ function StudentVocabulary({ words, query, setQuery, pagination, loading, setPag
     if (bestVoice) utterance.voice = bestVoice;
     window.speechSynthesis.speak(utterance);
   };
-  return <section className="panel">
-    <div className="student-vocab-head">
-      <div className="vocab-search"><Search size={18} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm từ vựng hoặc nghĩa tiếng Hàn..." /></div>
-      <div className="segmented compact">
-        <button className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>Tất cả</button>
-        <button className={tab === 'vocab' ? 'active' : ''} onClick={() => setTab('vocab')}>Từ vựng</button>
-        <button className={tab === 'grammar' ? 'active' : ''} onClick={() => setTab('grammar')}>Ngữ pháp</button>
+
+  return <section className="panel student-vocab-panel">
+    <div className="student-filter-toolbar">
+      <div className="student-lesson-selector">
+        <label><BookOpen size={16} /> <span>Chọn bài học:</span></label>
+        <select value={studentLessonId} onChange={(e) => setStudentLessonId(e.target.value)}>
+          <option value="">-- Tất cả các bài --</option>
+          {lessons.map((l) => (
+            <option key={l.id} value={l.id}>
+              Bài {l.lessonNumber || l.id} · {l.title} — {l.topic}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="student-search-segmented-row">
+        <div className="vocab-search">
+          <Search size={18} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm từ vựng hoặc nghĩa tiếng Hàn..." />
+        </div>
+        <div className="segmented compact">
+          <button className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>Tất cả</button>
+          <button className={tab === 'vocab' ? 'active' : ''} onClick={() => setTab('vocab')}>Từ vựng</button>
+          <button className={tab === 'grammar' ? 'active' : ''} onClick={() => setTab('grammar')}>Ngữ pháp</button>
+        </div>
       </div>
     </div>
-    {loading ? <VocabularyLoader hint="Đang kéo từ vựng và ngữ pháp của lớp về..." /> : words.length ? Object.entries(grouped).map(([lessonKey, group]) => {
-      const showGrammar = (tab === 'all' || tab === 'grammar') && group.grammar && group.grammar.length > 0;
-      const showWords = (tab === 'all' || tab === 'vocab') && group.words.length > 0;
-      if (!showGrammar && !showWords) return null;
-      return <div className="vocab-group" key={lessonKey}>
-        <div className="vocab-group-head"><h3>{lessonKey} {group.topic ? `(${group.topic})` : ''}</h3><span>{group.words.length} từ vựng · {group.grammar.length} ngữ pháp</span></div>
-        {showGrammar && <div className="student-grammar-block">
-          <div className="student-grammar-title"><Sparkles size={15} /> <strong>Ngữ pháp trọng tâm:</strong></div>
-          <div className="student-grammar-cards">{group.grammar.map((g) => <div className="student-grammar-card" key={g}><BookOpen size={16} /> <div><strong>{g}</strong><p>Cấu trúc ngữ pháp trọng tâm - {group.title || lessonKey}</p></div></div>)}</div>
-        </div>}
-        {showWords && <div className="word-grid">{group.words.map((word) => <article className="word-card" key={word.id}><button className="speak-btn" onClick={() => speak(word.korean)} title="Nghe đọc"><Volume2 size={17} /></button><strong>{word.korean}</strong><em>{word.romanization}</em><p>{word.meaningVi}</p>{word.exampleKr && <small>{word.exampleKr}</small>}</article>)}</div>}
-      </div>;
-    }) : <Empty>Giáo viên chưa giao học liệu cho lớp này.</Empty>}
+
+    {loading ? <VocabularyLoader hint="Đang tải từ vựng và ngữ pháp của lớp..." /> : words.length ? (
+      <div className="student-vocab-content">
+        {Object.entries(grouped).map(([lessonKey, group]) => {
+          const showGrammar = (tab === 'all' || tab === 'grammar') && group.grammar && group.grammar.length > 0;
+          const showWords = (tab === 'all' || tab === 'vocab') && group.words.length > 0;
+          if (!showGrammar && !showWords) return null;
+          return (
+            <div className="vocab-group" key={lessonKey}>
+              <div className="vocab-group-head">
+                <div className="vocab-group-head-main">
+                  <span className="vocab-badge-lesson">BÀI {group.lessonId}</span>
+                  <div>
+                    <h3>{group.title || lessonKey}</h3>
+                    {group.topic && <p className="vocab-group-topic">Chủ đề: {group.topic}</p>}
+                  </div>
+                </div>
+                <span className="vocab-group-count">{group.words.length} từ vựng · {group.grammar.length} ngữ pháp</span>
+              </div>
+
+              {showGrammar && (
+                <div className="student-grammar-block">
+                  <div className="student-grammar-title"><Sparkles size={16} /> <strong>Ngữ pháp trọng tâm:</strong></div>
+                  <div className="student-grammar-cards">
+                    {group.grammar.map((g) => (
+                      <div className="student-grammar-card" key={g}>
+                        <BookOpen size={18} />
+                        <div>
+                          <strong>{g}</strong>
+                          <p>Cấu trúc ngữ pháp bài {group.lessonId} · {group.title || ''}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {showWords && (
+                <div className="word-grid">
+                  {group.words.map((word) => (
+                    <article className="word-card" key={word.id}>
+                      <button className="speak-btn" onClick={() => speak(word.korean)} title="Nghe đọc tiếng Hàn">
+                        <Volume2 size={18} />
+                      </button>
+                      <strong className="korean-text">{word.korean}</strong>
+                      {word.romanization && <em className="romanization-text">{word.romanization}</em>}
+                      <p className="meaning-text">{word.meaningVi}</p>
+                      {word.exampleKr && <small className="example-text">VD: {word.exampleKr}</small>}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    ) : (
+      <Empty>
+        {studentLessonId
+          ? 'Bài học này chưa có từ vựng nào được giao hoặc không khớp kết quả tìm kiếm.'
+          : 'Giáo viên chưa giao học liệu cho lớp này.'}
+      </Empty>
+    )}
     <Pagination pagination={pagination} loading={loading} onPageChange={setPage} label="từ" />
   </section>;
 }
 
-function Flashcards({ words }) {
+function Flashcards({ words, lessons, studentLessonId, setStudentLessonId }) {
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [message, setMessage] = useState('');
   useEffect(() => { setIndex(0); setFlipped(false); }, [words.length]);
-  if (!words.length) return <section className="panel"><Empty>Chưa có từ để ôn flashcard.</Empty></section>;
+  if (!words.length) {
+    return (
+      <section className="panel">
+        {lessons && setStudentLessonId && (
+          <div className="flash-lesson-filter" style={{ marginBottom: 16 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.84rem', fontWeight: 600 }}>
+              <BookOpen size={16} /> Chọn bài học:
+              <select value={studentLessonId} onChange={(e) => setStudentLessonId(e.target.value)} style={{ padding: '6px 12px', borderRadius: 8 }}>
+                <option value="">-- Tất cả các bài --</option>
+                {lessons.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    Bài {l.lessonNumber || l.id} · {l.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+        <Empty>Chưa có từ để ôn flashcard.</Empty>
+      </section>
+    );
+  }
   const word = words[index % words.length];
   const next = (delta) => { setIndex((current) => (current + delta + words.length) % words.length); setFlipped(false); setMessage(''); };
   const record = async (correct) => {
     try { await api(`/practice/vocabulary/${word.id}/record`, { method: 'POST', body: JSON.stringify({ correct }), toast: false }); setMessage(correct ? 'Đã nhớ ✓' : 'Đã đưa vào phần cần ôn'); setTimeout(() => next(1), 350); }
     catch (err) { setMessage(err.message); }
   };
-  return <section className="flash-study"><div className="flash-progress"><span>Flashcard {index + 1}/{words.length}</span><div><i style={{ width: `${((index + 1) / words.length) * 100}%` }} /></div></div><button className={`flash-card ${flipped ? 'flipped' : ''}`} onClick={() => setFlipped((value) => !value)}><span className="flash-label">{flipped ? 'NGHĨA & VÍ DỤ' : `BÀI ${word.lessonId}`}</span>{flipped ? <><h2>{word.meaningVi}</h2><p>{word.exampleKr}</p><small>{word.exampleVi}</small></> : <><strong>{word.korean}</strong><em>{word.romanization}</em><p>Chạm để lật thẻ</p></>}</button>{message && <div className="flash-message">{message}</div>}<div className="flash-actions"><button className="icon-button big" onClick={() => next(-1)}><ChevronLeft /></button><button className="btn weak" onClick={() => record(false)}>Cần ôn lại</button><button className="btn success" onClick={() => record(true)}>Đã nhớ</button><button className="icon-button big" onClick={() => next(1)}><ChevronRight /></button></div></section>;
+  return <section className="flash-study">
+    {lessons && setStudentLessonId && (
+      <div className="flash-lesson-filter" style={{ marginBottom: 14, display: 'flex', justifyContent: 'center' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.84rem', fontWeight: 600 }}>
+          <BookOpen size={16} /> Bài học:
+          <select value={studentLessonId} onChange={(e) => setStudentLessonId(e.target.value)} style={{ padding: '6px 12px', borderRadius: 8 }}>
+            <option value="">-- Tất cả các bài --</option>
+            {lessons.map((l) => (
+              <option key={l.id} value={l.id}>
+                Bài {l.lessonNumber || l.id} · {l.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    )}
+    <div className="flash-progress"><span>Flashcard {index + 1}/{words.length}</span><div><i style={{ width: `${((index + 1) / words.length) * 100}%` }} /></div></div>
+    <button className={`flash-card ${flipped ? 'flipped' : ''}`} onClick={() => setFlipped((value) => !value)}>
+      <span className="flash-label">{flipped ? 'NGHĨA & VÍ DỤ' : `BÀI ${word.lessonId}`}</span>
+      {flipped ? (
+        <>
+          <h2>{word.meaningVi}</h2>
+          {word.exampleKr && <p>{word.exampleKr}</p>}
+          {word.exampleVi && <small>{word.exampleVi}</small>}
+        </>
+      ) : (
+        <>
+          <strong className="korean-text">{word.korean}</strong>
+          {word.romanization && <em>{word.romanization}</em>}
+          <p>Chạm để lật thẻ</p>
+        </>
+      )}
+    </button>
+    {message && <div className="flash-message">{message}</div>}
+    <div className="flash-actions">
+      <button className="icon-button big" onClick={() => next(-1)}><ChevronLeft /></button>
+      <button className="btn weak" onClick={() => record(false)}>Cần ôn lại</button>
+      <button className="btn success" onClick={() => record(true)}>Đã nhớ</button>
+      <button className="icon-button big" onClick={() => next(1)}><ChevronRight /></button>
+    </div>
+  </section>;
 }
 

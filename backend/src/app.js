@@ -842,9 +842,19 @@ app.get('/api/classes/:id/vocabulary', requireAuth, async (req, res) => {
     return res.json({ ids: ids.map((item) => Number(item.id)) });
   }
   const keyword = String(req.query.q || '').trim().slice(0, 120);
-  const whereSql = keyword ? 'WHERE cv.class_id = ? AND (v.korean LIKE ? OR v.meaning_vi LIKE ? OR COALESCE(v.romanization, \'\') LIKE ?)' : 'WHERE cv.class_id = ?';
-  const baseParams = keyword ? [classId, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`] : [classId];
-  const pagination = getPagination(req, 8);
+  const lessonId = req.query.lessonId ? Number(req.query.lessonId) : null;
+  const conditions = ['cv.class_id = ?'];
+  const baseParams = [classId];
+  if (keyword) {
+    conditions.push('(v.korean LIKE ? OR v.meaning_vi LIKE ? OR COALESCE(v.romanization, \'\') LIKE ?)');
+    baseParams.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+  }
+  if (lessonId && !Number.isNaN(lessonId)) {
+    conditions.push('v.lesson_id = ?');
+    baseParams.push(lessonId);
+  }
+  const whereSql = `WHERE ${conditions.join(' AND ')}`;
+  const pagination = getPagination(req, 12);
   const limitSql = paginationLimitSql(pagination);
   const params = baseParams;
   const vocabulary = await query(`SELECT v.id, v.lesson_id lessonId, l.title lessonTitle, l.topic, l.grammar,
