@@ -502,7 +502,7 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .student-search-segmented-row .segmented { flex-shrink: 0; }
 
 /* Lesson group */
-.vocab-group { margin-bottom: 30px; }
+.vocab-group { margin-bottom: 30px; animation: vocabCardFadeIn .35s ease-out; }
 .vocab-group-head {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 14px; padding: 14px 18px;
@@ -535,6 +535,7 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
   position: relative; border: 1px solid #e2def5; background: #fff;
   padding: 16px 16px 14px; border-radius: 16px; display: grid; gap: 4px;
   box-shadow: 0 2px 8px rgba(90,80,180,.05); transition: box-shadow .15s, transform .15s, border-color .15s;
+  animation: vocabCardFadeIn .3s ease-out;
 }
 .word-card:hover { box-shadow: 0 6px 18px rgba(90,80,180,.12); transform: translateY(-2px); border-color: #c4bbf5; }
 .word-card .korean-text { font-family: "Noto Sans KR", sans-serif; font-size: 1.32rem; font-weight: 800; color: #1e1b4b; letter-spacing: -.02em; padding-right: 36px; }
@@ -543,6 +544,73 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .word-card .example-text { margin-top: 8px; color: #6b6782; font-family: "Noto Sans KR", sans-serif; font-size: .74rem; line-height: 1.5; background: #f9f8fe; padding: 6px 9px; border-radius: 8px; border: 1px solid #eeeaff; }
 .speak-btn { position: absolute; right: 10px; top: 10px; width: 34px; height: 34px; border: 0; border-radius: 10px; background: #eeebff; color: #4338ca; display: grid; place-items: center; transition: background .15s, transform .15s; cursor: pointer; }
 .speak-btn:hover { background: #4338ca; color: #fff; transform: scale(1.08); }
+
+/* Animated Vocabulary Loader & Skeleton Shimmer */
+.vocab-funny-loader { display: grid; gap: 16px; width: 100%; }
+.vocab-funny-loader.compact { display: flex; align-items: center; gap: 12px; padding: 12px; }
+.vocab-loader-banner {
+  display: flex; align-items: center; gap: 14px; padding: 12px 16px;
+  background: linear-gradient(135deg, #f7f5ff 0%, #edf0ff 100%);
+  border: 1px solid #dcd5fd; border-radius: 14px;
+}
+.vocab-loader-orb {
+  width: 44px; height: 44px; border-radius: 12px;
+  background: #4338ca; display: grid; place-items: center;
+  box-shadow: 0 4px 12px rgba(67,56,202,.25); flex-shrink: 0;
+}
+.vocab-loader-bubbles { display: flex; gap: 2px; }
+.vocab-loader-bubbles .bubble {
+  color: #fff; font-weight: 900; font-size: .85rem; font-family: "Noto Sans KR", sans-serif;
+  animation: hangulBounce 1.2s ease-in-out infinite alternate;
+}
+.vocab-loader-bubbles .b1 { animation-delay: 0s; }
+.vocab-loader-bubbles .b2 { animation-delay: .2s; }
+.vocab-loader-bubbles .b3 { animation-delay: .4s; }
+.vocab-loader-info { display: grid; gap: 3px; }
+.vocab-loader-info strong { color: #1e1b4b; font-size: .88rem; }
+.vocab-loader-info small { color: #6b6780; font-size: .75rem; }
+
+/* Skeleton Shimmer */
+.vocab-skeleton-wrap { display: grid; gap: 14px; width: 100%; }
+.vocab-skeleton-banner {
+  height: 60px; border-radius: 14px; background: #f3f0ff;
+  border: 1px solid #e3ddff; padding: 12px 18px;
+  display: flex; align-items: center; gap: 14px;
+}
+.skeleton-badge { width: 68px; height: 28px; border-radius: 8px; background: #e3ddff; flex-shrink: 0; }
+.vocab-skeleton-lines { display: grid; gap: 6px; flex: 1; }
+.skeleton-line { border-radius: 6px; background: #e5e0fa; height: 12px; }
+.skeleton-line.title { width: 140px; height: 16px; }
+.skeleton-line.subtitle { width: 90px; height: 10px; }
+.skeleton-pill { width: 110px; height: 24px; border-radius: 99px; background: #e3ddff; flex-shrink: 0; }
+.vocab-skeleton-grammar { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.skeleton-grammar-card { height: 54px; border-radius: 12px; background: #f6f4ff; border: 1px solid #e5e0fa; }
+.skeleton-word-card { min-height: 120px; background: #faf9fd; border-color: #e8e4f8; }
+.skeleton-circle { width: 30px; height: 30px; border-radius: 8px; background: #ece8fa; position: absolute; right: 10px; top: 10px; }
+.skeleton-line.korean { width: 100px; height: 22px; margin-bottom: 6px; background: #ded8f7; }
+.skeleton-line.roman { width: 60px; height: 10px; margin-bottom: 8px; background: #ebe6fa; }
+.skeleton-line.meaning { width: 130px; height: 14px; background: #e3ddf7; }
+
+/* Shimmer animation */
+.shimmer {
+  position: relative; overflow: hidden;
+}
+.shimmer::after {
+  content: ''; position: absolute; inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.6), transparent);
+  animation: shimmerMove 1.4s infinite;
+}
+
+@keyframes shimmerMove { 100% { transform: translateX(100%); } }
+@keyframes hangulBounce {
+  0% { transform: translateY(2px) scale(.95); opacity: .75; }
+  100% { transform: translateY(-3px) scale(1.1); opacity: 1; }
+}
+@keyframes vocabCardFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 .flash-study { max-width: 650px; margin: 0 auto; }
 .flash-progress { color: var(--muted); font-size: .75rem; margin-bottom: 10px; }

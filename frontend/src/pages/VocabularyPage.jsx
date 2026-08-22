@@ -117,23 +117,65 @@ export default function VocabularyPage({ user }) {
 }
 
 const VOCAB_LOADING_LINES = [
-  'Đang tải danh mục từ vựng từ giáo trình... 📚',
-  'Đang xử lý dữ liệu bài học...',
-  'Đang đồng bộ từ vựng tiếng Hàn... 🇰🇷',
-  'Đang chuẩn bị học liệu, vui lòng đợi trong giây lát...'
+  'Đang tải danh mục từ vựng & ngữ pháp từ giáo trình... 📚',
+  'Đang sắp xếp theo bài học tiếng Hàn... 🇰🇷',
+  'Đang đồng bộ ngữ pháp & câu ví dụ...',
+  'Đang hoàn tất học liệu, bạn chờ xíu nhé! ✨'
 ];
+
+function VocabularySkeletonLoader() {
+  return (
+    <div className="vocab-skeleton-wrap" aria-hidden="true">
+      <div className="vocab-skeleton-banner">
+        <div className="skeleton-badge shimmer" />
+        <div className="vocab-skeleton-lines">
+          <div className="skeleton-line title shimmer" />
+          <div className="skeleton-line subtitle shimmer" />
+        </div>
+        <div className="skeleton-pill shimmer" />
+      </div>
+      <div className="vocab-skeleton-grammar">
+        <div className="skeleton-grammar-card shimmer" />
+        <div className="skeleton-grammar-card shimmer" />
+      </div>
+      <div className="word-grid">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div className="word-card skeleton-word-card" key={i}>
+            <div className="skeleton-circle shimmer" />
+            <div className="skeleton-line korean shimmer" />
+            <div className="skeleton-line roman shimmer" />
+            <div className="skeleton-line meaning shimmer" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function VocabularyLoader({ compact = false, hint = 'Đang đồng bộ dữ liệu học liệu...' }) {
   const [line, setLine] = useState(0);
   useEffect(() => {
-    const timer = window.setInterval(() => setLine((current) => (current + 1) % VOCAB_LOADING_LINES.length), 950);
+    const timer = window.setInterval(() => setLine((current) => (current + 1) % VOCAB_LOADING_LINES.length), 900);
     return () => window.clearInterval(timer);
   }, []);
-  return <div className={`vocab-funny-loader ${compact ? 'compact' : ''}`} role="status" aria-live="polite">
-    <div className="vocab-loader-bubbles" aria-hidden="true"><span>한</span><span>국</span><span>어</span></div>
-    <strong>{VOCAB_LOADING_LINES[line]}</strong>
-    <small>{hint}</small>
-  </div>;
+  return (
+    <div className={`vocab-funny-loader ${compact ? 'compact' : ''}`} role="status" aria-live="polite">
+      <div className="vocab-loader-banner">
+        <div className="vocab-loader-orb" aria-hidden="true">
+          <div className="vocab-loader-bubbles">
+            <span className="bubble b1">한</span>
+            <span className="bubble b2">국</span>
+            <span className="bubble b3">어</span>
+          </div>
+        </div>
+        <div className="vocab-loader-info">
+          <strong>{VOCAB_LOADING_LINES[line]}</strong>
+          <small>{hint}</small>
+        </div>
+      </div>
+      {!compact && <VocabularySkeletonLoader />}
+    </div>
+  );
 }
 
 function TeacherCatalog({ lessons, lessonsLoading, catalogLoading, classWordsLoading, selectingAll, lessonId, setLessonId, activeLesson, activeClass, catalog, catalogPagination, setCatalogPage, selected, setSelected, imported, toggle, selectAll, importWords, classWords, classPagination, setClassPage, classId }) {
