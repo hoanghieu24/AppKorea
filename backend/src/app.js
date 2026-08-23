@@ -1499,12 +1499,10 @@ app.post(['/api/assignments/:id/check', '/api/assignments/:id/attempt'], require
   const assignments = await query("SELECT * FROM assignments WHERE id = ? AND type = 'HOMEWORK' AND status = 'PUBLISHED' LIMIT 1", [assignmentId]);
   const assignment = assignments[0];
   if (!assignment || !(await studentBelongsToClass(req.user.id, assignment.class_id))) return res.status(403).json({ message: 'Bạn không thể check bài này.' });
-  const existed = await query('SELECT id FROM submissions WHERE assignment_id = ? AND student_id = ? LIMIT 1', [assignmentId, req.user.id]);
-  if (existed[0]) return res.status(409).json({ message: 'Bài đã nộp chính thức nên không thể check thêm.' });
 
   const questions = await query('SELECT * FROM questions WHERE assignment_id = ? ORDER BY position', [assignmentId]);
   const previousRows = await query(`SELECT * FROM assignment_attempts
-    WHERE assignment_id = ? AND student_id = ? AND submission_id IS NULL
+    WHERE assignment_id = ? AND student_id = ?
     ORDER BY attempt_no DESC LIMIT 1`, [assignmentId, req.user.id]);
   const previousAttempt = previousRows[0] || null;
   const previousAnswers = parseAttemptJson(previousAttempt?.answers_json, {});
@@ -1531,7 +1529,7 @@ app.post(['/api/assignments/:id/check', '/api/assignments/:id/attempt'], require
     [assignmentId, req.user.id, attemptNo, JSON.stringify(input.data.answers), JSON.stringify(grade.results), grade.score, grade.maxScore, grade.percentage, grade.summary, grade.aiUsed ? 1 : 0],
   );
   res.status(201).json({
-    message: `AI đã check lần ${attemptNo}. Đây chưa phải bài nộp chính thức.`,
+    message: `AI đã check lần ${attemptNo}. ${grade.percentage >= 100 ? 'Chúc mừng! Bạn đã sửa đúng full điểm.' : 'Hãy xem nhận xét và sửa tiếp các câu còn sai.'}`,
     attemptId: inserted.insertId, attemptNo, reused: false, ...grade,
   });
 });
@@ -1544,30 +1542,23 @@ app.post('/api/assignments/:id/submit', requireAuth, requireRole('STUDENT'), aiR
   const existed = await query('SELECT id FROM submissions WHERE assignment_id = ? AND student_id = ? LIMIT 1', [assignmentId, req.user.id]);
   if (existed[0]) return res.status(409).json({ message: 'Bài này đã được nộp. Mỗi học sinh chỉ nộp một lần.' });
 
-  let grade;
-  let attemptId = null;
-  if (assignment.type === 'HOMEWORK') {
-    const input = z.object({ attemptId: z.coerce.number().int().positive() }).safeParse(req.body);
-    if (!input.success) return badRequest(res, 'Hãy bấm Check bằng AI trước khi nộp cho giáo viên.');
-    const attempts = await query(`SELECT * FROM assignment_attempts WHERE id = ? AND assignment_id = ? AND student_id = ? AND submission_id IS NULL LIMIT 1`, [input.data.attemptId, assignmentId, req.user.id]);
-    const attempt = attempts[0];
-    if (!attempt) return badRequest(res, 'Lần check AI này không còn hợp lệ. Hãy check lại.');
-    grade = {
-      results: typeof attempt.result_json === 'string' ? JSON.parse(attempt.result_json) : attempt.result_json,
-      score: Number(attempt.score), maxScore: Number(attempt.max_score), percentage: Number(attempt.percentage),
-      summary: attempt.ai_summary, aiUsed: Boolean(attempt.ai_used),
-    };
-    grade.weakTopics = [...new Set(grade.results.filter((item) => item.points && item.awarded / item.points < 0.7).map((item) => item.topic))];
-    attemptId = attempt.id;
-  } else {
-    const input = z.object({ answers: answerInput }).safeParse(req.body);
-    if (!input.success) return badRequest(res, 'Dữ liệu bài kiểm tra chưa hợp lệ.');
-    const questions = await query('SELECT * FROM questions WHERE assignment_id = ? ORDER BY position', [assignmentId]);
-    grade = await gradeAssignmentAnswers(questions, input.data.answers, { userId: req.user.id, route: 'assignment-submit' });
-  }
+  const input = z.object({ answers: answerInput }).safeParse(req.body);
+  if (!input.success) return badRequest(res, 'Dữ liệu bài làm chưa hợp lệ.');
 
-  const submissionId = await createFinalSubmission({ assignment, studentId: req.user.id, grade, attemptId });
-  res.status(201).json({ message: 'Đã nộp bài chính thức cho giáo viên.', submissionId, ...grade });
+  const questions = await query('SELECT * FROM questions WHERE assignment_id = ? ORDER BY position', [assignmentId]);
+  const grade = await gradeAssignmentAnswers(questions, input.data.answers, { userId: req.user.id, route: 'assignment-submit' });
+
+  // Lưu lại lần nộp đầu tiên vào assignment_attempts
+  const numberRows = await query('SELECT COALESCE(MAX(attempt_no), 0) + 1 nextAttempt FROM assignment_attempts WHERE assignment_id = ? AND student_id = ?', [assignmentId, req.user.id]);
+  const attemptNo = Number(numberRows[0]?.nextAttempt || 1);
+  const insertedAttempt = await query(
+    `INSERT INTO assignment_attempts (assignment_id, student_id, attempt_no, answers_json, result_json, score, max_score, percentage, ai_summary, ai_used)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [assignmentId, req.user.id, attemptNo, JSON.stringify(input.data.answers), JSON.stringify(grade.results), grade.score, grade.maxScore, grade.percentage, grade.summary, grade.aiUsed ? 1 : 0],
+  );
+
+  const submissionId = await createFinalSubmission({ assignment, studentId: req.user.id, grade, attemptId: insertedAttempt.insertId });
+  res.status(201).json({ message: 'Đã nộp bài chính thức cho giáo viên.', submissionId, attemptNo, ...grade });
 });
 
 app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
@@ -1598,8 +1589,7 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
       GROUP BY student_id`, [assignmentId, ...studentIds]);
     for (const row of attemptCounts) attemptCountByStudent.set(Number(row.studentId), Number(row.attemptCount || 0));
 
-    // Chỉ lấy lần Check AI gần nhất của mỗi học sinh. Giáo viên vẫn xem được
-    // chi tiết câu trả lời cuối cùng nhưng API không trả toàn bộ lịch sử attempt nữa.
+    // Lấy lần Check AI gần nhất của mỗi học sinh để theo dõi tiến độ sửa bài
     const latestAttempts = await query(`SELECT aa.id, aa.student_id studentId, aa.attempt_no attemptNo, aa.score,
       aa.max_score maxScore, aa.percentage, aa.result_json resultJson, aa.ai_summary summary,
       aa.ai_used aiUsed, aa.submission_id submissionId, aa.created_at createdAt, aa.submitted_at submittedAt
@@ -1621,6 +1611,28 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
         aiUsed: Boolean(attempt.aiUsed),
         submitted: Boolean(attempt.submissionId),
       });
+    }
+  }
+
+  for (const student of students) {
+    const latestAttempt = latestAttemptByStudent.get(Number(student.id)) || null;
+    student.submitted = Boolean(student.submissionId);
+    student.attemptCount = attemptCountByStudent.get(Number(student.id)) || 0;
+    student.latestAttempt = latestAttempt;
+
+    if (!student.submitted) {
+      student.status = 'NOT_SUBMITTED';
+      student.statusLabel = 'Chưa nộp bài';
+    } else {
+      const bestPercentage = Math.max(Number(student.percentage) || 0, Number(latestAttempt?.percentage) || 0);
+      const isCompleted = bestPercentage >= 100 || (latestAttempt?.results?.length > 0 && latestAttempt.results.every((r) => r.isCorrect));
+      if (isCompleted) {
+        student.status = 'COMPLETED';
+        student.statusLabel = 'Đã hoàn thành';
+      } else {
+        student.status = 'INCOMPLETE';
+        student.statusLabel = 'Đã nộp nhưng chưa sửa hết bài';
+      }
     }
   }
   let stats = [];
