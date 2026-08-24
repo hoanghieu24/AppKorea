@@ -53,10 +53,18 @@ export async function seedTextbookCatalog() {
 
 export async function ensureTextbookCatalog() {
   if (!ensurePromise) {
-    ensurePromise = seedTextbookCatalog().catch((error) => {
-      ensurePromise = null;
-      throw error;
-    });
+    ensurePromise = (async () => {
+      try {
+        const counts = await query('SELECT COUNT(*) total FROM textbook_lessons');
+        if (counts[0]?.total >= textbook.length) {
+          return;
+        }
+        await seedTextbookCatalog();
+      } catch (err) {
+        ensurePromise = null;
+        throw err;
+      }
+    })();
   }
   await ensurePromise;
 }

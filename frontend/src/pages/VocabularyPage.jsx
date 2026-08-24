@@ -21,27 +21,42 @@ export default function VocabularyPage({ user }) {
   const [mode, setMode] = useState('list');
   const [studentViewTab, setStudentViewTab] = useState('all');
   const [message, setMessage] = useState('');
+  const [initialLoading, setInitialLoading] = useState(true);
   const [lessonsLoading, setLessonsLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [classWordsLoading, setClassWordsLoading] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
 
   useEffect(() => {
-    Promise.all([api('/classes'), api('/textbook/lessons')]).then(([a, b]) => {
-      setClasses(a.classes); setLessons(b.lessons);
-      if (a.classes[0] && (user.role !== 'TEACHER' || a.classes.length === 1)) setClassId(String(a.classes[0].id));
-      if (b.lessons[0]) setLessonId(String(b.lessons[0].id));
-    }).catch((err) => setMessage(err.message)).finally(() => setLessonsLoading(false));
+    Promise.all([api('/classes'), api('/textbook/lessons')])
+      .then(([a, b]) => {
+        setClasses(a.classes || []);
+        setLessons(b.lessons || []);
+        if (a.classes?.[0] && (user.role !== 'TEACHER' || a.classes.length === 1)) {
+          setClassId(String(a.classes[0].id));
+        }
+        if (b.lessons?.[0]) {
+          setLessonId(String(b.lessons[0].id));
+        }
+      })
+      .catch((err) => setMessage(err.message))
+      .finally(() => {
+        setLessonsLoading(false);
+        setInitialLoading(false);
+      });
   }, []);
+
   useEffect(() => { setCatalogPage(1); setSelected(new Set()); }, [lessonId]);
+
   useEffect(() => {
     if (!lessonId) return;
     setCatalogLoading(true);
     api(`/textbook/lessons/${lessonId}/vocabulary?page=${catalogPage}&pageSize=8`)
-      .then((data) => { setCatalog(data.vocabulary); setCatalogPagination(data.pagination); setMessage(''); })
+      .then((data) => { setCatalog(data.vocabulary || []); setCatalogPagination(data.pagination); setMessage(''); })
       .catch((err) => { setCatalog([]); setMessage(err.message); })
       .finally(() => setCatalogLoading(false));
   }, [lessonId, catalogPage]);
+
   const loadClassWords = async (page = classPage) => {
     if (!classId) { setClassWords([]); setClassPagination(null); setImportedIds([]); return; }
     setClassWordsLoading(true);
@@ -50,13 +65,16 @@ export default function VocabularyPage({ user }) {
       const lessonSuffix = studentLessonId ? `&lessonId=${studentLessonId}` : '';
       const pageSize = studentLessonId ? 30 : 18;
       const data = await api(`/classes/${classId}/vocabulary?page=${page}&pageSize=${pageSize}${suffix}${lessonSuffix}`);
-      setClassWords(data.vocabulary); setClassPagination(data.pagination);
+      setClassWords(data.vocabulary || []); setClassPagination(data.pagination);
       if (user.role === 'TEACHER') setImportedIds((await api(`/classes/${classId}/vocabulary?idsOnly=1`)).ids || []);
     } catch (err) { setMessage(err.message); }
     finally { setClassWordsLoading(false); }
   };
+
   useEffect(() => { setClassPage(1); setSelected(new Set()); }, [classId, query, studentLessonId]);
+
   useEffect(() => {
+    if (!classId) return;
     const timer = window.setTimeout(() => loadClassWords(classPage), query ? 180 : 0);
     return () => window.clearTimeout(timer);
   }, [classId, classPage, query, studentLessonId]);
@@ -88,14 +106,22 @@ export default function VocabularyPage({ user }) {
     <PageHeader eyebrow={user.role === 'TEACHER' ? 'KHO HỌC LIỆU' : 'ÔN TẬP'} title={user.role === 'TEACHER' ? 'Tích hợp Từ vựng & Ngữ pháp từ sách' : 'Từ vựng & Ngữ pháp của lớp'} subtitle={user.role === 'TEACHER' ? 'Chọn bài → chọn từ vựng & ngữ pháp → giao cho lớp. Học sinh sẽ học đầy đủ cả từ vựng và ngữ pháp.' : 'Học theo danh sách từ vựng và cấu trúc ngữ pháp giáo viên đã giao cho lớp.'} />
     {message && <div className="notice">{message}</div>}
     <div className="vocab-toolbar">
-      <label><span>{user.role === 'TEACHER' ? 'Lớp nhận học liệu' : 'Lớp'}</span><select value={classId} onChange={(e) => setClassId(e.target.value)}>{user.role === 'TEACHER' && classes.length > 1 && <option value="">-- Chọn đúng lớp cần giao --</option>}{classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}</select></label>
+      <label>
+        <span>{user.role === 'TEACHER' ? 'Lớp nhận học liệu' : 'Lớp'}</span>
+        <select value={classId} disabled={initialLoading} onChange={(e) => setClassId(e.target.value)}>
+          {initialLoading && <option>Đang tải danh sách lớp...</option>}
+          {!initialLoading && !classes.length && <option>Chưa tham gia lớp nào</option>}
+          {user.role === 'TEACHER' && classes.length > 1 && <option value="">-- Chọn đúng lớp cần giao --</option>}
+          {classes.map((item) => <option key={item.id} value={item.id}>{item.name}{item.code ? ` · ${item.code}` : ''}</option>)}
+        </select>
+      </label>
       {user.role === 'STUDENT' && <div className="segmented compact"><button className={mode === 'list' ? 'active' : ''} onClick={() => setMode('list')}>Danh sách</button><button className={mode === 'flash' ? 'active' : ''} onClick={() => setMode('flash')}>Flashcard</button></div>}
     </div>
     {user.role === 'TEACHER' ? (
-      <TeacherCatalog lessons={lessons} lessonsLoading={lessonsLoading} catalogLoading={catalogLoading} classWordsLoading={classWordsLoading} selectingAll={selectingAll} lessonId={lessonId} setLessonId={setLessonId} activeLesson={activeLesson} activeClass={activeClass} catalog={catalog} catalogPagination={catalogPagination} setCatalogPage={setCatalogPage} selected={selected} setSelected={setSelected} imported={imported} toggle={toggle} selectAll={selectAll} importWords={importWords} classWords={classWords} classPagination={classPagination} setClassPage={setClassPage} classId={classId} />
+      <TeacherCatalog lessons={lessons} lessonsLoading={lessonsLoading || initialLoading} catalogLoading={catalogLoading} classWordsLoading={classWordsLoading} selectingAll={selectingAll} lessonId={lessonId} setLessonId={setLessonId} activeLesson={activeLesson} activeClass={activeClass} catalog={catalog} catalogPagination={catalogPagination} setCatalogPage={setCatalogPage} selected={selected} setSelected={setSelected} imported={imported} toggle={toggle} selectAll={selectAll} importWords={importWords} classWords={classWords} classPagination={classPagination} setClassPage={setClassPage} classId={classId} />
     ) : mode === 'flash' ? (
       <>
-        <Flashcards words={classWords} lessons={lessons} studentLessonId={studentLessonId} setStudentLessonId={setStudentLessonId} />
+        <Flashcards words={classWords} lessons={lessons} studentLessonId={studentLessonId} setStudentLessonId={setStudentLessonId} loading={initialLoading || classWordsLoading} />
         <Pagination pagination={classPagination} loading={classWordsLoading} onPageChange={setClassPage} label="từ" />
       </>
     ) : (
@@ -107,7 +133,8 @@ export default function VocabularyPage({ user }) {
         query={query}
         setQuery={setQuery}
         pagination={classPagination}
-        loading={classWordsLoading}
+        loading={initialLoading || classWordsLoading}
+        classesCount={classes.length}
         setPage={setClassPage}
         tab={studentViewTab}
         setTab={setStudentViewTab}
@@ -218,7 +245,7 @@ function TeacherCatalog({ lessons, lessonsLoading, catalogLoading, classWordsLoa
   </div>;
 }
 
-function StudentVocabulary({ words, lessons, studentLessonId, setStudentLessonId, query, setQuery, pagination, loading, setPage, tab, setTab }) {
+function StudentVocabulary({ words, lessons, studentLessonId, setStudentLessonId, query, setQuery, pagination, loading, classesCount, setPage, tab, setTab }) {
   const grouped = useMemo(() => words.reduce((map, word) => {
     const key = `Bài ${word.lessonId} · ${word.lessonTitle || ''}`;
     if (!map[key]) map[key] = { lessonId: word.lessonId, title: word.lessonTitle, topic: word.topic, grammar: word.grammar || [], words: [] };
@@ -260,7 +287,7 @@ function StudentVocabulary({ words, lessons, studentLessonId, setStudentLessonId
     <div className="student-filter-toolbar">
       <div className="student-lesson-selector">
         <label><BookOpen size={16} /> <span>Chọn bài học:</span></label>
-        <select value={studentLessonId} onChange={(e) => setStudentLessonId(e.target.value)}>
+        <select value={studentLessonId} disabled={loading} onChange={(e) => setStudentLessonId(e.target.value)}>
           <option value="">-- Tất cả các bài --</option>
           {lessons.map((l) => (
             <option key={l.id} value={l.id}>
@@ -273,7 +300,7 @@ function StudentVocabulary({ words, lessons, studentLessonId, setStudentLessonId
       <div className="student-search-segmented-row">
         <div className="vocab-search">
           <Search size={18} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm từ vựng hoặc nghĩa tiếng Hàn..." />
+          <input value={query} disabled={loading} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm từ vựng hoặc nghĩa tiếng Hàn..." />
         </div>
         <div className="segmented compact">
           <button className={tab === 'all' ? 'active' : ''} onClick={() => setTab('all')}>Tất cả</button>
@@ -340,20 +367,27 @@ function StudentVocabulary({ words, lessons, studentLessonId, setStudentLessonId
       </div>
     ) : (
       <Empty>
-        {studentLessonId
+        {classesCount === 0
+          ? 'Bạn chưa tham gia lớp học nào. Hãy liên hệ giáo viên để vào lớp nhé.'
+          : studentLessonId
           ? 'Bài học này chưa có từ vựng nào được giao hoặc không khớp kết quả tìm kiếm.'
-          : 'Giáo viên chưa giao học liệu cho lớp này.'}
+          : 'Giáo viên chưa giao học liệu từ vựng & ngữ pháp cho lớp này.'}
       </Empty>
     )}
     <Pagination pagination={pagination} loading={loading} onPageChange={setPage} label="từ" />
   </section>;
 }
 
-function Flashcards({ words, lessons, studentLessonId, setStudentLessonId }) {
+function Flashcards({ words, lessons, studentLessonId, setStudentLessonId, loading }) {
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [message, setMessage] = useState('');
   useEffect(() => { setIndex(0); setFlipped(false); }, [words.length]);
+
+  if (loading) {
+    return <VocabularyLoader hint="Đang chuẩn bị thẻ Flashcard từ vựng & ngữ pháp..." />;
+  }
+
   if (!words.length) {
     return (
       <section className="panel">
