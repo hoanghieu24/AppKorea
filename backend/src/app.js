@@ -1125,6 +1125,7 @@ app.get('/api/assignments/:id', requireAuth, async (req, res) => {
     audio,
     aiEnabled: await aiEnabled(),
   });
+});
 
 app.get('/api/assignments/:id/audio', requireAuth, async (req, res) => {
   const assignmentId = idSchema.parse(req.params.id);
