@@ -1618,52 +1618,43 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
     LEFT JOIN submissions s ON s.student_id = u.id AND s.assignment_id = ?
     WHERE cs.class_id = ? ORDER BY u.full_name${limitSql}`, studentParams);
   const studentIds = students.map((student) => student.id);
-  const attemptCountByStudent = new Map();
-  const latestAttemptByStudent = new Map();
-  if (studentIds.length) {
-    const placeholders = studentIds.map(() => '?').join(',');
-    const attemptCounts = await query(`SELECT student_id studentId, COUNT(*) attemptCount
-      FROM assignment_attempts WHERE assignment_id = ? AND student_id IN (${placeholders})
-      GROUP BY student_id`, [assignmentId, ...studentIds]);
-    for (const row of attemptCounts) attemptCountByStudent.set(Number(row.studentId), Number(row.attemptCount || 0));
-
-    // Lấy lần Check AI gần nhất của mỗi học sinh để theo dõi tiến độ sửa bài
-    const latestAttempts = await query(`SELECT aa.id, aa.student_id studentId, aa.attempt_no attemptNo, aa.score,
-      aa.max_score maxScore, aa.percentage, aa.result_json resultJson, aa.ai_summary summary,
-      aa.ai_used aiUsed, aa.submission_id submissionId, aa.created_at createdAt, aa.submitted_at submittedAt
-      FROM assignment_attempts aa
-      INNER JOIN (
-        SELECT student_id, MAX(attempt_no) maxAttemptNo
-        FROM assignment_attempts
-        WHERE assignment_id = ? AND student_id IN (${placeholders})
-        GROUP BY student_id
-      ) latest ON latest.student_id = aa.student_id AND latest.maxAttemptNo = aa.attempt_no
-      WHERE aa.assignment_id = ?`, [assignmentId, ...studentIds, assignmentId]);
-
-    for (const attempt of latestAttempts) {
-      const results = typeof attempt.resultJson === 'string' ? JSON.parse(attempt.resultJson) : attempt.resultJson || [];
-      const { resultJson: _hiddenResultJson, ...safeAttempt } = attempt;
-      latestAttemptByStudent.set(Number(attempt.studentId), {
-        ...safeAttempt,
-        results,
-        aiUsed: Boolean(attempt.aiUsed),
-        submitted: Boolean(attempt.submissionId),
+  const submissionIds = students.map((student) => student.submissionId).filter(Boolean);
+  const answersBySubmissionId = new Map();
+  if (submissionIds.length) {
+    const subPlaceholders = submissionIds.map(() => '?').join(',');
+    const answersRows = await query(`SELECT sa.submission_id submissionId, sa.question_id questionId, sa.answer_text answer,
+      sa.is_correct isCorrect, sa.points_awarded awarded, sa.feedback, sa.graded_by_ai gradedByAi,
+      q.points points, q.correct_answer referenceAnswer
+      FROM submission_answers sa
+      JOIN questions q ON q.id = sa.question_id
+      WHERE sa.submission_id IN (${subPlaceholders})
+      ORDER BY q.position, sa.id`, submissionIds);
+    for (const row of answersRows) {
+      const key = Number(row.submissionId);
+      if (!answersBySubmissionId.has(key)) answersBySubmissionId.set(key, []);
+      answersBySubmissionId.get(key).push({
+        questionId: Number(row.questionId),
+        answer: row.answer,
+        isCorrect: Boolean(row.isCorrect),
+        awarded: Number(row.awarded || 0),
+        points: Number(row.points || 1),
+        feedback: row.feedback,
+        referenceAnswer: row.referenceAnswer,
+        gradedByAi: Boolean(row.gradedByAi),
       });
     }
   }
 
   for (const student of students) {
-    const latestAttempt = latestAttemptByStudent.get(Number(student.id)) || null;
     student.submitted = Boolean(student.submissionId);
-    student.attemptCount = attemptCountByStudent.get(Number(student.id)) || 0;
-    student.latestAttempt = latestAttempt;
+    student.answers = student.submissionId ? (answersBySubmissionId.get(Number(student.submissionId)) || []) : [];
 
     if (!student.submitted) {
       student.status = 'NOT_SUBMITTED';
       student.statusLabel = 'Chưa nộp bài';
     } else {
-      const bestPercentage = Math.max(Number(student.percentage) || 0, Number(latestAttempt?.percentage) || 0);
-      const isCompleted = bestPercentage >= 100 || (latestAttempt?.results?.length > 0 && latestAttempt.results.every((r) => r.isCorrect));
+      // Chỉ tính theo bài nộp đầu tiên của học sinh
+      const isCompleted = Number(student.percentage) >= 100 || (student.answers.length > 0 && student.answers.every((r) => r.isCorrect));
       if (isCompleted) {
         student.status = 'COMPLETED';
         student.statusLabel = 'Đã hoàn thành';

@@ -722,7 +722,7 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
             {report.students.map((student) => {
               const hasSubmitted = Boolean(student.submitted);
               const isCompleted = student.status === 'COMPLETED' || Number(student.percentage) >= 100;
-              const results = student.latestAttempt?.results || [];
+              const results = student.answers || [];
               const correctCount = results.filter((r) => r.isCorrect).length;
               const wrongCount = results.length - correctCount;
 
@@ -739,23 +739,15 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
                           <span className="submit-state incomplete">Đã nộp nhưng chưa sửa hết bài</span>
                         )
                       ) : (
-                        <span className="submit-state not-submitted">Chưa làm bài</span>
+                        <span className="submit-state not-submitted">Chưa nộp bài</span>
                       )}
                     </div>
 
                     <span>
                       {hasSubmitted
-                        ? `Điểm bài nộp ban đầu: ${studentScoreText(student)}`
-                        : student.attemptCount
-                        ? 'Đang làm bài'
+                        ? `Điểm bài nộp: ${studentScoreText(student)}`
                         : 'Chưa nộp bài'}
                     </span>
-
-                    {hasSubmitted && student.latestAttempt && student.latestAttempt.attemptNo > 1 && (
-                      <small className="student-correction-progress">
-                        Tiến độ sửa bài (Lần {student.latestAttempt.attemptNo}): {formatScoreValue(student.latestAttempt.score)}/{formatScoreValue(student.latestAttempt.maxScore)} điểm ({Math.round(student.latestAttempt.percentage)}%)
-                      </small>
-                    )}
 
                     {hasSubmitted && results.length > 0 && (
                       <div className="student-question-score-pills">
@@ -764,21 +756,20 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
                       </div>
                     )}
 
-                    {student.attemptCount > 0 && <small className="student-check-count">{student.fullName} đã Check AI {student.attemptCount} lần</small>}
                     {hasSubmitted && <div className="student-total-score"><div><span>ĐIỂM NỘP CHÍNH THỨC</span><strong>{formatScoreValue(student.score)}<small>/{formatScoreValue(student.maxScore)} điểm</small></strong></div><b>{Math.round(Number(student.percentage) || 0)}%</b></div>}
-                    {(student.summary || student.latestAttempt?.summary) && <div className="student-ai-overview"><Bot size={15} /><div><strong>Đánh giá chung của AI</strong><p>{student.summary || student.latestAttempt?.summary}</p></div></div>}
+                    {student.summary && <div className="student-ai-overview"><Bot size={15} /><div><strong>Đánh giá chung của AI</strong><p>{student.summary}</p></div></div>}
                     {student.weakTopics?.length ? <small>Cần ôn: {student.weakTopics.map((t) => `${t.topic} (${t.mastery}%)`).join(', ')}</small> : null}
 
-                    {student.latestAttempt?.results?.length ? (
+                    {results.length > 0 ? (
                       <details className="latest-attempt-detail" open={hasSubmitted}>
                         <summary>
-                          <span>{hasSubmitted ? 'Xem chi tiết câu đúng & câu sai của học sinh' : 'Chi tiết lần Check AI gần nhất'}</span>
-                          <b>{hasSubmitted ? `${correctCount}/${results.length} câu đúng · ${studentScoreText(student)}` : `${formatScoreValue(student.latestAttempt.score)}/${formatScoreValue(student.latestAttempt.maxScore)} điểm · ${Math.round(student.latestAttempt.percentage)}%`}</b>
+                          <span>Xem chi tiết câu đúng &amp; câu sai của học sinh</span>
+                          <b>{correctCount}/{results.length} câu đúng · {studentScoreText(student)}</b>
                         </summary>
                         <article>
-                          <small>{student.latestAttempt.createdAt ? new Date(student.latestAttempt.createdAt).toLocaleString('vi-VN') : ''}</small>
+                          {student.submittedAt && <small>Nộp lúc: {new Date(student.submittedAt).toLocaleString('vi-VN')}</small>}
                           <div className="latest-attempt-results">
-                            {student.latestAttempt.results.map((result, index) => {
+                            {results.map((result, index) => {
                               const question = questions.find((item) => Number(item.id) === Number(result.questionId));
                               return (
                                 <div className={`latest-attempt-question ${result.isCorrect ? 'correct' : 'wrong'}`} key={result.questionId ?? index}>
@@ -790,7 +781,9 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
                                   <div className="latest-answer-box">
                                     <p><b>Bài làm:</b> {result.answer || '—'}</p>
                                     <p><b>AI nhận xét:</b> {result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>
-                                    {!result.isCorrect && result.referenceAnswer && <p><b>Đáp án tham khảo:</b> {result.referenceAnswer}</p>}
+                                    {!result.isCorrect && (result.referenceAnswer || question?.correctAnswer) && (
+                                      <p><b>Đáp án tham khảo:</b> {result.referenceAnswer || question?.correctAnswer}</p>
+                                    )}
                                   </div>
                                 </div>
                               );
