@@ -972,7 +972,7 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .question-source-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .question-source-title > div { display: flex; align-items: center; gap: 8px; color: var(--purple); }
 .question-source-title > span { font-size: .72rem; color: var(--muted); }
-.question-source-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 9px; }
+.question-source-grid { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 9px; }
 .question-source-card { border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 12px; display: flex; align-items: flex-start; gap: 9px; text-align: left; color: #4e4a61; transition: .18s; cursor: pointer; }
 .question-source-card svg { color: var(--purple); flex: 0 0 auto; margin-top: 2px; }
 .question-source-card span { display: grid; gap: 3px; }
@@ -1014,11 +1014,18 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 .ocr-stepper.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .excel-processing-card { width: min(720px, 100%); }
 .excel-progress > i { background: linear-gradient(90deg, #6757f5, #8b5cf6, #c084fc); }
+.doc-processing-card { width: min(720px, 100%); }
+.doc-progress > i { background: linear-gradient(90deg, #0284c7, #2563eb, #6366f1); }
 .excel-import-summary { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
 .excel-import-summary > span { display: inline-flex; align-items: center; gap: 4px; padding: 5px 8px; border: 1px solid #d9d5ff; border-radius: 999px; background: #f7f6ff; color: #5c5675; font-size: .63rem; }
 .excel-import-summary > span:first-child { color: #21845d; border-color: #cdeede; background: #edfbf4; font-weight: 800; }
 .excel-import-summary.fallback > span:first-child { color: #9a641d; border-color: #f2dfb7; background: #fff8e8; }
 .excel-import-summary b { color: #3d3658; }
+.doc-import-summary > span:first-child { color: #1e40af; border-color: #bfdbfe; background: #eff6ff; font-weight: 800; }
+.doc-review-card { border-color: #bfdbfe; }
+.doc-review-card .excel-review-icon { background: #eff6ff; color: #1e40af; }
+@media (max-width: 1100px) { .question-source-grid { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+@media (max-width: 1000px) { .question-source-grid { grid-template-columns: 1fr 1fr; } }
 .ocr-stepper > span { display: flex; align-items: center; gap: 4px; min-width: 0; color: #a19caf; font-size: .59rem; white-space: nowrap; }
 .ocr-stepper > span > i { width: 17px; height: 17px; flex: 0 0 17px; display: grid; place-items: center; border-radius: 50%; background: #f0eef8; color: #aaa5b7; font-style: normal; font-weight: 900; }
 .ocr-stepper > span.active { color: var(--purple); font-weight: 800; }
@@ -1032,7 +1039,6 @@ label { color: #5f5d70; font-size: .84rem; font-weight: 650; display: grid; gap:
 @keyframes ocr-pulse { from { transform: scale(.92); } to { transform: scale(1.08); } }
 @keyframes ocr-live { 0% { box-shadow: 0 0 0 0 rgba(66,184,131,.4); } 70% { box-shadow: 0 0 0 7px rgba(66,184,131,0); } 100% { box-shadow: 0 0 0 0 rgba(66,184,131,0); } }
 .learning-ai-safe { display: inline-flex !important; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 99px; background: var(--green-soft); color: #27865f !important; font-weight: 800; }
-@media (max-width: 1000px) { .question-source-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 700px) {
   .question-source-grid { grid-template-columns: 1fr; }
   .question-source-action, .question-source-action.single { align-items: stretch; flex-direction: column; }

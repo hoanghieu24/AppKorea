@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
   CheckCircle2, ChevronDown, CircleAlert, ClipboardCheck, ClipboardList, Clock3, FilePlus2,
-  FileSpreadsheet, Headphones, ImagePlus, ListPlus, LoaderCircle, Music2, Plus, ScanLine, School, Send, Sparkles, Trash2, Type, X,
+  FileSpreadsheet, FileText, Headphones, ImagePlus, ListPlus, LoaderCircle, Music2, Plus, ScanLine, School, Send, Sparkles, Trash2, Type, X,
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatDate } from '../api.js';
 import { Empty, PageHeader, Pagination } from '../components/Shell.jsx';
+import { extractDocxText, extractPdfText, chunkDocumentText, buildDocumentAiPrompt } from '../utils/documentParser.js';
 
 const freshQuestion = (patch = {}) => ({
   type: 'MULTIPLE_CHOICE', prompt: '', sharedContext: '', optionsText: '', correctAnswer: '', explanation: '', topic: 'Từ vựng', points: 1,
@@ -1262,6 +1263,72 @@ function ExcelImportPreview({ preview, expanded, onToggle, onApply, onReplace, o
   </section>;
 }
 
+function DocImportPreview({ preview, expanded, onToggle, onApply, onReplace, onDiscard }) {
+  if (!preview?.questions?.length) return null;
+  const visibleQuestions = expanded ? preview.questions : preview.questions.slice(0, 8);
+  const multipleChoiceCount = preview.questions.filter((q) => q.type === 'MULTIPLE_CHOICE').length;
+  const essayCount = preview.questions.length - multipleChoiceCount;
+  const answerCount = preview.questions.filter((q) => cleanExcelText(q.correctAnswer)).length;
+  const sharedCount = preview.questions.filter((q) => cleanExcelText(q.sharedContext)).length;
+
+  return <section className="excel-review-card doc-review-card">
+    <div className="excel-review-head">
+      <div className="excel-review-title">
+        <span className="excel-review-icon"><FileText size={19} /></span>
+        <div>
+          <span>BẢN XEM TRƯỚC TÀI LIỆU · CHƯA ĐƯA VÀO BÀI</span>
+          <h4>{preview.title || preview.fileName}</h4>
+          <p>{preview.fileName} · AI đã nhận diện và cấu trúc {preview.questions.length} câu</p>
+        </div>
+      </div>
+      <button type="button" className="icon-button danger" onClick={onDiscard} aria-label="Bỏ bản xem trước tài liệu"><Trash2 size={17} /></button>
+    </div>
+
+    <div className="excel-review-stats">
+      <span><b>{preview.questions.length}</b> câu hỏi</span>
+      <span><b>{multipleChoiceCount}</b> trắc nghiệm</span>
+      <span><b>{essayCount}</b> tự luận</span>
+      {sharedCount > 0 && <span><b>{sharedCount}</b> bài đọc/đề chung</span>}
+      <span className="ready"><b>{answerCount}</b> có đáp án</span>
+    </div>
+
+    <div className="excel-review-list">
+      {visibleQuestions.map((question, index) => {
+        const options = question.type === 'MULTIPLE_CHOICE' ? splitOptions(question.optionsText) : [];
+        const hasAnswer = Boolean(cleanExcelText(question.correctAnswer));
+        return <article className="excel-review-question" key={`${index}-${question.prompt}`}>
+          <div className="excel-review-question-number">
+            <b>Câu {index + 1}</b>
+            <span>{question.type === 'MULTIPLE_CHOICE' ? 'Trắc nghiệm' : 'Tự luận · AI chấm'}</span>
+          </div>
+          <div className="excel-review-question-body">
+            <div className="excel-review-question-meta">
+              <span>{question.topic || 'Tổng hợp'}</span>
+              {question.sharedContext && <em>Đề chung</em>}
+              <i className={hasAnswer ? 'has-answer' : 'ai-answer'}>{hasAnswer ? 'Có đáp án' : 'AI tự chấm'}</i>
+            </div>
+            {question.sharedContext && <div className="preview-shared-box" style={{ background: '#f8fafc', padding: '8px 12px', borderRadius: 8, marginBottom: 8, borderLeft: '3px solid #6366f1', fontSize: '.84rem' }}><small style={{ display: 'block', fontWeight: 800, color: '#4f46e5', marginBottom: 3 }}>ĐOẠN VĂN / HỘI THOẠI DÙNG CHUNG:</small><p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{question.sharedContext}</p></div>}
+            <p><FormattedPreview text={question.prompt} /></p>
+            {options.length ? <div className="excel-review-options">{options.map((option, optionIndex) => <span key={`${optionIndex}-${option}`}><b>{optionIndex + 1}</b>{option}</span>)}</div> : null}
+            {question.explanation && <small className="doc-review-explanation" style={{ display: 'block', marginTop: 6, color: '#64748b', fontSize: '.78rem' }}>💡 {question.explanation}</small>}
+          </div>
+        </article>;
+      })}
+    </div>
+
+    {preview.questions.length > 8 && <button type="button" className="excel-review-toggle" onClick={onToggle}>
+      <ChevronDown size={16} className={expanded ? 'up' : ''} />
+      {expanded ? 'Thu gọn danh sách' : `Xem đủ ${preview.questions.length} câu trước khi nhập`}
+    </button>}
+
+    <div className="excel-review-actions">
+      <div><strong>Kiểm tra nhanh trước khi thêm</strong><span>Bạn vẫn có thể chỉnh sửa từng câu trong form sau khi thêm.</span></div>
+      <button type="button" className="btn ghost small" onClick={onReplace}>Thay toàn bộ câu</button>
+      <button type="button" className="btn primary small" onClick={onApply}><CheckCircle2 size={16} /> Đưa vào bài</button>
+    </div>
+  </section>;
+}
+
 export default function AssignmentsPage({ user }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedClassId = user.role === 'TEACHER' ? searchParams.get('classId') || '' : '';
@@ -1282,6 +1349,12 @@ export default function AssignmentsPage({ user }) {
   const [excelSummary, setExcelSummary] = useState(null);
   const [excelPreview, setExcelPreview] = useState(null);
   const [excelPreviewExpanded, setExcelPreviewExpanded] = useState(false);
+  const [docProgress, setDocProgress] = useState(0);
+  const [docStatus, setDocStatus] = useState({ stage: 'read', title: '', detail: '' });
+  const [docSeconds, setDocSeconds] = useState(0);
+  const [docSummary, setDocSummary] = useState(null);
+  const [docPreview, setDocPreview] = useState(null);
+  const [docPreviewExpanded, setDocPreviewExpanded] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrStatus, setOcrStatus] = useState({ stage: 'prepare', title: '', detail: '' });
   const [ocrSeconds, setOcrSeconds] = useState(0);
@@ -1323,6 +1396,26 @@ export default function AssignmentsPage({ user }) {
     }, 420);
     return () => window.clearInterval(timer);
   }, [importing, excelStatus.stage]);
+  useEffect(() => {
+    if (importing !== 'doc') { setDocSeconds(0); return undefined; }
+    const startedAt = Date.now();
+    setDocSeconds(0);
+    const timer = window.setInterval(() => setDocSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [importing]);
+  useEffect(() => {
+    if (importing !== 'doc') return undefined;
+    const capByStage = { read: 35, ai: 94, done: 100 };
+    const timer = window.setInterval(() => {
+      setDocProgress((old) => {
+        const cap = capByStage[docStatus.stage] ?? 92;
+        if (old >= cap) return old;
+        const step = old < 40 ? 2 : 1;
+        return Math.min(cap, old + step);
+      });
+    }, 450);
+    return () => window.clearInterval(timer);
+  }, [importing, docStatus.stage]);
   useEffect(() => {
     if (importing !== 'image') { setOcrSeconds(0); return undefined; }
     const startedAt = Date.now();
@@ -1629,6 +1722,197 @@ export default function AssignmentsPage({ user }) {
     setMessage('Đã bỏ bản xem trước Excel; nội dung bài hiện tại không bị thay đổi.');
   };
 
+  const importDocumentWithAI = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    const isPdf = /\.pdf$/i.test(file.name);
+    const isDoc = /\.(docx|doc)$/i.test(file.name);
+    const isTxt = /\.(txt|md)$/i.test(file.name);
+
+    if (!isPdf && !isDoc && !isTxt) {
+      setMessage('Hệ thống hỗ trợ file PDF (.pdf), Word (.docx, .doc) hoặc file văn bản (.txt).');
+      return;
+    }
+
+    setImporting('doc');
+    setDocProgress(5);
+    setDocSummary(null);
+    setDocPreview(null);
+    setDocPreviewExpanded(false);
+    setDocStatus({
+      stage: 'read',
+      title: `Đang mở file ${isPdf ? 'PDF' : isDoc ? 'Word' : 'văn bản'}`,
+      detail: `Đang đọc nội dung từ file “${file.name}”...`,
+    });
+    setMessage(`Đang đọc file ${file.name}...`);
+
+    try {
+      let fullText = '';
+      if (isPdf) {
+        setDocProgress(15);
+        setDocStatus({
+          stage: 'read',
+          title: 'Đang đọc các trang PDF',
+          detail: 'Hệ thống đang trích xuất văn bản tiếng Việt và tiếng Hàn từng trang...',
+        });
+        fullText = await extractPdfText(file, ({ current, total }) => {
+          setDocProgress(Math.min(45, 15 + Math.round((current / total) * 30)));
+          setDocStatus((old) => ({ ...old, detail: `Đang đọc trang ${current}/${total} của file PDF...` }));
+        });
+      } else if (isDoc) {
+        setDocProgress(20);
+        setDocStatus({
+          stage: 'read',
+          title: 'Đang giải nén văn bản Word (.docx)',
+          detail: 'Đang đọc các đoạn văn, bảng biểu và cấu trúc đề thi...',
+        });
+        fullText = await extractDocxText(file);
+      } else {
+        fullText = await file.text();
+      }
+
+      const cleanText = (fullText || '').trim();
+      if (!cleanText || cleanText.length < 15) {
+        throw new Error('Không trích xuất được nội dung chữ từ file. Nếu là file scan ảnh, hãy thử dùng chức năng "Ảnh → AI quét" bên cạnh.');
+      }
+
+      setDocProgress(50);
+      setDocStatus({
+        stage: 'ai',
+        title: 'Trích xuất xong · AI đang nhận diện câu hỏi',
+        detail: 'AI đang phân tích các câu hỏi, đoạn văn dùng chung, phương án lựa chọn và đáp án...',
+      });
+      setMessage('Đã đọc xong file. AI đang tách và phân loại câu hỏi...');
+
+      const chunks = chunkDocumentText(cleanText, 3500);
+      const allExtractedQuestions = [];
+      let detectedTitle = '';
+      let detectedInstructions = '';
+
+      for (let i = 0; i < chunks.length; i += 1) {
+        const chunk = chunks[i];
+        const progressVal = Math.min(92, 50 + Math.round(((i + 1) / chunks.length) * 42));
+        setDocProgress(progressVal);
+        setDocStatus({
+          stage: 'ai',
+          title: `AI đang xử lý phần ${i + 1}/${chunks.length}`,
+          detail: 'Đang chuyển đổi nội dung thành câu hỏi bài tập tiếng Hàn...',
+        });
+
+        try {
+          const aiResponse = await api('/learning/ai', {
+            method: 'POST',
+            toast: false,
+            body: JSON.stringify({
+              systemPrompt: 'Bạn là trợ lý giáo viên tiếng Hàn chuyên nghiệp. Chỉ trả về đối tượng JSON hợp lệ theo đúng cấu trúc yêu cầu, không kèm bất kỳ giải thích nào khác.',
+              prompt: buildDocumentAiPrompt(chunk),
+              temperature: 0,
+              maxOutputTokens: 4096,
+              jsonMode: true,
+            }),
+          });
+
+          const rawText = aiResponse?.text ?? aiResponse ?? '';
+          const parsed = extractJson(rawText);
+          if (parsed?.title && !detectedTitle) detectedTitle = cleanExcelText(parsed.title);
+          if (parsed?.instructions && !detectedInstructions) detectedInstructions = cleanExcelText(parsed.instructions);
+
+          const qList = Array.isArray(parsed?.questions) ? parsed.questions : Array.isArray(parsed) ? parsed : [];
+          for (const q of qList) {
+            const promptText = cleanExcelText(q?.prompt ?? q?.question ?? q?.cauHoi ?? '');
+            if (!promptText || promptText.length < 2) continue;
+
+            const rawOptions = Array.isArray(q?.options) ? q.options : splitOptions(q?.optionsText || q?.options || '');
+            const options = rawOptions.map(cleanExcelText).filter(Boolean);
+            const type = options.length >= 2 ? 'MULTIPLE_CHOICE' : (q?.type === 'MULTIPLE_CHOICE' ? 'MULTIPLE_CHOICE' : 'ESSAY');
+            const correctAnswer = cleanExcelText(q?.correctAnswer ?? q?.answer ?? q?.dapAn ?? '');
+            const explanation = cleanExcelText(q?.explanation ?? q?.giaiThich ?? '');
+            const sharedContext = cleanExcelText(q?.sharedContext ?? q?.context ?? q?.doanVan ?? '');
+            const topic = cleanExcelText(q?.topic ?? q?.chuDe ?? 'Tổng hợp') || 'Tổng hợp';
+            const points = Math.max(0.5, Math.min(100, Number(q?.points) || 1));
+
+            allExtractedQuestions.push({
+              type,
+              prompt: promptText,
+              sharedContext,
+              optionsText: options.join('\n'),
+              correctAnswer,
+              explanation,
+              topic,
+              points,
+            });
+          }
+        } catch (chunkErr) {
+          console.warn(`Doc AI chunk ${i + 1} error:`, chunkErr);
+        }
+      }
+
+      if (!allExtractedQuestions.length) {
+        throw new Error('AI không tìm thấy câu hỏi bài tập rõ ràng trong tài liệu. Vui lòng kiểm tra lại nội dung file.');
+      }
+
+      setDocProgress(100);
+      setDocStatus({
+        stage: 'done',
+        title: `Đã nhận diện ${allExtractedQuestions.length} câu · chờ bạn xác nhận`,
+        detail: `Từ file ${file.name}. Hãy kiểm tra xem trước rồi bấm "Đưa vào bài".`,
+      });
+
+      setDocPreview({
+        fileName: file.name,
+        title: detectedTitle,
+        instructions: detectedInstructions,
+        questions: allExtractedQuestions,
+      });
+      setMessage(`Đã tạo bản xem trước từ “${file.name}”. Kiểm tra và bấm “Đưa vào bài”.`);
+    } catch (err) {
+      console.error('Import Document error:', err);
+      setDocStatus({ stage: 'read', title: 'Chưa đọc được tài liệu', detail: err?.message || 'Có lỗi xảy ra khi đọc file.' });
+      setMessage(err?.message || 'Không đọc được tài liệu.');
+    } finally {
+      window.setTimeout(() => {
+        setImporting('');
+        setDocProgress(0);
+      }, 1400);
+    }
+  };
+
+  const applyDocPreview = (mode = 'append') => {
+    if (!docPreview?.questions?.length) return;
+    const currentQuestions = form.questions.length === 1 && !form.questions[0].prompt.trim() ? [] : form.questions;
+    const baseQuestions = mode === 'replace' ? [] : currentQuestions;
+    const room = Math.max(0, 100 - baseQuestions.length);
+    const imported = docPreview.questions.slice(0, room);
+    if (!imported.length) {
+      setMessage('Bài đã đủ 100 câu. Hãy xóa bớt câu cũ hoặc chọn “Thay toàn bộ câu”.');
+      return;
+    }
+
+    setForm((old) => ({
+      ...old,
+      title: docPreview.title || old.title,
+      instructions: docPreview.instructions || old.instructions,
+      questions: [...baseQuestions, ...imported],
+    }));
+    setDocSummary({
+      fileName: docPreview.fileName,
+      title: docPreview.title,
+      questionCount: imported.length,
+      answerCount: imported.filter((item) => cleanExcelText(item.correctAnswer)).length,
+    });
+    setDocPreview(null);
+    setDocPreviewExpanded(false);
+    setMessage(`Đã đưa ${imported.length} câu từ file vào bài tập thành công!`);
+  };
+
+  const discardDocPreview = () => {
+    setDocPreview(null);
+    setDocPreviewExpanded(false);
+    setMessage('Đã bỏ bản xem trước tài liệu; nội dung bài không bị thay đổi.');
+  };
+
   const downloadExcelTemplate = async () => {
     const XLSX = await import('xlsx');
     const rows = [
@@ -1933,6 +2217,7 @@ export default function AssignmentsPage({ user }) {
   const selectedClass = classes.find((item) => String(item.id) === selectedClassId);
   const modes = [
     ['single', Plus, 'Thêm từng câu', 'Soạn và chỉnh từng câu như hiện tại'],
+    ['doc', FileText, 'File PDF / Word', 'AI đọc tài liệu PDF, DOCX tự tách đề'],
     ['excel', FileSpreadsheet, 'Thêm từ Excel', 'AI hiểu tiêu đề · câu hỏi · đáp án'],
     ['image', ImagePlus, 'Ảnh → AI quét', 'OCR ảnh rồi AI tự tách thành câu'],
     ['bulk', ListPlus, 'Nhiều câu một ô', 'Mỗi dòng là một câu hỏi'],
@@ -1978,10 +2263,89 @@ export default function AssignmentsPage({ user }) {
           {modes.map(([id, Icon, title, note]) => <button key={id} type="button" className={`question-source-card ${inputMode === id ? 'active' : ''}`} onClick={() => setInputMode(id)}><Icon size={19} /><span><strong>{title}</strong><small>{note}</small></span></button>)}
         </div>
         {inputMode === 'single' && <div className="question-source-action single"><span>Thêm một câu trống rồi nhập nội dung ở danh sách bên dưới.</span><button type="button" className="btn secondary small" onClick={() => setForm((old) => ({ ...old, questions: [...old.questions, freshQuestion()] }))}><Plus size={16} /> Thêm từng câu</button></div>}
+        {inputMode === 'doc' && <div className={`question-source-action ${importing === 'doc' ? 'ocr-running' : ''}`}>
+          <div>
+            <strong>PDF / Word (.docx) → AI tự động nhận diện đề</strong>
+            <p>Hệ thống tự đọc nội dung từ file Word (.docx, .doc) hoặc file PDF, tự động nhận diện câu hỏi trắc nghiệm, tự luận, đoạn văn đọc hiểu dùng chung và đáp án có sẵn trong đề. Kết quả có bản xem trước để bạn kiểm tra trước khi đưa vào bài.</p>
+            {importing === 'doc' && (
+              <div className="ocr-processing-card doc-processing-card">
+                <div className="ocr-processing-head">
+                  <div className={`ocr-orb ${docStatus.stage === 'ai' ? 'ai' : docStatus.stage === 'done' ? 'done' : ''}`}>
+                    <FileText size={18} />
+                  </div>
+                  <div className="ocr-status-copy">
+                    <strong>{docStatus.title || 'Đang xử lý tài liệu...'}</strong>
+                    <small>{docStatus.detail || 'Hệ thống đang đọc và phân tích file.'}</small>
+                  </div>
+                  <div className="ocr-time">
+                    <b>{docProgress}%</b>
+                    <span>{docSeconds}s</span>
+                  </div>
+                </div>
+                <div className="ocr-progress doc-progress">
+                  <i style={{ width: `${docProgress}%` }} />
+                  <em />
+                </div>
+                <div className="ocr-stepper four">
+                  {[
+                    ['read', 'Đọc tài liệu'],
+                    ['ai', 'AI nhận diện đề'],
+                    ['done', 'Hoàn tất'],
+                  ].map(([stage, label]) => {
+                    const stages = ['read', 'ai', 'done'];
+                    const current = stages.indexOf(docStatus.stage);
+                    const index = stages.indexOf(stage);
+                    const done = current > index || docStatus.stage === 'done';
+                    const active = current === index && docStatus.stage !== 'done';
+                    return (
+                      <span key={stage} className={`${done ? 'done' : ''} ${active ? 'active' : ''}`}>
+                        <i>{done ? '✓' : active ? <Sparkles size={11} /> : '•'}</i>
+                        {label}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="ocr-wait-note">
+                  <span className="ocr-live-dot" />
+                  Đang giữ nguyên chữ tiếng Hàn, bảng biểu và thứ tự câu trong tài liệu.
+                </div>
+              </div>
+            )}
+            {importing !== 'doc' && docSummary && (
+              <div className="excel-import-summary doc-import-summary">
+                <span><CheckCircle2 size={14} /> AI đã nhận diện tài liệu</span>
+                {docSummary.title && <span>Tiêu đề: <b>{docSummary.title}</b></span>}
+                <span><b>{docSummary.questionCount}</b> câu hỏi</span>
+                <span><b>{docSummary.answerCount}</b> đáp án mẫu</span>
+              </div>
+            )}
+          </div>
+          <div className="source-buttons">
+            <label className={`btn primary small file-button ${importing ? 'disabled' : ''}`}>
+              {importing === 'doc' ? <LoaderCircle className="spin" size={16} /> : <FileText size={16} />}
+              {importing === 'doc' ? 'Đang đọc...' : 'Chọn file PDF / Word'}
+              <input
+                type="file"
+                accept=".pdf,.docx,.doc,.txt"
+                onChange={importDocumentWithAI}
+                disabled={Boolean(importing)}
+              />
+            </label>
+          </div>
+        </div>}
         {inputMode === 'excel' && <div className={`question-source-action ${importing === 'excel' ? 'ocr-running' : ''}`}><div><strong>Excel → đọc nguồn → AI kiểm định</strong><p>Bộ đọc dựng cấu trúc trực tiếp từ ô, số câu và định dạng gốc; khi đã chắc thì AI không được chia lại đề. Tiêu đề phần không thành câu rác, đoạn văn/hội thoại dùng chung hiển thị một lần, từ bôi đậm được giữ đúng. Kết quả luôn có bản xem trước để bạn duyệt trước khi đưa vào bài.</p>{importing === 'excel' && <div className="ocr-processing-card excel-processing-card"><div className="ocr-processing-head"><div className={`ocr-orb ${excelStatus.stage === 'ai' ? 'ai' : excelStatus.stage === 'done' ? 'done' : ''}`}><FileSpreadsheet size={18} /></div><div className="ocr-status-copy"><strong>{excelStatus.title || 'Đang đọc Excel...'}</strong><small>{excelStatus.detail || 'Hệ thống vẫn đang xử lý file.'}</small></div><div className="ocr-time"><b>{excelProgress}%</b><span>{excelSeconds}s</span></div></div><div className="ocr-progress excel-progress"><i style={{ width: `${excelProgress}%` }} /><em /></div><div className="ocr-stepper five">{[['read', 'Đọc file'], ['structure', 'Khóa cấu trúc'], ['ai', 'AI kiểm định'], ['apply', 'Tạo xem trước'], ['done', 'Hoàn tất']].map(([stage, label]) => { const current = EXCEL_STAGE_ORDER.indexOf(excelStatus.stage); const index = EXCEL_STAGE_ORDER.indexOf(stage); const done = current > index || excelStatus.stage === 'done'; const active = current === index && excelStatus.stage !== 'done'; return <span key={stage} className={`${done ? 'done' : ''} ${active ? 'active' : ''}`}><i>{done ? '✓' : active ? <Sparkles size={11} /> : '•'}</i>{label}</span>; })}</div><div className="ocr-wait-note"><span className="ocr-live-dot" />Hệ thống đang giữ nguyên thứ tự và ngữ nghĩa của đề gốc.</div></div>}{importing !== 'excel' && excelSummary && <div className={`excel-import-summary ${excelSummary.fallback ? 'fallback' : ''}`}><span><CheckCircle2 size={14} /> {excelSummary.aiUsed ? 'Đã kiểm định & nhập' : 'Đã đọc nguồn & nhập'}</span>{excelSummary.title && <span>Tiêu đề: <b>{excelSummary.title}</b></span>}<span><b>{excelSummary.questionCount}</b> câu hỏi</span><span><b>{excelSummary.answerCount}</b> đáp án</span></div>}</div><div className="source-buttons"><button type="button" className="btn ghost small" onClick={downloadExcelTemplate} disabled={Boolean(importing)}><FileSpreadsheet size={16} /> Tải file mẫu</button><label className={`btn secondary small file-button ${importing ? 'disabled' : ''}`}>{importing === 'excel' ? <LoaderCircle className="spin" size={16} /> : <FileSpreadsheet size={16} />} {importing === 'excel' ? 'Đang đọc...' : 'Chọn Excel'}<input type="file" accept=".xlsx,.xls" onChange={importExcel} disabled={Boolean(importing)} /></label></div></div>}
         {inputMode === 'image' && <div className={`question-source-action ${importing === 'image' ? 'ocr-running' : ''}`}><div><strong>Ảnh → OCR → AI tách câu</strong><p>Ảnh rõ sẽ chỉ OCR một lượt cho nhanh; ảnh khó đọc mới tự tăng nét và quét lại. Không cần nhập API key ở máy giáo viên.</p>{importing === 'image' && <div className="ocr-processing-card"><div className="ocr-processing-head"><div className={`ocr-orb ${ocrStatus.stage}`}><ScanLine size={18} /></div><div className="ocr-status-copy"><strong>{ocrStatus.title || 'Đang xử lý ảnh...'}</strong><small>{ocrStatus.detail || 'Hệ thống vẫn đang chạy.'}</small></div><div className="ocr-time"><b>{ocrProgress}%</b><span>{ocrSeconds}s</span></div></div><div className="ocr-progress"><i style={{ width: `${ocrProgress}%` }} /><em /></div><div className="ocr-stepper four">{[['prepare', 'Khởi động'], ['scan', 'Đọc ảnh'], ['ai', 'AI tách câu'], ['done', 'Hoàn tất']].map(([stage, label]) => { const normalizedStage = ocrStatus.stage === 'enhance' ? 'scan' : ocrStatus.stage; const current = OCR_STAGE_ORDER.indexOf(normalizedStage); const index = OCR_STAGE_ORDER.indexOf(stage); const done = current > index || normalizedStage === 'done'; const active = current === index && normalizedStage !== 'done'; return <span key={stage} className={`${done ? 'done' : ''} ${active ? 'active' : ''}`}><i>{done ? '✓' : active ? <Sparkles size={11} /> : '•'}</i>{label}</span>; })}</div><div className="ocr-wait-note"><span className="ocr-live-dot" />Trang không bị treo · cứ để tab mở, hệ thống đang xử lý thật.</div></div>}</div><label className={`btn secondary small file-button ${importing ? 'disabled' : ''}`}>{importing === 'image' ? <LoaderCircle className="spin" size={16} /> : <ImagePlus size={16} />} {importing === 'image' ? 'Đang quét...' : 'Chọn ảnh'}<input type="file" accept="image/*" multiple onChange={importImagesWithAI} disabled={Boolean(importing)} /></label></div>}
         {inputMode === 'bulk' && <div className="question-source-action bulk"><div><strong>Dán nhiều câu vào một ô</strong><p>Mỗi câu chỉ cần xuống dòng. Hệ thống thêm thành Tự luận · AI chấm; sau đó có thể đổi từng câu sang Trắc nghiệm nếu có các lựa chọn.</p></div><textarea rows="7" value={bulkText} onChange={(e) => setBulkText(e.target.value)} placeholder={'Câu 1: Dịch câu sau sang tiếng Hàn...\nCâu 2: Viết 3 câu về cuối tuần...\nCâu 3: Hãy đặt câu với -고 싶다...'} /><button type="button" className="btn secondary small" onClick={addBulkQuestions} disabled={!bulkText.trim()}><ListPlus size={16} /> Thêm các dòng</button></div>}
       </div>
+
+      {inputMode === 'doc' && <DocImportPreview
+        preview={docPreview}
+        expanded={docPreviewExpanded}
+        onToggle={() => setDocPreviewExpanded((value) => !value)}
+        onApply={() => applyDocPreview('append')}
+        onReplace={() => applyDocPreview('replace')}
+        onDiscard={discardDocPreview}
+      />}
 
       {inputMode === 'excel' && <ExcelImportPreview
         preview={excelPreview}
