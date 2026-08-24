@@ -116,6 +116,7 @@ export default function AssignmentDetailPage({ user }) {
       setData(result);
       if (user.role === 'STUDENT') {
         const initialAnswers = {};
+        // Ưu tiên đáp án từ lần check AI mới nhất (latestAttempt), rồi mới đến submission
         if (result?.latestAttempt?.answers) {
           Object.assign(initialAnswers, result.latestAttempt.answers);
         } else if (result?.submission?.answers) {
@@ -125,7 +126,7 @@ export default function AssignmentDetailPage({ user }) {
         }
         setAnswers(initialAnswers);
         if (result?.latestAttempt) {
-          setPreview({ ...result.latestAttempt, reused: true });
+          setPreview({ ...result.latestAttempt });
         } else {
           setPreview(null);
         }
@@ -167,10 +168,16 @@ export default function AssignmentDetailPage({ user }) {
     try {
       const result = await api(`/assignments/${id}/attempt`, { method: 'POST', toast: false, body: JSON.stringify({ answers }) });
       setCheckingProgress(100);
+      // Cập nhật preview với kết quả mới NGAY LẬP TỨC mà không gọi load()
+      // để tránh bị overwrite answers đang sửa
       setPreview(result);
       setMessage(result.message || '');
       await new Promise((resolve) => window.setTimeout(resolve, 450));
-      await load();
+      // Sau khi cập nhật xong preview, cũng cập nhật data.latestAttempt trong nền
+      setData((prev) => prev ? {
+        ...prev,
+        latestAttempt: { ...result, answers: { ...answers } },
+      } : prev);
     } catch (err) { setMessage(err.message); }
     finally { setChecking(false); }
   };

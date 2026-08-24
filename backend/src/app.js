@@ -990,7 +990,7 @@ app.get('/api/assignments', requireAuth, async (req, res) => {
     filterClassId = parsedClassId.data;
     if (!(await canReadClass(req.user, filterClassId))) return res.status(403).json({ message: 'Bạn không có quyền xem bài của lớp này.' });
   }
-  const studentView = ['PENDING', 'DONE', 'ALL'].includes(req.query.view) ? req.query.view : 'ALL';
+  const studentView = ['PENDING', 'INCOMPLETE', 'COMPLETED', 'DONE', 'ALL'].includes(req.query.view) ? req.query.view : 'ALL';
   let sql;
   let params;
   let countSql;
@@ -1013,18 +1013,54 @@ app.get('/api/assignments', requireAuth, async (req, res) => {
     countSql = `SELECT COUNT(*) total FROM assignments a WHERE a.teacher_id = ? ${filterClassId ? 'AND a.class_id = ?' : ''}`;
     countParams = [...params];
   } else {
-    const viewCondition = studentView === 'PENDING' ? 'AND s.id IS NULL' : studentView === 'DONE' ? 'AND s.id IS NOT NULL' : '';
-    sql = `SELECT a.*, c.name className, s.id submissionId, s.percentage, s.score, s.max_score maxScore, s.submitted_at submittedAt,
+    let viewCondition = '';
+    if (studentView === 'PENDING') {
+      viewCondition = 'AND s.id IS NULL';
+    } else if (studentView === 'INCOMPLETE') {
+      viewCondition = 'AND s.id IS NOT NULL AND COALESCE(att.percentage, s.percentage) < 100';
+    } else if (studentView === 'COMPLETED') {
+      viewCondition = 'AND s.id IS NOT NULL AND COALESCE(att.percentage, s.percentage) >= 100';
+    } else if (studentView === 'DONE') {
+      viewCondition = 'AND s.id IS NOT NULL';
+    }
+
+    const studentBaseParams = [req.user.id, req.user.id, req.user.id, req.user.id];
+    params = filterClassId ? [...studentBaseParams, filterClassId] : studentBaseParams;
+    countParams = [...params];
+
+    sql = `SELECT a.*, c.name className, s.id submissionId, s.percentage submissionPercentage, s.score submissionScore, s.max_score maxScore, s.submitted_at submittedAt,
+      att.attempt_no latestAttemptNo, att.percentage latestPercentage, att.score latestScore,
+      COALESCE(att.percentage, s.percentage) percentage,
+      COALESCE(att.score, s.score) score,
       EXISTS(SELECT 1 FROM assignment_audio aa WHERE aa.assignment_id = a.id) hasAudio
       FROM assignments a JOIN classes c ON c.id = a.class_id JOIN class_students cs ON cs.class_id = a.class_id
       LEFT JOIN submissions s ON s.assignment_id = a.id AND s.student_id = ?
+      LEFT JOIN (
+        SELECT aa1.assignment_id, aa1.student_id, aa1.attempt_no, aa1.percentage, aa1.score
+        FROM assignment_attempts aa1
+        INNER JOIN (
+          SELECT assignment_id, student_id, MAX(attempt_no) max_attempt_no
+          FROM assignment_attempts
+          WHERE student_id = ?
+          GROUP BY assignment_id, student_id
+        ) aa2 ON aa1.assignment_id = aa2.assignment_id AND aa1.student_id = aa2.student_id AND aa1.attempt_no = aa2.max_attempt_no
+      ) att ON att.assignment_id = a.id AND att.student_id = ?
       WHERE cs.student_id = ? AND a.status IN ('PUBLISHED','CLOSED') ${filterClassId ? 'AND a.class_id = ?' : ''} ${viewCondition}
       ORDER BY COALESCE(a.due_at, '2999-12-31'), a.created_at DESC`;
-    params = filterClassId ? [req.user.id, req.user.id, filterClassId] : [req.user.id, req.user.id];
+
     countSql = `SELECT COUNT(*) total FROM assignments a JOIN class_students cs ON cs.class_id = a.class_id
       LEFT JOIN submissions s ON s.assignment_id = a.id AND s.student_id = ?
+      LEFT JOIN (
+        SELECT aa1.assignment_id, aa1.student_id, aa1.attempt_no, aa1.percentage, aa1.score
+        FROM assignment_attempts aa1
+        INNER JOIN (
+          SELECT assignment_id, student_id, MAX(attempt_no) max_attempt_no
+          FROM assignment_attempts
+          WHERE student_id = ?
+          GROUP BY assignment_id, student_id
+        ) aa2 ON aa1.assignment_id = aa2.assignment_id AND aa1.student_id = aa2.student_id AND aa1.attempt_no = aa2.max_attempt_no
+      ) att ON att.assignment_id = a.id AND att.student_id = ?
       WHERE cs.student_id = ? AND a.status IN ('PUBLISHED','CLOSED') ${filterClassId ? 'AND a.class_id = ?' : ''} ${viewCondition}`;
-    countParams = [...params];
   }
   if (!pagination) return res.json({ assignments: await query(sql, params), pagination: null });
   const totals = await query(countSql, countParams);
@@ -1051,22 +1087,25 @@ app.get('/api/assignments/:id', requireAuth, async (req, res) => {
   if (req.user.role === 'STUDENT') {
     const submissions = await query('SELECT * FROM submissions WHERE assignment_id = ? AND student_id = ? LIMIT 1', [assignmentId, req.user.id]);
     submission = submissions[0] || null;
-    if (!submission) {
-      if (assignment.type === 'HOMEWORK') {
-        const attempts = await query(`SELECT id attemptId, attempt_no attemptNo, answers_json answersJson, result_json resultJson,
-          score, max_score maxScore, percentage, ai_summary summary, ai_used aiUsed, created_at createdAt
-          FROM assignment_attempts WHERE assignment_id = ? AND student_id = ? ORDER BY attempt_no DESC LIMIT 1`, [assignmentId, req.user.id]);
-        if (attempts[0]) {
-          latestAttempt = {
-            ...attempts[0],
-            answers: typeof attempts[0].answersJson === 'string' ? JSON.parse(attempts[0].answersJson) : attempts[0].answersJson,
-            results: typeof attempts[0].resultJson === 'string' ? JSON.parse(attempts[0].resultJson) : attempts[0].resultJson,
-            aiUsed: Boolean(attempts[0].aiUsed),
-          };
-          delete latestAttempt.answersJson;
-          delete latestAttempt.resultJson;
-        }
+
+    // Luôn lấy lần attempt mới nhất đối với HOMEWORK (dù đã nộp hay chưa nộp) để giữ đáp án sửa bài
+    if (assignment.type === 'HOMEWORK') {
+      const attempts = await query(`SELECT id attemptId, attempt_no attemptNo, answers_json answersJson, result_json resultJson,
+        score, max_score maxScore, percentage, ai_summary summary, ai_used aiUsed, created_at createdAt
+        FROM assignment_attempts WHERE assignment_id = ? AND student_id = ? ORDER BY attempt_no DESC LIMIT 1`, [assignmentId, req.user.id]);
+      if (attempts[0]) {
+        latestAttempt = {
+          ...attempts[0],
+          answers: typeof attempts[0].answersJson === 'string' ? JSON.parse(attempts[0].answersJson) : attempts[0].answersJson,
+          results: typeof attempts[0].resultJson === 'string' ? JSON.parse(attempts[0].resultJson) : attempts[0].resultJson,
+          aiUsed: Boolean(attempts[0].aiUsed),
+        };
+        delete latestAttempt.answersJson;
+        delete latestAttempt.resultJson;
       }
+    }
+
+    if (!submission) {
       for (const question of questions) {
         delete question.correctAnswer;
         delete question.explanation;
@@ -1086,7 +1125,6 @@ app.get('/api/assignments/:id', requireAuth, async (req, res) => {
     audio,
     aiEnabled: await aiEnabled(),
   });
-});
 
 app.get('/api/assignments/:id/audio', requireAuth, async (req, res) => {
   const assignmentId = idSchema.parse(req.params.id);

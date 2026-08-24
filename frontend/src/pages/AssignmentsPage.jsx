@@ -2072,9 +2072,48 @@ function StudentAssignments({ assignments, message, filter, setFilter, paginatio
   return <>
     <PageHeader eyebrow="HỌC SINH" title="Bài của tôi" subtitle="Bài mới từ giáo viên sẽ tự xuất hiện ở đây." />
     {message && <div className="notice">{message}</div>}
-    <div className="segmented"><button className={filter === 'PENDING' ? 'active' : ''} onClick={() => setFilter('PENDING')}>Cần làm</button><button className={filter === 'DONE' ? 'active' : ''} onClick={() => setFilter('DONE')}>Đã nộp</button><button className={filter === 'ALL' ? 'active' : ''} onClick={() => setFilter('ALL')}>Tất cả</button></div>
+    <div className="segmented student-assignment-tabs">
+      <button className={filter === 'PENDING' ? 'active' : ''} onClick={() => setFilter('PENDING')}>
+        Cần làm
+      </button>
+      <button className={`tab-incomplete ${filter === 'INCOMPLETE' ? 'active' : ''}`} onClick={() => setFilter('INCOMPLETE')}>
+        Đã nộp chưa xong
+      </button>
+      <button className={`tab-done ${filter === 'DONE' ? 'active' : ''}`} onClick={() => setFilter('DONE')}>
+        Đã nộp
+      </button>
+      <button className={filter === 'ALL' ? 'active' : ''} onClick={() => setFilter('ALL')}>
+        Tất cả
+      </button>
+    </div>
     <section className="panel">
-      {loading ? <Empty>Đang tải trang bài tập...</Empty> : assignments.length ? <div className="student-assignment-grid">{assignments.map((item) => <Link className="student-assignment-card" to={`/assignments/${item.id}`} key={item.id}><div className="student-assignment-top"><span className={`type-pill ${item.type.toLowerCase()}`}>{item.type === 'TEST' ? 'Bài kiểm tra' : 'Bài tập'}</span><span className="student-assignment-tags">{item.hasAudio ? <span className="audio-assignment-badge"><Headphones size={13} /> Bài nghe</span> : null}{item.submissionId ? <span className="score-pill">{Math.round(item.percentage)} điểm</span> : <ChevronDown size={18} />}</span></div><h3>{item.title}</h3><p>{item.className}</p><div className="student-assignment-bottom"><span><Clock3 size={15} /> {formatDate(item.due_at)}</span><strong>{item.submissionId ? 'Xem kết quả' : 'Làm bài →'}</strong></div></Link>)}</div> : <Empty>{filter === 'PENDING' ? 'Không còn bài đang chờ.' : 'Chưa có bài phù hợp.'}</Empty>}
+      {loading ? <Empty>Đang tải trang bài tập...</Empty> : assignments.length ? <div className="student-assignment-grid">{assignments.map((item) => {
+        const pct = Math.round(Number(item.percentage) || 0);
+        const isSubmitted = Boolean(item.submissionId);
+        const isCompleted = isSubmitted && pct >= 100;
+        const isIncomplete = isSubmitted && pct < 100;
+        let statusBadge = null;
+        if (isCompleted) {
+          statusBadge = <span className="score-pill done">{pct}% · Hoàn thành</span>;
+        } else if (isIncomplete) {
+          statusBadge = <span className="score-pill incomplete">{pct}% · Chưa xong</span>;
+        }
+        return <Link className={`student-assignment-card${isCompleted ? ' card-done' : isIncomplete ? ' card-incomplete' : ''}`} to={`/assignments/${item.id}`} key={item.id}>
+          <div className="student-assignment-top">
+            <span className={`type-pill ${item.type.toLowerCase()}`}>{item.type === 'TEST' ? 'Bài kiểm tra' : 'Bài tập'}</span>
+            <span className="student-assignment-tags">
+              {item.hasAudio ? <span className="audio-assignment-badge"><Headphones size={13} /> Bài nghe</span> : null}
+              {statusBadge || <ChevronDown size={18} />}
+            </span>
+          </div>
+          <h3>{item.title}</h3>
+          <p>{item.className}</p>
+          <div className="student-assignment-bottom">
+            <span><Clock3 size={15} /> {formatDate(item.due_at)}</span>
+            <strong>{isSubmitted ? (isCompleted ? 'Đã hoàn thành ✓' : 'Sửa bài →') : 'Làm bài →'}</strong>
+          </div>
+        </Link>;
+      })}</div> : <Empty>{filter === 'PENDING' ? 'Không còn bài đang chờ.' : filter === 'INCOMPLETE' ? 'Không có bài nào đang chờ sửa.' : 'Chưa có bài phù hợp.'}</Empty>}
       <Pagination pagination={pagination} loading={loading} onPageChange={setPage} label="bài" />
     </section>
   </>;
