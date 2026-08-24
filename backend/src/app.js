@@ -1686,8 +1686,6 @@ app.get('/api/assignments/:id/report', requireAuth, async (req, res) => {
     students: students.map((student) => ({
       ...student,
       submitted: Boolean(student.submissionId),
-      attemptCount: attemptCountByStudent.get(Number(student.id)) || 0,
-      latestAttempt: latestAttemptByStudent.get(Number(student.id)) || null,
       weakTopics: weakByStudent.get(student.id) || weakByStudent.get(Number(student.id)) || [],
     })),
   });
