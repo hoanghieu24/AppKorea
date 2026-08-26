@@ -1929,10 +1929,30 @@ function sentenceContainsVocab(sentenceKr, words) {
   });
 }
 
+function hasBatchim(str) {
+  if (!str) return false;
+  const clean = String(str).trim();
+  if (!clean) return false;
+  const lastChar = clean.slice(-1);
+  const code = lastChar.charCodeAt(0);
+  if (code < 0xAC00 || code > 0xD7A3) return false;
+  return (code - 0xAC00) % 28 !== 0;
+}
+
+const PEOPLE_WORDS_LIST = [
+  '할아버지', '할머니', '외할아버지', '외할머니', '아버지', '어머니', '부모님', '오빠', '언니', '형', '누나',
+  '남동생', '여동생', '동생', '아들', '딸', '가족', '친척', '선생님', '교수', '학생', '대학생', '의사',
+  '간호사', '약사', '변호사', '판사', '검사', '경찰', '경찰관', '소방관', '군인', '회사원', '은행원',
+  '공무원', '기자', '가수', '배우', '운동선수', '요리사', '운전기사', '연구원', '사업가', '통역사',
+  '번역가', '비서', '승무원', '주부', '친구', '사람', '남자', '여자', '아저씨', '아주머니'
+];
+
+const PEOPLE_REGEX_PATTERN = /(?:^|\s)(ông|bà|bố|ba|mẹ|má|anh|chị|em|bác|chú|cô|dì|thầy|cô giáo|giáo sư|sinh viên|học sinh|bác sĩ|y tá|dược sĩ|luật sư|thẩm phán|cảnh sát|công an|bộ đội|quân nhân|nhân viên|nhà báo|ca sĩ|diễn viên|vận động viên|đầu bếp|nghiên cứu|doanh nhân|thông dịch|phiên dịch|bạn|người)(?:$|\s|[,\.])/i;
+
 function generateSmartFallbackSentence(words, grammars, direction) {
   const isVn2Kr = direction === 'vn2kr';
   const pool = Array.isArray(words) && words.length > 0 ? words : [{ korean: '한국어', meaning: 'tiếng Hàn' }];
-  
+
   // 1. Ưu tiên từ có câu ví dụ đầy đủ và chuẩn câu (>= 2 từ)
   const validExampleWords = pool.filter((w) => {
     const exKr = String(w.example || '').trim();
@@ -1956,18 +1976,62 @@ function generateSmartFallbackSentence(words, grammars, direction) {
     };
   }
 
-  // 2. Tự động sinh câu chuẩn Sơ cấp dựa theo danh từ/động từ/tính từ
+  // 2. Tự động sinh câu chuẩn ngữ cảnh và ngữ pháp tiếng Hàn Sơ cấp
   const w = pool[Math.floor(Math.random() * pool.length)];
   const kr = String(w.korean || '').trim();
   const vi = String(w.meaning || '').trim();
+
+  const isBatchim = hasBatchim(kr);
+  const josaIGa = isBatchim ? '이' : '가';
+  const josaUnNun = isBatchim ? '은' : '는';
+  const josaUlReul = isBatchim ? '을' : '를';
+  const josaIeyo = isBatchim ? '이에요' : '예요';
 
   let krSent = '';
   let viSent = '';
   let gram = 'Cấu trúc Sơ cấp';
 
-  if (kr.endsWith('하다')) {
+  const isPerson = PEOPLE_WORDS_LIST.some((p) => kr.includes(p)) || PEOPLE_REGEX_PATTERN.test(vi);
+
+  if (isPerson) {
+    if (kr === '오빠') {
+      krSent = '우리 오빠는 키가 아주 커요.';
+      viSent = 'Anh trai tôi rất cao.';
+    } else if (kr === '언니') {
+      krSent = '우리 언니는 대학생이에요.';
+      viSent = 'Chị gái tôi là sinh viên đại học.';
+    } else if (kr === '형') {
+      krSent = '우리 형은 회사에서 일해요.';
+      viSent = 'Anh trai tôi làm việc ở công ty.';
+    } else if (kr === '누나') {
+      krSent = '우리 누나는 참 친절해요.';
+      viSent = 'Chị gái tôi rất tốt bụng.';
+    } else if (kr === '아버지') {
+      krSent = '아버지는 회사에서 일하세요.';
+      viSent = 'Bố tôi làm việc ở công ty.';
+    } else if (kr === '어머니') {
+      krSent = '어머니는 요리를 정말 잘하세요.';
+      viSent = 'Mẹ tôi nấu ăn rất ngon.';
+    } else if (kr === '할아버지' || kr === '외할아버지') {
+      krSent = '할아버지는 지금 집에 계세요.';
+      viSent = 'Ông tôi hiện đang ở nhà.';
+    } else if (kr === '할머니' || kr === '외할머니') {
+      krSent = '할머니는 아주 건강하세요.';
+      viSent = 'Bà tôi rất khỏe mạnh.';
+    } else if (kr.includes('동생')) {
+      krSent = '제 동생은 학교에서 공부해요.';
+      viSent = 'Em tôi học bài ở trường.';
+    } else if (kr === '친구') {
+      krSent = '저는 주말에 친구를 만나요.';
+      viSent = 'Cuối tuần tôi gặp gỡ bạn bè.';
+    } else {
+      // Nghề nghiệp: 변호사, 교수, 연구원, 군인, 사업가, 경찰관, 통역사, etc.
+      krSent = `그 사람은 ${kr}${josaIeyo}.`;
+      viSent = `Người đó là ${vi}.`;
+    }
+    gram = `Danh từ người / nghề nghiệp + ${josaIeyo}`;
+  } else if (kr.endsWith('하다')) {
     const baseNoun = kr.slice(0, -2);
-    krSent = `저는 오늘 ${kr.slice(0, -1)}여요.`;
     if (kr === '공부하다') {
       krSent = '저는 도서관에서 한국어를 공부해요.';
       viSent = 'Tôi học tiếng Hàn ở thư viện.';
@@ -1977,11 +2041,20 @@ function generateSmartFallbackSentence(words, grammars, direction) {
     } else if (kr === '운동하다') {
       krSent = '저는 공원에서 매일 운동해요.';
       viSent = 'Tôi tập thể dục mỗi ngày ở công viên.';
+    } else if (kr === '전화하다') {
+      krSent = '저는 친구에게 전화해요.';
+      viSent = 'Tôi gọi điện thoại cho bạn.';
+    } else if (kr === '수영하다') {
+      krSent = '저는 수영장에서 수영해요.';
+      viSent = 'Tôi bơi ở hồ bơi.';
+    } else if (kr === '쇼핑하다') {
+      krSent = '저는 백화점에서 쇼핑해요.';
+      viSent = 'Tôi mua sắm ở trung tâm thương mại.';
     } else {
-      krSent = `저는 지금 ${baseNoun ? `${baseNoun}을 ` : ''}해요.`;
-      viSent = `Tôi đang ${vi}.`;
+      krSent = `저는 오늘 ${baseNoun ? `${baseNoun}을 ` : ''}해요.`;
+      viSent = `Hôm nay tôi ${vi}.`;
     }
-    gram = '-아/어요 (Đuôi câu thân mật lịch sự)';
+    gram = '-아/어요 (Đuôi câu kính ngữ thân mật)';
   } else if (kr.endsWith('다') && kr.length >= 2) {
     if (kr === '가다') {
       krSent = '저는 오늘 학교에 가요.';
@@ -1998,12 +2071,21 @@ function generateSmartFallbackSentence(words, grammars, direction) {
     } else if (kr === '보다') {
       krSent = '저는 주말에 극장에서 영화를 봐요.';
       viSent = 'Cuối tuần tôi xem phim ở rạp.';
+    } else if (kr === '읽다') {
+      krSent = '저는 도서관에서 책을 읽어요.';
+      viSent = 'Tôi đọc sách ở thư viện.';
     } else if (kr === '사다') {
       krSent = '저는 시장에서 과일을 사요.';
       viSent = 'Tôi mua hoa quả ở chợ.';
     } else if (kr === '만나다') {
       krSent = '저는 학교 앞에서 친구를 만나요.';
       viSent = 'Tôi gặp bạn ở trước trường.';
+    } else if (kr === '배우다') {
+      krSent = '저는 학원에서 한국어를 배워요.';
+      viSent = 'Tôi học tiếng Hàn ở trung tâm.';
+    } else if (kr === '가르치다') {
+      krSent = '선생님께서 한국어를 가르치세요.';
+      viSent = 'Thầy giáo dạy tiếng Hàn.';
     } else if (kr === '크다') {
       krSent = '이 가방이 아주 커요.';
       viSent = 'Cái cặp này rất to.';
@@ -2013,70 +2095,48 @@ function generateSmartFallbackSentence(words, grammars, direction) {
     } else if (kr === '좋다') {
       krSent = '오늘 날씨가 정말 좋아요.';
       viSent = 'Thời tiết hôm nay thật sự rất đẹp.';
+    } else if (kr === '나쁘다') {
+      krSent = '오늘 날씨가 나빠요.';
+      viSent = 'Thời tiết hôm nay xấu.';
     } else if (kr === '예쁘다') {
       krSent = '이 옷이 참 예뻐요.';
-      viSent = 'Bộ quần áo này thật xinh đẹp.';
+      viSent = 'Bộ quần áo này thật xinh xắn.';
+    } else if (kr === '맛있다') {
+      krSent = '이 한국 음식이 정말 맛있어요.';
+      viSent = 'Món ăn Hàn Quốc này thật sự rất ngon.';
+    } else if (kr === '재미있다') {
+      krSent = '한국어 공부가 아주 재미있어요.';
+      viSent = 'Việc học tiếng Hàn rất thú vị.';
+    } else if (kr === '비싸다') {
+      krSent = '이 시계가 조금 비싸요.';
+      viSent = 'Chiếc đồng hồ này hơi đắt.';
+    } else if (kr === '싸다') {
+      krSent = '이 과일이 아주 싸요.';
+      viSent = 'Hoa quả này rất rẻ.';
     } else {
       const stem = kr.slice(0, -1);
-      krSent = `저는 ${kr} 것을 좋아해요.`;
-      viSent = `Tôi thích ${vi}.`;
+      const isBright = /[아오]/.test(stem.slice(-1));
+      krSent = `저는 ${stem}${isBright ? '아요' : '어요'}.`;
+      viSent = `Tôi ${vi}.`;
     }
     gram = '-아/어요, Trợ từ -을/를, -에/에서';
+  } else if (['학교', '식당', '도서관', '병원', '은행', '회사', '집', '카페', '공원', '시장', '마트', '백화점', '극장', '공항', '교실', '방', '한국', '베트남'].some((p) => kr.includes(p))) {
+    krSent = `저는 지금 ${kr}에 가요.`;
+    viSent = `Bây giờ tôi đi đến ${vi}.`;
+    gram = 'Danh từ nơi chốn + 에 가다';
+  } else if (['밥', '사과', '물', '커피', '우유', '빵', '고기', '과일', '김치', '불고기', '라면', '음식'].some((f) => kr.includes(f))) {
+    krSent = `저는 ${kr}${josaUlReul} 맛있게 먹어요.`;
+    viSent = `Tôi ăn ${vi} ngon lành.`;
+    gram = `Danh từ tân ngữ + ${josaUlReul} + 먹다`;
+  } else if (['옷', '바지', '치마', '모자', '안경', '신발', '시계'].some((c) => kr.includes(c))) {
+    krSent = `이 ${kr}${josaIGa} 아주 예뻐요.`;
+    viSent = `Cái ${vi} này rất đẹp.`;
+    gram = `Danh từ + ${josaIGa} + 예쁘다`;
   } else {
-    // Danh từ
-    if (['학교', '식당', '도서관', '병원', '은행', '회사', '집', '카페', '공원', '시장'].some((p) => kr.includes(p))) {
-      krSent = `저는 지금 ${kr}에 가요.`;
-      viSent = `Bây giờ tôi đi đến ${vi}.`;
-      gram = 'Danh từ nơi chốn + 에 가다';
-    } else if (['밥', '사과', '물', '커피', '우유', '빵', '고기', '과일'].some((f) => kr.includes(f))) {
-      krSent = `저는 ${kr}을 좋아해요.`;
-      viSent = `Tôi thích ${vi}.`;
-      gram = 'Danh từ tân ngữ + 을/를 좋아하다';
-    } else if (['할아버지', '할머니', '외할아버지', '외할머니', '아버지', '어머니', '오빠', '언니', '형', '누나', '남동생', '여동생', '동생', '부모님', '가족', '친구'].some((f) => kr.includes(f))) {
-      if (kr === '오빠') {
-        krSent = '우리 오빠는 키가 아주 커요.';
-        viSent = 'Anh trai tôi rất cao.';
-      } else if (kr === '언니') {
-        krSent = '우리 언니는 대학생이에요.';
-        viSent = 'Chị gái tôi là sinh viên đại học.';
-      } else if (kr === '형') {
-        krSent = '우리 형은 회사에서 일해요.';
-        viSent = 'Anh trai tôi làm việc ở công ty.';
-      } else if (kr === '누나') {
-        krSent = '우리 누나는 참 친절해요.';
-        viSent = 'Chị gái tôi rất tốt bụng.';
-      } else if (kr === '아버지') {
-        krSent = '아버지는 회사에서 일하세요.';
-        viSent = 'Bố tôi làm việc ở công ty.';
-      } else if (kr === '어머니') {
-        krSent = '어머니는 요리를 정말 잘하세요.';
-        viSent = 'Mẹ tôi nấu ăn rất ngon.';
-      } else if (kr === '할아버지' || kr === '외할아버지') {
-        krSent = '할아버지는 지금 집에 계세요.';
-        viSent = 'Ông tôi hiện đang ở nhà.';
-      } else if (kr === '할머니' || kr === '외할머니') {
-        krSent = '할머니는 아주 건강하세요.';
-        viSent = 'Bà tôi rất khỏe mạnh.';
-      } else if (kr.includes('동생')) {
-        krSent = '제 동생은 학교에서 공부해요.';
-        viSent = 'Em tôi học bài ở trường.';
-      } else if (kr === '친구') {
-        krSent = '저는 주말에 친구를 만나요.';
-        viSent = 'Cuối tuần tôi gặp bạn bè.';
-      } else {
-        krSent = `우리 ${kr}은/는 정말 친절해요.`;
-        viSent = `${vi.charAt(0).toUpperCase() + vi.slice(1)} tôi rất tốt bụng.`;
-      }
-      gram = 'Danh từ quan hệ + Kính ngữ / Đuôi câu -아/어요';
-    } else if (['선생님', '학생', '의사', '회사원', '경찰', '요리사'].some((j) => kr.includes(j))) {
-      krSent = `그 사람은 ${kr}이에요.`;
-      viSent = `Người đó là ${vi}.`;
-      gram = 'Danh từ + 이에요/예요';
-    } else {
-      krSent = `책상 위에 ${kr}이/가 있어요.`;
-      viSent = `Ở trên bàn có ${vi}.`;
-      gram = 'Danh từ + 이/가 있다';
-    }
+    // Đồ vật thông thường
+    krSent = `교실에 ${kr}${josaIGa} 있어요.`;
+    viSent = `Ở trong lớp học có ${vi}.`;
+    gram = `Danh từ + ${josaIGa} 있다`;
   }
 
   return {
