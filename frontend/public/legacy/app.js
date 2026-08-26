@@ -1902,6 +1902,194 @@ function startBatchSentencePractice(batchIdx) {
   generateBatchSentenceQuestion();
 }
 
+function extractKoreanStems(koreanWord) {
+  const clean = String(koreanWord || '').trim();
+  if (!clean) return [];
+  const stems = new Set([clean]);
+  if (clean.endsWith('다') && clean.length >= 2) {
+    const stem = clean.slice(0, -1);
+    stems.add(stem);
+    if (stem.endsWith('하')) {
+      stems.add(stem.slice(0, -1));
+      stems.add(stem.slice(0, -1) + '해');
+    }
+  }
+  return [...stems].filter(Boolean);
+}
+
+function sentenceContainsVocab(sentenceKr, words) {
+  if (!sentenceKr || !words || !words.length) return false;
+  return words.some((w) => {
+    const kw = typeof w === 'string' ? w : w.korean;
+    const stems = extractKoreanStems(kw);
+    return stems.some((stem) => {
+      if (stem.length >= 2) return sentenceKr.includes(stem);
+      return sentenceKr.includes(stem + '요') || sentenceKr.includes(stem + 'ㅂ') || sentenceKr.includes(stem + '습') || sentenceKr.includes(stem + '았') || sentenceKr.includes(stem + '었') || sentenceKr.includes(stem + '아') || sentenceKr.includes(stem + '어');
+    });
+  });
+}
+
+function generateSmartFallbackSentence(words, grammars, direction) {
+  const isVn2Kr = direction === 'vn2kr';
+  const pool = Array.isArray(words) && words.length > 0 ? words : [{ korean: '한국어', meaning: 'tiếng Hàn' }];
+  
+  // 1. Ưu tiên từ có câu ví dụ đầy đủ và chuẩn câu (>= 2 từ)
+  const validExampleWords = pool.filter((w) => {
+    const exKr = String(w.example || '').trim();
+    const exVi = String(w.exampleViet || w.exampleVi || '').trim();
+    return exKr.length >= 6 && exVi.length >= 6 && exKr.includes(' ') && exVi.includes(' ');
+  });
+
+  if (validExampleWords.length > 0) {
+    const w = validExampleWords[Math.floor(Math.random() * validExampleWords.length)];
+    const exKr = String(w.example).trim();
+    const exVi = String(w.exampleViet || w.exampleVi).trim();
+    const g = grammars && grammars[0] ? grammars[0].title : 'Cấu trúc câu hoàn chỉnh';
+    return {
+      direction,
+      questionText: isVn2Kr ? exVi : exKr,
+      answerText: isVn2Kr ? exKr : exVi,
+      batchVocabUsed: [w.korean],
+      grammarUsed: g,
+      hint: `Từ vựng trong bộ: ${w.korean} (${w.meaning})`,
+      explanation: `Câu hoàn chỉnh vận dụng từ vựng "${w.korean}" (${w.meaning}). Ngữ pháp: ${g}`,
+    };
+  }
+
+  // 2. Tự động sinh câu chuẩn Sơ cấp dựa theo danh từ/động từ/tính từ
+  const w = pool[Math.floor(Math.random() * pool.length)];
+  const kr = String(w.korean || '').trim();
+  const vi = String(w.meaning || '').trim();
+
+  let krSent = '';
+  let viSent = '';
+  let gram = 'Cấu trúc Sơ cấp';
+
+  if (kr.endsWith('하다')) {
+    const baseNoun = kr.slice(0, -2);
+    krSent = `저는 오늘 ${kr.slice(0, -1)}여요.`;
+    if (kr === '공부하다') {
+      krSent = '저는 도서관에서 한국어를 공부해요.';
+      viSent = 'Tôi học tiếng Hàn ở thư viện.';
+    } else if (kr === '일하다') {
+      krSent = '저는 회사에서 열심히 일해요.';
+      viSent = 'Tôi làm việc chăm chỉ ở công ty.';
+    } else if (kr === '운동하다') {
+      krSent = '저는 공원에서 매일 운동해요.';
+      viSent = 'Tôi tập thể dục mỗi ngày ở công viên.';
+    } else {
+      krSent = `저는 지금 ${baseNoun ? `${baseNoun}을 ` : ''}해요.`;
+      viSent = `Tôi đang ${vi}.`;
+    }
+    gram = '-아/어요 (Đuôi câu thân mật lịch sự)';
+  } else if (kr.endsWith('다') && kr.length >= 2) {
+    if (kr === '가다') {
+      krSent = '저는 오늘 학교에 가요.';
+      viSent = 'Hôm nay tôi đi đến trường.';
+    } else if (kr === '오다') {
+      krSent = '친구가 우리 집에 와요.';
+      viSent = 'Bạn đến nhà tôi chơi.';
+    } else if (kr === '먹다') {
+      krSent = '저는 식당에서 맛있는 밥을 먹어요.';
+      viSent = 'Tôi ăn cơm ngon ở nhà hàng.';
+    } else if (kr === '마시다') {
+      krSent = '저는 카페에서 따뜻한 커피를 마셔요.';
+      viSent = 'Tôi uống cà phê ấm ở quán cà phê.';
+    } else if (kr === '보다') {
+      krSent = '저는 주말에 극장에서 영화를 봐요.';
+      viSent = 'Cuối tuần tôi xem phim ở rạp.';
+    } else if (kr === '사다') {
+      krSent = '저는 시장에서 과일을 사요.';
+      viSent = 'Tôi mua hoa quả ở chợ.';
+    } else if (kr === '만나다') {
+      krSent = '저는 학교 앞에서 친구를 만나요.';
+      viSent = 'Tôi gặp bạn ở trước trường.';
+    } else if (kr === '크다') {
+      krSent = '이 가방이 아주 커요.';
+      viSent = 'Cái cặp này rất to.';
+    } else if (kr === '작다') {
+      krSent = '이 방이 조금 작아요.';
+      viSent = 'Căn phòng này hơi nhỏ.';
+    } else if (kr === '좋다') {
+      krSent = '오늘 날씨가 정말 좋아요.';
+      viSent = 'Thời tiết hôm nay thật sự rất đẹp.';
+    } else if (kr === '예쁘다') {
+      krSent = '이 옷이 참 예뻐요.';
+      viSent = 'Bộ quần áo này thật xinh đẹp.';
+    } else {
+      const stem = kr.slice(0, -1);
+      krSent = `저는 ${kr} 것을 좋아해요.`;
+      viSent = `Tôi thích ${vi}.`;
+    }
+    gram = '-아/어요, Trợ từ -을/를, -에/에서';
+  } else {
+    // Danh từ
+    if (['학교', '식당', '도서관', '병원', '은행', '회사', '집', '카페', '공원', '시장'].some((p) => kr.includes(p))) {
+      krSent = `저는 지금 ${kr}에 가요.`;
+      viSent = `Bây giờ tôi đi đến ${vi}.`;
+      gram = 'Danh từ nơi chốn + 에 가다';
+    } else if (['밥', '사과', '물', '커피', '우유', '빵', '고기', '과일'].some((f) => kr.includes(f))) {
+      krSent = `저는 ${kr}을 좋아해요.`;
+      viSent = `Tôi thích ${vi}.`;
+      gram = 'Danh từ tân ngữ + 을/를 좋아하다';
+    } else if (['할아버지', '할머니', '외할아버지', '외할머니', '아버지', '어머니', '오빠', '언니', '형', '누나', '남동생', '여동생', '동생', '부모님', '가족', '친구'].some((f) => kr.includes(f))) {
+      if (kr === '오빠') {
+        krSent = '우리 오빠는 키가 아주 커요.';
+        viSent = 'Anh trai tôi rất cao.';
+      } else if (kr === '언니') {
+        krSent = '우리 언니는 대학생이에요.';
+        viSent = 'Chị gái tôi là sinh viên đại học.';
+      } else if (kr === '형') {
+        krSent = '우리 형은 회사에서 일해요.';
+        viSent = 'Anh trai tôi làm việc ở công ty.';
+      } else if (kr === '누나') {
+        krSent = '우리 누나는 참 친절해요.';
+        viSent = 'Chị gái tôi rất tốt bụng.';
+      } else if (kr === '아버지') {
+        krSent = '아버지는 회사에서 일하세요.';
+        viSent = 'Bố tôi làm việc ở công ty.';
+      } else if (kr === '어머니') {
+        krSent = '어머니는 요리를 정말 잘하세요.';
+        viSent = 'Mẹ tôi nấu ăn rất ngon.';
+      } else if (kr === '할아버지' || kr === '외할아버지') {
+        krSent = '할아버지는 지금 집에 계세요.';
+        viSent = 'Ông tôi hiện đang ở nhà.';
+      } else if (kr === '할머니' || kr === '외할머니') {
+        krSent = '할머니는 아주 건강하세요.';
+        viSent = 'Bà tôi rất khỏe mạnh.';
+      } else if (kr.includes('동생')) {
+        krSent = '제 동생은 학교에서 공부해요.';
+        viSent = 'Em tôi học bài ở trường.';
+      } else if (kr === '친구') {
+        krSent = '저는 주말에 친구를 만나요.';
+        viSent = 'Cuối tuần tôi gặp bạn bè.';
+      } else {
+        krSent = `우리 ${kr}은/는 정말 친절해요.`;
+        viSent = `${vi.charAt(0).toUpperCase() + vi.slice(1)} tôi rất tốt bụng.`;
+      }
+      gram = 'Danh từ quan hệ + Kính ngữ / Đuôi câu -아/어요';
+    } else if (['선생님', '학생', '의사', '회사원', '경찰', '요리사'].some((j) => kr.includes(j))) {
+      krSent = `그 사람은 ${kr}이에요.`;
+      viSent = `Người đó là ${vi}.`;
+      gram = 'Danh từ + 이에요/예요';
+    } else {
+      krSent = `책상 위에 ${kr}이/가 있어요.`;
+      viSent = `Ở trên bàn có ${vi}.`;
+      gram = 'Danh từ + 이/가 있다';
+    }
+  }
+
+  return {
+    direction,
+    questionText: isVn2Kr ? viSent : krSent,
+    answerText: isVn2Kr ? krSent : viSent,
+    batchVocabUsed: [kr],
+    grammarUsed: gram,
+    hint: `Từ vựng trong bộ: ${kr} (${vi})`,
+    explanation: `Vận dụng từ vựng "${kr}" (${vi}) kết hợp cấu trúc ngữ pháp: ${gram}`,
+  };
+}
+
 async function generateBatchSentenceQuestion() {
   const sp = batchSentencePractice;
   if (!sp) return;
@@ -1912,101 +2100,80 @@ async function generateBatchSentenceQuestion() {
   sp.currentQuestion = null;
   renderBatchPage();
 
-  const words = sp.batchWords;
-  const grammars = sp.grammars;
+  const words = sp.batchWords || [];
+  const grammars = sp.grammars || [];
   const direction = Math.random() > 0.5 ? 'vn2kr' : 'kr2vn';
 
   if (GEMINI.getKey()) {
     try {
-      const vocabListStr = words.map(w => `${w.korean} (${w.meaning})`).join(', ');
-      const grammarListStr = grammars.slice(0, 10).map(g => g.title).join(', ');
+      const vocabListStr = words.map((w) => `${w.korean} (${w.meaning})`).join(', ');
+      const grammarListStr = grammars.slice(0, 8).map((g) => g.title).join(', ');
       const avoidStr = sp.recentQuestions.length > 0
-        ? `\nCÁC CÂU ĐÃ TẠO TRƯỚC ĐÂY (TUYỆT ĐỐI KHÔNG ĐƯỢC LẶP LẠI VÀ KHÔNG TẠO CÂU TƯƠNG TỰ): \n${sp.recentQuestions.slice(-10).map(q => `- ${q}`).join('\n')}\n`
+        ? `\nCÁC CÂU ĐÃ TẠO TRƯỚC ĐÂY (TUYỆT ĐỐI KHÔNG TRÙNG LẶP): \n${sp.recentQuestions.slice(-10).map((q) => `- ${q}`).join('\n')}\n`
         : '';
 
-      const prompt = `Bạn là giáo viên tiếng Hàn dạy trình độ SƠ CẤP.
+      const prompt = `Bạn là chuyên gia giáo dục tiếng Hàn phụ trách biên soạn câu hỏi tự luận Sơ cấp 1 - Sơ cấp 2.
 
-DANH SÁCH TỪ VỰNG TRONG BỘ HỌC NÀY (BẮT BUỘC DÙNG TỪ TRONG NÀY):
+DANH SÁCH TỪ VỰNG TRONG BỘ HỌC NÀY (BẮT BUỘC DÙNG ÍT NHẤT 1 TỪ):
 ${vocabListStr}
 
-CẤU TRÚC NGỮ PHÁP (Áp dụng 1 cấu trúc trong đây):
-${grammarListStr}
+DANH SÁCH NGỮ PHÁP ÁP DỤNG:
+${grammarListStr || '-아/어요, -ㅂ/습니다, -이/가, -은/는, -을/를, -에/에서, -고, -하고'}
 ${avoidStr}
-QUY TẮC NGHIÊM NGẶT (PHẢI THỰC HIỆN ĐÚNG 100%):
-1. LOGIC THỰC TẾ 100%: Nội dung câu phải hợp lý với thực tế đời sống. CẤM tạo câu phi logic (Ví dụ CẤM: "tôi 23 tuổi em tôi 24 tuổi" - phi lý vì em không thể nhiều tuổi hơn anh/chị; CẤM: con mèo lái xe, đồ vật biết nói, cá sấu bay...). Số tuổi, thời gian, tên mối quan hệ phải logic chuẩn xác.
-2. DỊCH SÁT NGHĨA & CHUẨN XÁC 100%: Câu tiếng Việt và câu tiếng Hàn phải dịch tương đương nghĩa tuyệt đối, chuẩn ngữ pháp Sơ cấp, không diễn đạt ngớ ngẩn.
-3. BÁM SÁT TỪ VỰNG BỘ: Sử dụng đúng từ vựng trong danh sách trên.
-4. Chiều dịch: ${direction === 'vn2kr' ? 'Câu hỏi Tiếng Việt -> Đáp án Tiếng Hàn' : 'Câu hỏi Tiếng Hàn -> Đáp án Tiếng Việt'}.
+YÊU CẦU BẮT BUỘC KHI TẠO CÂU:
+1. LUÔN LÀ CÂU HOÀN CHỈNH: Phải tạo thành một câu giao tiếp hoặc câu văn hoàn chỉnh (có đầy đủ chủ ngữ/ngữ cảnh, vị ngữ, đuôi câu kính ngữ -아/어요 hoặc -ㅂ/습니다). TUYỆT ĐỐI KHÔNG TẠO TỪ ĐƠN HOẶC CÂU CỤT.
+2. NỘI DUNG THỰC TẾ & CHUẨN LOGIC 100%: Nội dung câu phải hợp lý với đời sống hàng ngày (gia đình, trường học, công sở, thời tiết, mua sắm, ăn uống).
+3. DỊCH SÁT NGHĨA & TỰ NHIÊN: Tiếng Việt và Tiếng Hàn phải tương đương nghĩa 100%, diễn đạt tự nhiên theo văn phong chuẩn.
+4. CHIỀU DỊCH: ${direction === 'vn2kr' ? 'Câu hỏi là TIẾNG VIỆT HOÀN CHỈNH -> Đáp án là TIẾNG HÀN HOÀN CHỈNH' : 'Câu hỏi là TIẾNG HÀN HOÀN CHỈNH -> Đáp án là TIẾNG VIỆT HOÀN CHỈNH'}.
 
-Trả về JSON (không có text nào khác):
+TRẢ VỀ DUY NHẤT JSON THEO SCHEMA (KHÔNG THÊM BẤT KỲ TEXT NÀO KHÁC):
 {
   "direction": "${direction}",
-  "questionText": "câu ${direction==='vn2kr'?'tiếng Việt chuẩn logic':'tiếng Hàn chuẩn logic'}",
-  "answerText": "đáp án ${direction==='vn2kr'?'tiếng Hàn':'tiếng Việt'} dịch sát nghĩa 100%",
-  "batchVocabUsed": ["từ_Hàn_dùng_trong_bộ"],
-  "grammarUsed": "cấu trúc ngữ pháp",
-  "hint": "gợi ý ngắn",
-  "explanation": "giải thích ngắn nghĩa và ngữ pháp bằng tiếng Việt"
+  "questionText": "câu ${direction === 'vn2kr' ? 'tiếng Việt hoàn chỉnh, tự nhiên' : 'tiếng Hàn hoàn chỉnh chuẩn ngữ pháp'}",
+  "answerText": "đáp án ${direction === 'vn2kr' ? 'tiếng Hàn hoàn chỉnh chuẩn ngữ pháp' : 'tiếng Việt hoàn chỉnh, tự nhiên'}",
+  "batchVocabUsed": ["từ_vựng_tiếng_hàn_trong_bộ_đã_dùng"],
+  "grammarUsed": "ngữ pháp đã áp dụng (ví dụ: -아/어요, Danh từ + 에 가다)",
+  "hint": "gợi ý ngắn gọn hướng dẫn học viên cách chia đuôi câu hoặc từ vựng",
+  "explanation": "giải thích chi tiết nghĩa của câu, từ vựng được dùng và công thức ngữ pháp"
 }`;
 
-      const raw = await GEMINI.call(prompt, '', { temperature: 0.3, maxOutputTokens: 500 });
+      const raw = await GEMINI.call(prompt, '', { temperature: 0.25, maxOutputTokens: 600, jsonMode: true });
       const match = raw.match(/\{[\s\S]*\}/);
       if (match) {
         const parsed = JSON.parse(match[0]);
+        const questionText = String(parsed.questionText || '').trim();
+        const answerText = String(parsed.answerText || '').trim();
+        const answerKr = (direction === 'vn2kr' ? answerText : questionText) || '';
 
-        // Validate: the Korean answer must contain at least one batch vocab word
-        const answerKr = (direction === 'vn2kr' ? parsed.answerText : parsed.questionText) || '';
-        const batchKoreanWords = words.map(w => w.korean);
-        const containsBatchVocab = batchKoreanWords.some(kw => answerKr.includes(kw));
+        // Kiểm tra câu tiếng Hàn có độ dài tối thiểu của câu hoàn chỉnh và chứa từ vựng trong bộ
+        const isKrSentenceValid = answerKr.length >= 6 && answerKr.includes(' ') && sentenceContainsVocab(answerKr, words);
 
-        if (containsBatchVocab && parsed.questionText && parsed.answerText) {
+        if (isKrSentenceValid && questionText && answerText) {
           sp.currentQuestion = {
             direction: parsed.direction || direction,
-            questionText: parsed.questionText,
-            answerText: parsed.answerText,
-            batchVocabUsed: Array.isArray(parsed.batchVocabUsed) ? parsed.batchVocabUsed : [],
-            grammarUsed: parsed.grammarUsed || '',
+            questionText,
+            answerText,
+            batchVocabUsed: Array.isArray(parsed.batchVocabUsed) && parsed.batchVocabUsed.length > 0 ? parsed.batchVocabUsed : [words[0]?.korean || ''],
+            grammarUsed: parsed.grammarUsed || 'Cấu trúc Sơ cấp hoàn chỉnh',
             hint: parsed.hint || '',
-            explanation: parsed.explanation || ''
+            explanation: parsed.explanation || '',
           };
-          sp.recentQuestions.push(parsed.questionText);
-          if (sp.recentQuestions.length > 20) sp.recentQuestions.shift();
-        } else {
-          console.warn('AI generated off-topic sentence (no batch vocab found), falling back to local example.');
+          sp.recentQuestions.push(questionText);
+          if (sp.recentQuestions.length > 25) sp.recentQuestions.shift();
         }
       }
-    } catch(e) {
-      console.warn('AI batch sentence gen error, falling back to local:', e);
+    } catch (e) {
+      console.warn('AI batch sentence generation error, using smart fallback:', e);
     }
   }
 
-  // Fallback: always use a word from the batch with its example sentence
+  // Smart fallback sentence generator nếu AI chưa phản hồi
   if (!sp.currentQuestion) {
-    const unusedWords = words.filter(w =>
-      !sp.recentQuestions.includes(w.korean) &&
-      !sp.recentQuestions.includes(w.exampleViet) &&
-      (w.example || w.exampleViet) // only pick words that have example sentences
-    );
-    const candidateWords = unusedWords.length > 0 ? unusedWords : words.filter(w => w.example || w.exampleViet);
-    const pool = candidateWords.length > 0 ? candidateWords : words;
-    const w = pool[Math.floor(Math.random() * pool.length)];
-    const g = grammars[Math.floor(Math.random() * grammars.length)] || { title: 'Cấu trúc câu cơ bản' };
-    const isVn = direction === 'vn2kr';
-
-    const qText = isVn ? (w.exampleViet || `Hãy đặt câu với từ "${w.meaning}"`) : (w.example || w.korean);
-    const aText = isVn ? (w.example || w.korean) : (w.exampleViet || w.meaning);
-
-    sp.currentQuestion = {
-      direction: direction,
-      questionText: qText,
-      answerText: aText,
-      batchVocabUsed: [w.korean],
-      grammarUsed: g.title,
-      hint: `Từ vựng bộ: ${w.korean} (${w.meaning}) | Ngữ pháp: ${g.title}`,
-      explanation: `Dùng từ vựng "${w.korean}" (${w.meaning}) và ngữ pháp ${g.title}`
-    };
-    sp.recentQuestions.push(qText);
-    if (sp.recentQuestions.length > 20) sp.recentQuestions.shift();
+    sp.currentQuestion = generateSmartFallbackSentence(words, grammars, direction);
+    if (sp.currentQuestion?.questionText) {
+      sp.recentQuestions.push(sp.currentQuestion.questionText);
+      if (sp.recentQuestions.length > 25) sp.recentQuestions.shift();
+    }
   }
 
   sp.loading = false;
@@ -2021,77 +2188,101 @@ function renderBatchSentencePracticeUI() {
   if (sp.loading) {
     body.innerHTML = `
       <div class="batch-status-row">
-        <span>✍️ Luyện viết câu Bộ ${sp.batchIndex+1} (Vận dụng Từ vựng Bộ & Ngữ pháp)</span>
+        <span>✍️ Luyện viết câu tự luận · Bộ ${sp.batchIndex + 1}</span>
         <button class="btn btn-ghost btn-xs" onclick="stopBatchSentencePractice()">🔙 Dừng lại</button>
       </div>
-      <div class="sp-loading" style="padding: 40px 0; text-align:center;">
+      <div class="sp-loading" style="padding: 42px 0; text-align:center;">
         <div class="sp-loading-spinner"></div>
-        <p style="margin-top:12px;color:var(--text-secondary)">🤖 AI đang tổng hợp từ vựng Bộ ${sp.batchIndex+1} & Ngữ pháp đã học để tạo câu bài tập...</p>
+        <p style="margin-top:14px;font-size:1.05rem;font-weight:600;color:var(--accent-light)">🤖 AI đang chuẩn bị câu tự luận chuẩn ngữ pháp theo từ vựng Bộ ${sp.batchIndex + 1}...</p>
+        <p style="font-size:0.84rem;color:var(--text-secondary);margin-top:4px">Đang phối hợp từ vựng và ngữ pháp Sơ cấp để tạo câu hoàn chỉnh.</p>
       </div>
     `;
     return;
   }
 
   const q = sp.currentQuestion;
+  if (!q) {
+    body.innerHTML = '<div class="notice">Không tải được câu bài tập. Vui lòng thử lại.</div>';
+    return;
+  }
   const isVn2Kr = q.direction === 'vn2kr';
 
   body.innerHTML = `
     <div class="batch-status-row">
-      <span>✍️ Luyện viết câu Bộ ${sp.batchIndex+1} · Dùng từ vựng & Ngữ pháp đã học</span>
-      <span>Đã luyện: ${sp.total} câu</span>
+      <span>✍️ Luyện viết câu tự luận · Bộ ${sp.batchIndex + 1}</span>
+      <span>Đã luyện: <strong>${sp.total} câu</strong> · Đúng: <strong style="color:var(--green)">${sp.correct}</strong></span>
     </div>
 
     <!-- Vocab & Grammar Summary Chips for this Batch -->
-    <div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin-bottom:16px;">
-      <div style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:6px">📦 Từ vựng trong Bộ ${sp.batchIndex+1}:</div>
+    <div style="background:var(--hover-bg);border:1px solid var(--border);border-radius:14px;padding:12px 16px;margin-bottom:18px;">
+      <div style="font-size:0.8rem;font-weight:700;color:var(--accent);margin-bottom:6px">📦 Từ vựng trọng tâm Bộ ${sp.batchIndex + 1}:</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
-        ${sp.batchWords.map(w => `<span class="diff-chip" style="font-size:0.75rem;background:rgba(99,102,241,0.1);color:var(--accent);border:1px solid rgba(99,102,241,0.2)">${w.korean} (${w.meaning})</span>`).join('')}
+        ${sp.batchWords.map((w) => `<span class="diff-chip" style="font-size:0.75rem;background:rgba(99,102,241,0.1);color:var(--accent);border:1px solid rgba(99,102,241,0.25)">${w.korean} (${w.meaning})</span>`).join('')}
       </div>
-      <div style="font-size:0.78rem;font-weight:700;color:var(--gold);margin-bottom:6px">📐 Ngữ pháp áp dụng:</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${sp.grammars.slice(0,6).map(g => `<span class="diff-chip" style="font-size:0.75rem;background:rgba(245,158,11,0.1);color:var(--gold);border:1px solid rgba(245,158,11,0.2)">${g.title}</span>`).join('')}
-      </div>
+      ${sp.grammars && sp.grammars.length ? `
+        <div style="font-size:0.8rem;font-weight:700;color:var(--gold);margin-bottom:6px">📐 Ngữ pháp gợi ý:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          ${sp.grammars.slice(0, 6).map((g) => `<span class="diff-chip" style="font-size:0.75rem;background:rgba(245,158,11,0.1);color:var(--gold);border:1px solid rgba(245,158,11,0.25)">${g.title}</span>`).join('')}
+        </div>
+      ` : ''}
     </div>
 
     <!-- Exercise Card -->
     <div class="sp-exercise-card" style="margin:0 auto;max-width:100%">
-      <div class="sp-dir-badge">${isVn2Kr ? '🇻🇳 → 🇰🇷 Dịch sang Tiếng Hàn' : '🇰🇷 → 🇻🇳 Dịch sang Tiếng Việt'}</div>
-      
-      <div class="sp-question-label">${isVn2Kr ? 'Dịch câu sau sang tiếng Hàn:' : 'Dịch câu sau sang tiếng Việt:'}</div>
-      <div class="sp-question-sentence">${q.questionText}</div>
-      ${q.hint ? `<div class="sp-question-hint">💡 ${q.hint}</div>` : ''}
+      <div class="sp-dir-badge">
+        ${isVn2Kr ? '🇻🇳 → 🇰🇷 Dịch sang Tiếng Hàn (Tự luận)' : '🇰🇷 → 🇻🇳 Dịch sang Tiếng Việt (Tự luận)'}
+      </div>
+
+      <div class="sp-question-label">
+        ${isVn2Kr ? 'Dịch câu sau sang tiếng Hàn chuẩn ngữ pháp:' : 'Dịch câu tiếng Hàn sau sang tiếng Việt:'}
+      </div>
+
+      <div class="sp-question-sentence font-kr" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+        <span style="flex:1">${q.questionText}</span>
+        ${!isVn2Kr ? `<button class="audio-btn" onclick="TTS.speak('${escStr(q.questionText)}')" title="Nghe câu hỏi tiếng Hàn" style="flex-shrink:0">🔊 Nghe</button>` : ''}
+      </div>
+
+      ${q.hint ? `<div class="sp-question-hint">💡 <strong>Gợi ý:</strong> ${q.hint}</div>` : ''}
 
       <div class="sp-vocab-hints">
-        ${q.batchVocabUsed.map(v => `<span class="sp-hint-chip">📦 Từ vựng tested: <strong class="sp-hint-kr">${v}</strong></span>`).join('')}
-        ${q.grammarUsed ? `<span class="sp-hint-chip" style="border-color:rgba(245,158,11,0.3)">📐 Ngữ pháp tested: <strong style="color:var(--gold)">${q.grammarUsed}</strong></span>` : ''}
+        ${(q.batchVocabUsed || []).map((v) => `<span class="sp-hint-chip">📦 Từ vựng: <strong class="sp-hint-kr">${v}</strong></span>`).join('')}
+        ${q.grammarUsed ? `<span class="sp-hint-chip" style="border-color:rgba(245,158,11,0.3)">📐 Ngữ pháp: <strong style="color:var(--gold)">${q.grammarUsed}</strong></span>` : ''}
       </div>
 
       <div class="sp-input-wrap">
-        <textarea id="batchSpAnswerInput" class="sp-answer-textarea" placeholder="${isVn2Kr ? 'Nhập câu dịch tiếng Hàn của bạn...' : 'Nhập câu dịch tiếng Việt của bạn...'}" rows="3" ${sp.answered ? 'disabled' : ''} onkeydown="if(event.key==='Enter'&&event.ctrlKey)checkBatchSentenceAnswer()">${sp.lastUserAnswer && sp.answered ? escStr(sp.lastUserAnswer) : ''}</textarea>
-        <div class="sp-input-tips">💡 Nhấn <kbd>Ctrl+Enter</kbd> để AI chấm bài</div>
+        <textarea
+          id="batchSpAnswerInput"
+          class="sp-answer-textarea font-kr"
+          placeholder="${isVn2Kr ? 'Nhập câu tiếng Hàn của bạn tại đây (VD: 저는 학교에 가요)...' : 'Nhập câu dịch tiếng Việt của bạn...'}"
+          rows="3"
+          ${sp.answered ? 'disabled' : ''}
+          onkeydown="if(event.key==='Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); checkBatchSentenceAnswer(); }"
+        >${sp.lastUserAnswer && sp.answered ? escStr(sp.lastUserAnswer) : ''}</textarea>
+        <div class="sp-input-tips">💡 Nhấn <kbd>Ctrl+Enter</kbd> để nộp bài và AI chấm điểm</div>
       </div>
 
       ${!sp.answered ? `
         <div class="sp-answer-actions" id="batchSpActions">
-          <button class="btn btn-primary" onclick="checkBatchSentenceAnswer()" id="batchSpCheckBtn">✅ AI Chấm bài</button>
-          <button class="btn btn-ghost" onclick="showBatchSentenceAnswer()">👁 Xem đáp án</button>
-          <button class="btn btn-ghost" onclick="TTS.speak('${escStr(isVn2Kr ? q.answerText : q.questionText)}')">🔊 Nghe phát âm</button>
+          <button class="btn btn-primary btn-lg" onclick="checkBatchSentenceAnswer()" id="batchSpCheckBtn">✅ Nộp bài (AI Chấm)</button>
+          <button class="btn btn-ghost" onclick="showBatchSentenceAnswer()">👁 Xem đáp án chuẩn</button>
+          ${!isVn2Kr ? `<button class="btn btn-ghost" onclick="TTS.speak('${escStr(q.questionText)}')">🔊 Nghe lại đề</button>` : ''}
         </div>
       ` : ''}
 
       <div class="sp-feedback" id="batchSpFeedback" style="display:${sp.answered ? 'block' : 'none'}"></div>
 
       ${sp.answered ? `
-        <div class="sp-next-actions" style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+        <div class="sp-next-actions" style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
           <button class="btn btn-primary btn-lg" onclick="generateBatchSentenceQuestion()">✨ Câu tiếp theo</button>
           <button class="btn btn-secondary btn-lg" onclick="retryBatchSentenceQuestion()">🔄 Làm lại câu này</button>
-          <button class="btn btn-ghost" onclick="stopBatchSentencePractice()">🔙 Về lại Bộ ${sp.batchIndex+1}</button>
+          <button class="btn btn-ghost" onclick="TTS.speak('${escStr(isVn2Kr ? (sp.lastGradeCorrected || q.answerText) : q.questionText)}')">🔊 Nghe phát âm chuẩn</button>
+          <button class="btn btn-ghost" onclick="stopBatchSentencePractice()">🔙 Về Bộ ${sp.batchIndex + 1}</button>
         </div>
       ` : ''}
     </div>
 
     <div style="text-align:center;margin-top:16px">
-      <button class="btn btn-ghost btn-sm" onclick="stopBatchSentencePractice()">🔙 Dừng luyện câu, về Bộ ${sp.batchIndex+1}</button>
+      <button class="btn btn-ghost btn-sm" onclick="stopBatchSentencePractice()">🔙 Dừng luyện câu, về lại danh sách từ Bộ ${sp.batchIndex + 1}</button>
     </div>
   `;
 
@@ -2114,14 +2305,14 @@ function isAnswerLanguageValid(direction, answer) {
   if (!text) return false;
 
   if (direction === 'vn2kr') {
-    // Việt -> Hàn: câu trả lời bắt buộc phải có Hangul.
+    // Việt -> Hàn: câu trả lời bắt buộc phải có chữ Hangul
     return hasHangul(text);
   }
 
-  // Hàn -> Việt: không chấp nhận câu chỉ/toàn tiếng Hàn.
-  const chars = [...text].filter(ch => /[A-Za-zÀ-ỹ가-힣]/.test(ch));
+  // Hàn -> Việt: không chấp nhận câu trả lời toàn Hangul
+  const chars = [...text].filter((ch) => /[A-Za-zÀ-ỹ가-힣]/.test(ch));
   if (!chars.length) return false;
-  const hangulCount = chars.filter(ch => /[가-힣]/.test(ch)).length;
+  const hangulCount = chars.filter((ch) => /[가-힣]/.test(ch)).length;
   return hangulCount / chars.length < 0.45;
 }
 
@@ -2141,7 +2332,7 @@ async function checkBatchSentenceAnswer() {
   const inp = document.getElementById('batchSpAnswerInput');
   const userAns = (inp ? inp.value : '').trim();
   if (!userAns) {
-    showToast('⚠️ Vui lòng nhập câu dịch của bạn!', 'warning');
+    showToast('⚠️ Vui lòng nhập câu dịch của bạn trước khi nộp bài!', 'warning');
     return;
   }
 
@@ -2157,84 +2348,82 @@ async function checkBatchSentenceAnswer() {
   const checkBtn = document.getElementById('batchSpCheckBtn');
   if (checkBtn) {
     checkBtn.disabled = true;
-    checkBtn.textContent = '⏳ AI đang chấm...';
+    checkBtn.textContent = '⏳ AI đang phân tích & chấm bài...';
   }
 
   let gradeResult = null;
 
-  // Chặn lỗi như ảnh: đề yêu cầu Việt -> Hàn nhưng học viên nhập lại câu tiếng Việt
-  // mà AI vẫn cho 100/100.
   if (!languageOk || copiedQuestion) {
     const target = q.direction === 'vn2kr' ? 'tiếng Hàn' : 'tiếng Việt';
     gradeResult = {
       score: 0,
       verdict: 'wrong',
       note: copiedQuestion
-        ? `Bạn đang nhập lại nguyên câu đề bài. Hãy dịch sang ${target}.`
+        ? `Bạn đang sao chép lại nguyên câu đề bài. Hãy dịch câu sang ${target}.`
         : `Câu trả lời chưa đúng ngôn ngữ yêu cầu. Hãy trả lời bằng ${target}.`,
       corrected: q.answerText,
-      explanation: q.explanation || `Chiều dịch của câu này là ${q.direction === 'vn2kr' ? 'Việt → Hàn' : 'Hàn → Việt'}.`,
+      explanation: q.explanation || `Chiều dịch của câu là ${q.direction === 'vn2kr' ? 'Việt → Hàn' : 'Hàn → Việt'}.`,
     };
   }
 
   if (!gradeResult && GEMINI.getKey()) {
     try {
       const targetLanguage = q.direction === 'vn2kr' ? 'TIẾNG HÀN' : 'TIẾNG VIỆT';
-      const prompt = `Bạn là giáo viên tiếng Hàn đang chấm bài dịch cho học viên Việt Nam.
+      const prompt = `Bạn là giáo viên tiếng Hàn chấm bài tập tự luận cho học viên Việt Nam trình độ Sơ cấp.
 
-CHIỀU DỊCH BẮT BUỘC: ${q.direction === 'vn2kr' ? 'Tiếng Việt -> Tiếng Hàn' : 'Tiếng Hàn -> Tiếng Việt'}
+CHIỀU DỊCH: ${q.direction === 'vn2kr' ? 'Tiếng Việt -> Tiếng Hàn' : 'Tiếng Hàn -> Tiếng Việt'}
 NGÔN NGỮ CÂU TRẢ LỜI BẮT BUỘC: ${targetLanguage}
 
-Bộ từ vựng tested: ${q.batchVocabUsed.join(', ')}
-Ngữ pháp tested: ${q.grammarUsed}
-Câu gốc: "${q.questionText}"
+Từ vựng trọng tâm: ${(q.batchVocabUsed || []).join(', ')}
+Ngữ pháp áp dụng: ${q.grammarUsed || ''}
+Đề bài (câu gốc): "${q.questionText}"
 Đáp án tham khảo: "${q.answerText}"
-Bài của học viên: "${userAns}"
+Câu học viên đã nộp: "${userAns}"
 
-QUY TẮC CHẤM:
-1. Nếu học viên trả lời sai ngôn ngữ yêu cầu hoặc chỉ chép lại câu gốc: score = 0.
-2. Chấm theo NGHĨA + NGỮ PHÁP, không bắt buộc giống từng chữ với đáp án tham khảo.
-3. Câu tự nhiên, đúng nghĩa và đúng ngữ pháp có thể đạt 100 dù cách diễn đạt khác.
-4. Nếu sai tiểu từ/chia động từ nhưng vẫn hiểu được: trừ điểm tương ứng, không cho 100.
-5. "corrected" phải là câu sửa hoàn chỉnh bằng ${targetLanguage}.
+QUY TẮC CHẤM TỰ LUẬN:
+1. Chấm theo NGHĨA và TÍNH CHÍNH XÁC NGỮ PHÁP (trợ từ, chia động/tính từ, trật tự từ, khoảng cách từ 띄어쓰기).
+2. Chấp nhận các cách diễn đạt tương đương tự nhiên (ví dụ có/không có chủ ngữ 저는, đuôi câu -아/어요 hoặc -ㅂ/습니다).
+3. Nếu học viên làm đúng hoàn toàn: cho 100 điểm kèm lời khen ngợi.
+4. Nếu học viên làm đúng ý nhưng sai trợ từ hoặc chia sai đuôi từ: cho 60-80 điểm, chỉ rõ lỗi sai cụ thể.
+5. "corrected" là câu hoàn chỉnh chuẩn xác nhất bằng ${targetLanguage}.
+6. "explanation" giải thích rõ cấu trúc ngữ pháp, từ vựng và chỉ ra cách sửa lỗi cho học viên bằng tiếng Việt.
 
-Trả về duy nhất JSON:
+TRẢ VỀ DUY NHẤT JSON THEO SCHEMA:
 {
   "score": <số nguyên 0-100>,
   "verdict": "<correct|partial|wrong>",
-  "note": "nhận xét ngắn bằng tiếng Việt",
-  "corrected": "câu sửa chuẩn",
-  "explanation": "giải thích lỗi/điểm đúng, từ vựng và ngữ pháp bằng tiếng Việt"
+  "note": "nhận xét ngắn gọn, khích lệ hoặc chỉ lỗi trực tiếp bằng tiếng Việt",
+  "corrected": "câu tiếng Hàn/tiếng Việt hoàn chỉnh chuẩn mực nhất",
+  "explanation": "phân tích ngữ pháp và giải thích chi tiết bằng tiếng Việt"
 }`;
 
-      const raw = await GEMINI.call(prompt, '', { temperature: 0.2, maxOutputTokens: 700, jsonMode: true });
+      const raw = await GEMINI.call(prompt, '', { temperature: 0.2, maxOutputTokens: 750, jsonMode: true });
       const match = raw.match(/\{[\s\S]*\}/);
       if (match) gradeResult = JSON.parse(match[0]);
-    } catch(e) {
-      console.warn('AI grading failed, using fallback check:', e);
+    } catch (e) {
+      console.warn('AI grading failed, using smart rule-based check:', e);
     }
   }
 
   if (!gradeResult) {
-    const ok = normalizePracticeText(userAns) === normalizePracticeText(q.answerText);
+    const isExact = normalizePracticeText(userAns) === normalizePracticeText(q.answerText);
     gradeResult = {
-      score: ok ? 100 : 40,
-      verdict: ok ? 'correct' : 'wrong',
-      note: ok ? 'Chính xác!' : 'Chưa chính xác lắm, xem đáp án bên dưới nhé.',
+      score: isExact ? 100 : 50,
+      verdict: isExact ? 'correct' : 'partial',
+      note: isExact ? 'Chính xác hoàn hảo!' : 'Gần đúng rồi! Hãy đối chiếu với đáp án chuẩn bên dưới nhé.',
       corrected: q.answerText,
-      explanation: q.explanation || `Áp dụng từ vựng: ${q.batchVocabUsed.join(', ')} & Ngữ pháp: ${q.grammarUsed}`,
+      explanation: q.explanation || `Vận dụng từ vựng: ${(q.batchVocabUsed || []).join(', ')} & Ngữ pháp: ${q.grammarUsed || ''}`,
     };
   }
 
   let score = Math.max(0, Math.min(100, Math.round(Number(gradeResult.score) || 0)));
-
-  // Hậu kiểm: kể cả model có hallucinate 100 điểm thì sai ngôn ngữ vẫn không được qua.
   if (!languageOk || copiedQuestion) score = 0;
   gradeResult.score = score;
   gradeResult.corrected = gradeResult.corrected || q.answerText;
+  sp.lastGradeCorrected = gradeResult.corrected;
 
   if (score >= 70) sp.correct++;
-  addXP(score >= 70 ? 8 : 2);
+  addXP(score >= 70 ? 10 : 3);
 
   renderBatchPage();
 
@@ -2242,21 +2431,35 @@ Trả về duy nhất JSON:
   if (fb) {
     fb.style.display = 'block';
     const isOk = score >= 70;
-    fb.className = `sp-feedback ${isOk ? 'sp-ok' : 'sp-wrong'}`;
+    fb.className = `sp-feedback ${score >= 90 ? 'sp-ok' : isOk ? 'sp-ok' : 'sp-wrong'}`;
+    const badgeColor = score >= 90 ? 'var(--green)' : isOk ? 'var(--gold)' : '#ef4444';
+    const scoreTitle = score >= 90 ? '🎉 Xuất sắc! Chuẩn xác 100%' : isOk ? '👍 Khá tốt! Đúng ý nghĩa' : '❌ Chưa chính xác';
+
     fb.innerHTML = `
-      <div class="sp-fb-header">${score >= 90 ? '🎉 Xuất sắc!' : isOk ? '👍 Khá tốt!' : '❌ Chưa chính xác'} — Điểm: <span style="color:${isOk ? 'var(--green)' : '#ef4444'}">${score}/100</span></div>
-      ${gradeResult.note ? `<div class="sp-fb-explanation">📝 ${escapePracticeHtml(gradeResult.note)}</div>` : ''}
-      <div style="margin-top:10px;display:grid;gap:8px">
-        <div class="sp-user-answer-box" style="padding:10px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:10px;">
-          <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:2px">✏️ Câu bạn đã nhập:</div>
-          <div class="sp-user-answer" style="font-weight:700;color:var(--text-primary);font-family:'Noto Sans KR',sans-serif">${escapePracticeHtml(userAns)}</div>
+      <div class="sp-fb-header">${scoreTitle} — Điểm số: <span style="color:${badgeColor};font-size:1.15rem">${score}/100</span></div>
+      ${gradeResult.note ? `<div class="sp-fb-explanation" style="font-size:0.95rem;margin-top:6px">📝 ${escapePracticeHtml(gradeResult.note)}</div>` : ''}
+      
+      <div style="margin-top:12px;display:grid;gap:10px">
+        <div class="sp-user-answer-box" style="padding:12px 16px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.22);border-radius:12px;">
+          <div style="font-size:0.78rem;font-weight:600;color:var(--text-muted);margin-bottom:4px">✏️ Câu bạn đã nhập:</div>
+          <div class="sp-user-answer font-kr" style="font-size:1.1rem;font-weight:700;color:var(--text-primary)">${escapePracticeHtml(userAns)}</div>
         </div>
-        <div style="padding:10px 14px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;">
-          <div style="font-size:0.76rem;color:var(--text-muted);margin-bottom:2px">✅ Đáp án chuẩn:</div>
-          <div style="font-weight:700;color:var(--green);font-family:'Noto Sans KR',sans-serif">${escapePracticeHtml(gradeResult.corrected || q.answerText)}</div>
+        
+        <div style="padding:12px 16px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:0.78rem;font-weight:600;color:var(--green)">✅ Đáp án chuẩn:</span>
+            <button class="mini-audio-btn" onclick="TTS.speak('${escStr(gradeResult.corrected || q.answerText)}')" title="Nghe phát âm đáp án chuẩn">🔊 Nghe</button>
+          </div>
+          <div class="font-kr" style="font-size:1.15rem;font-weight:700;color:var(--green)">${escapePracticeHtml(gradeResult.corrected || q.answerText)}</div>
         </div>
       </div>
-      ${gradeResult.explanation ? `<div class="sp-fb-grammar-notes"><strong>📐 Giải thích cách dùng từ vựng Bộ & Ngữ pháp:</strong><br>${escapePracticeHtml(gradeResult.explanation)}</div>` : ''}
+
+      ${gradeResult.explanation ? `
+        <div class="sp-fb-grammar-notes" style="margin-top:14px;padding:12px 16px;background:var(--hover-bg);border-radius:10px;border-left:4px solid var(--accent)">
+          <strong>📐 Phân tích chi tiết từ vựng & cấu trúc ngữ pháp:</strong>
+          <p style="margin-top:6px;line-height:1.6">${escapePracticeHtml(gradeResult.explanation)}</p>
+        </div>
+      ` : ''}
     `;
   }
 }
@@ -2290,9 +2493,12 @@ function showBatchSentenceAnswer() {
     fb.style.display = 'block';
     fb.className = 'sp-feedback sp-reveal';
     fb.innerHTML = `
-      <div class="sp-fb-header">👁 Đáp án chuẩn</div>
-      <div class="sp-fb-answer">${q.answerText}</div>
-      ${q.explanation ? `<div class="sp-fb-grammar-notes"><strong>📐 Giải thích:</strong><br>${q.explanation}</div>` : ''}
+      <div class="sp-fb-header">👁 Đáp án chuẩn của câu</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0">
+        <div class="sp-fb-answer font-kr" style="font-size:1.2rem;font-weight:700;color:var(--accent-light)">${q.answerText}</div>
+        <button class="audio-btn" onclick="TTS.speak('${escStr(q.answerText)}')" title="Nghe phát âm">🔊 Nghe</button>
+      </div>
+      ${q.explanation ? `<div class="sp-fb-grammar-notes" style="margin-top:10px"><strong>📐 Giải thích:</strong><br>${escapePracticeHtml(q.explanation)}</div>` : ''}
     `;
   }
 }
