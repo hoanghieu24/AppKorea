@@ -1291,10 +1291,36 @@ function shouldStrictCheckEssay(question) {
 function capEssayScoreAgainstReference(question, answer, result) {
   if (!shouldStrictCheckEssay(question)) return result;
 
-  const strict = gradeShortTextStrict(question, answer);
+  const rawAnswer = String(answer || '').trim();
+  const referenceList = splitAcceptedAnswers(question.correct_answer);
   const maxPoints = Number(question.points || 0);
+  const aiScoreRatio = Math.max(0, Math.min(1, Number(result?.scoreRatio ?? (result?.awarded ?? 0) / (maxPoints || 1))));
 
-  // Khớp đáp án chuẩn => được phép 100%.
+  // 1. Nếu AI chấm 100% (isCorrect=true, scoreRatio=1) => tin tưởng AI, chỉ chặn khi câu sai script hoàn toàn.
+  if ((Boolean(result?.isCorrect) || aiScoreRatio >= 1) && maxPoints > 0) {
+    const refHasHangul = referenceList.some((ref) => /[가-힣]/.test(ref));
+    const ansHasHangul = /[가-힣]/.test(rawAnswer);
+    // Nếu đáp án mẫu là tiếng Hàn nhưng học sinh viết tiếng Việt => sai hoàn toàn.
+    if (refHasHangul && !ansHasHangul) {
+      return {
+        ...result,
+        awarded: 0,
+        isCorrect: false,
+        feedback: `Câu này cần trả lời bằng tiếng Hàn. Đáp án tham khảo: ${referenceList[0] || ''}.`,
+      };
+    }
+    // AI nói đúng và đúng script => chấp nhận hoàn toàn (không dùng rule Levenshtein để override).
+    return {
+      ...result,
+      awarded: maxPoints,
+      isCorrect: true,
+      feedback: result.feedback || 'Chính xác.',
+    };
+  }
+
+  const strict = gradeShortTextStrict(question, answer);
+
+  // 2. Nếu rule strict khớp hoàn toàn (ví dụ đúng ký tự) => trao điểm tối đa.
   if (strict.isCorrect) {
     return {
       ...result,
@@ -1304,20 +1330,20 @@ function capEssayScoreAgainstReference(question, answer, result) {
     };
   }
 
-  // Có lỗi chính tả/ký tự/trợ từ/... thì tuyệt đối không cho full điểm,
-  // dù AI có chấm dễ tay.
+  // 3. Cả AI và rule đều nói không đạt: lấy điểm AI (đã thoáng hơn rule Levenshtein),
+  //    nhưng chặn AI cho quá cao nếu rule cho rất thấp (ký tự sai rõ ràng).
   const strictAwarded = Number(strict.awarded || 0);
   const aiAwarded = Math.max(0, Math.min(maxPoints, Number(result?.awarded || 0)));
 
-  // Với câu ngắn có đáp án chuẩn: lấy mức nghiêm hơn giữa rule và AI.
-  // Nhờ đó kiểu 안녕하세오 ≠ 안녕하세요 sẽ không còn 1/1.
-  const awarded = Math.min(aiAwarded, strictAwarded);
+  // Nếu rule cho 0 (sai hoàn toàn về script/ngữ nghĩa) => ép về 0.
+  // Nếu rule cho > 0 (sai nhẹ) => lấy mức giữa để không quá nghiêm.
+  const awarded = strictAwarded === 0 ? 0 : Math.max(strictAwarded, Math.min(aiAwarded, maxPoints * 0.8));
 
   return {
     ...result,
-    awarded,
+    awarded: Number(awarded.toFixed(2)),
     isCorrect: false,
-    feedback: strict.feedback || result.feedback || 'Chưa chính xác.',
+    feedback: result.feedback || strict.feedback || 'Chưa chính xác.',
   };
 }
 

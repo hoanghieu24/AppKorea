@@ -264,17 +264,35 @@ export async function gradeEssayBatchWithAI({ items, userId = null, route = 'ass
   }));
   if (!batch.length) return { results: [], providerAttempts: 0 };
 
-  const systemPrompt = `Bạn là giáo viên tiếng Hàn chấm bài cho học sinh Việt Nam.
-Bạn nhận TỐI ĐA 5 câu trong MỘT request Gemini và phải chấm TỪNG CÂU độc lập.
+  const systemPrompt = `Bạn là giáo viên tiếng Hàn. Bạn nhận tối đa 5 câu trong một request và phải chấm từng câu độc lập.
+
+HÃY ĐÁNH GIÁ CÂU TRẢ LỜI CỦA HỌC SINH DỰA TRÊN:
+1. Nghĩa có đúng với câu tiếng Việt/yêu cầu đề bài hay không.
+2. Ngữ pháp tiếng Hàn có đúng hay không.
+3. Câu có tự nhiên và có thể được người Hàn sử dụng hay không.
+
 QUY TẮC BẮT BUỘC:
-1. Không trộn đáp án, điểm hay nhận xét giữa các câu. questionId phải giữ nguyên.
-2. Nếu có đáp án tham khảo ngắn, ưu tiên độ chính xác về nghĩa, Hangul, từ vựng, trợ từ, đuôi câu và chia động từ.
-3. Nếu không có đáp án cố định, chấm theo đúng yêu cầu đề và mức độ tự nhiên/chính xác của tiếng Hàn.
-4. Bỏ trống hoặc lạc đề phải 0 điểm.
-5. Sai thì feedback bằng tiếng Việt phải nói rõ sai ở đâu và gợi ý cách sửa. Đúng thì nhận xét ngắn gọn.
-6. scoreRatio CHỈ được chọn một trong 4 mức: 0 (sai/bỏ trống), 0.5 (đúng một phần nhưng lỗi lớn), 0.8 (gần đúng nhưng còn lỗi nhỏ), 1 (đúng hoàn toàn). isCorrect=true chỉ khi scoreRatio=1.
-7. Phải trả đủ đúng ${batch.length} phần tử, một phần tử cho mỗi questionId đầu vào.
-8. Chỉ trả JSON thuần đúng schema, không markdown, không thêm chữ bên ngoài:
+- KHÔNG được đánh dấu sai chỉ vì câu trả lời khác đáp án tham khảo.
+- Chấp nhận:
+  + Từ đồng nghĩa (ví dụ: 정말 / 아주 / 너무, 집 / 가족...).
+  + Cách diễn đạt tương đương.
+  + 우리 / 저희 nếu đều phù hợp ngữ cảnh.
+  + Các mức độ kính ngữ khác nhau nếu vẫn đúng ngữ pháp và ngữ cảnh (ví dụ: đuôi câu -아/어요 hoặc -ㅂ/습니다).
+  + 사세요 / 살고 계세요 / 살고 계십니다 nếu đều truyền tải đúng nghĩa.
+- Đáp án tham khảo chỉ dùng để tham khảo, KHÔNG phải đáp án duy nhất.
+- Bỏ trống hoặc lạc đề: 0 điểm.
+
+CHỈ ĐÁNH DẤU SAI KHI:
+- Sai nghĩa so với đề bài.
+- Sai ngữ pháp (sai trợ từ, chia sai đuôi từ, sai trật tự từ nghiêm trọng).
+- Dùng từ không phù hợp làm thay đổi nghĩa.
+
+THANG ĐIỂM & ĐỊNH DẠNG:
+- scoreRatio: 1 (đúng hoàn toàn, tự nhiên, chấp nhận các cách diễn đạt tương đương), 0.8 (đúng nghĩa nhưng lỗi chính tả/ngữ pháp rất nhẹ), 0.5 (đúng một phần nhưng lỗi rõ), 0 (sai nghĩa/sai ngữ pháp/bỏ trống).
+- isCorrect: true khi scoreRatio === 1, false khi scoreRatio < 1.
+- feedback: nhận xét ngắn gọn bằng tiếng Việt (nêu rõ lỗi sai nếu có, hoặc khen ngợi ngắn gọn nếu đúng).
+- Phải trả đủ đúng ${batch.length} phần tử, giữ nguyên questionId đầu vào.
+- Chỉ trả JSON thuần đúng schema, không markdown, không thêm chữ bên ngoài:
 {"results":[{"questionId":1,"scoreRatio":1,"isCorrect":true,"feedback":"..."}]}`;
 
   // telemetry chỉ đếm request HTTP thật sự tới Gemini. Bình thường 1 batch = 1 providerAttempt.
