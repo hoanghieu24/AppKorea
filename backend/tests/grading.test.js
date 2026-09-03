@@ -50,4 +50,32 @@ describe('grading', () => {
     expect(snapAiScoreRatio(0.96)).toBe(1);
     expect(snapAiScoreRatio(0.61)).toBe(0.5);
   });
+
+  it('nhận diện chính xác câu trả lời khớp đáp án mẫu để bypass AI', async () => {
+    const { exactMatchesReference, gradeExactMatch } = await import('../src/grading.js');
+    const question = { id: 10, type: 'ESSAY', correct_answer: '저는 학생입니다||저는 학생이에요', points: 3 };
+    expect(exactMatchesReference(question, '저는 학생입니다.')).toBe(true);
+    expect(exactMatchesReference(question, ' 저는 학생이에요 ')).toBe(true);
+    expect(exactMatchesReference(question, '저는 선생님입니다')).toBe(false);
+
+    const grade = gradeExactMatch(question, '저는 학생입니다');
+    expect(grade.awarded).toBe(3);
+    expect(grade.isCorrect).toBe(true);
+    expect(grade.gradedByAi).toBe(false);
+  });
+
+  it('lưu và tái sử dụng kết quả chấm AI qua Shared Cache', async () => {
+    const { getCachedAiGrade, setCachedAiGrade, clearAiGradeCache } = await import('../src/grading.js');
+    clearAiGradeCache();
+
+    expect(getCachedAiGrade(99, '사과를 먹어요')).toBeNull();
+
+    setCachedAiGrade(99, '사과를 먹어요.', { awarded: 2.5, isCorrect: true, feedback: 'Rất tốt!' });
+
+    const cached = getCachedAiGrade(99, ' 사과를 먹어요 ');
+    expect(cached).not.toBeNull();
+    expect(cached.awarded).toBe(2.5);
+    expect(cached.isCorrect).toBe(true);
+    expect(cached.gradedByAi).toBe(true);
+  });
 });

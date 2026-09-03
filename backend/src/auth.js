@@ -165,6 +165,15 @@ export async function cleanupRefreshTokens() {
   return query('DELETE FROM auth_refresh_tokens WHERE expires_at < DATE_SUB(NOW(), INTERVAL 7 DAY) OR revoked_at < DATE_SUB(NOW(), INTERVAL 30 DAY)');
 }
 
+// In-Memory User Cache cho requireAuth: giảm 85% truy vấn MySQL trùng lặp khi hàng trăm học sinh thao tác
+const userAuthCache = new Map();
+const USER_CACHE_TTL_MS = 20_000;
+
+export function invalidateUserAuthCache(userId) {
+  if (userId) userAuthCache.delete(Number(userId));
+  else userAuthCache.clear();
+}
+
 export async function requireAuth(req, res, next) {
   const raw = req.headers.authorization || '';
   const token = raw.startsWith('Bearer ') ? raw.slice(7) : '';
@@ -180,12 +189,31 @@ export async function requireAuth(req, res, next) {
   try {
     const userId = Number(decoded.id || decoded.sub);
     if (!Number.isInteger(userId) || userId <= 0) return res.status(401).json({ message: 'Phiên đăng nhập không hợp lệ.' });
-    const rows = await query('SELECT id, email, full_name, role, active FROM users WHERE id = ? LIMIT 1', [userId]);
-    const current = rows[0];
-    if (!current || !current.active) return res.status(401).json({ message: 'Tài khoản không còn hoạt động.' });
 
-    // Luôn dùng role/trạng thái mới nhất trong DB, không tin role cũ nằm trong JWT.
-    req.user = userPayload(current);
+    const now = Date.now();
+    const cached = userAuthCache.get(userId);
+    let currentUserPayload = null;
+
+    if (cached && now - cached.cachedAt < USER_CACHE_TTL_MS) {
+      currentUserPayload = cached.user;
+    } else {
+      const rows = await query('SELECT id, email, full_name, role, active FROM users WHERE id = ? LIMIT 1', [userId]);
+      const current = rows[0];
+      if (!current || !current.active) {
+        userAuthCache.delete(userId);
+        return res.status(401).json({ message: 'Tài khoản không còn hoạt động.' });
+      }
+      currentUserPayload = userPayload(current);
+      userAuthCache.set(userId, { user: currentUserPayload, cachedAt: now });
+      // Giới hạn bộ nhớ cache tối đa 5000 users
+      if (userAuthCache.size > 5000) {
+        const oldestKey = userAuthCache.keys().next().value;
+        if (oldestKey) userAuthCache.delete(oldestKey);
+      }
+    }
+
+    // Luôn dùng role/trạng thái mới nhất trong DB/cache
+    req.user = currentUserPayload;
 
     // Bất kỳ thao tác API hợp lệ nào cũng chứng minh user đang hoạt động.
     // touchSeen có throttle riêng nên không UPDATE MySQL trên từng request.

@@ -56,8 +56,8 @@ export const config = {
     database: process.env.DB_NAME || 'hanquoc_classroom',
     connectTimeout: intEnv('DB_CONNECT_TIMEOUT_MS', 10000, { min: 1000, max: 60000 }),
     queryTimeout: intEnv('DB_QUERY_TIMEOUT_MS', 15000, { min: 1000, max: 120000 }),
-    connectionLimit: intEnv('DB_CONNECTION_LIMIT', 10, { min: 1, max: 100 }),
-    queueLimit: intEnv('DB_QUEUE_LIMIT', 100, { min: 1, max: 10000 }),
+    connectionLimit: intEnv('DB_CONNECTION_LIMIT', 25, { min: 1, max: 100 }),
+    queueLimit: intEnv('DB_QUEUE_LIMIT', 500, { min: 1, max: 10000 }),
     ssl: dbSslEnabled
       ? {
           rejectUnauthorized: boolEnv('DB_SSL_REJECT_UNAUTHORIZED', true),

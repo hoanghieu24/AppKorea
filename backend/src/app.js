@@ -4,10 +4,10 @@ import helmet from 'helmet';
 import { z } from 'zod';
 import { config } from './config.js';
 import { query, withTransaction } from './db.js';
-import { cleanupRefreshTokens, issueRefreshToken, requireAuth, requireRole, revokeAllRefreshTokensForUser, revokeRefreshToken, rotateRefreshToken, signToken, verifyPassword, hashPassword } from './auth.js';
+import { cleanupRefreshTokens, issueRefreshToken, requireAuth, requireRole, revokeAllRefreshTokensForUser, revokeRefreshToken, rotateRefreshToken, signToken, verifyPassword, hashPassword, invalidateUserAuthCache } from './auth.js';
 import { aiEnabled, aiErrorResponse, generateTextWithAI, gradeEssayBatchWithAI, testGeminiConnection } from './ai.js';
 import { addGeminiApiKeys, deleteGeminiApiKey, getAdminSettings, getGeminiApiKeySecretById, getSafeLearningSettings, saveAdminSettings, setGeminiApiKeyActive, updateGeminiKeyHealth } from './settings.js';
-import { attemptAnswersMatch, gradeEssayFallback, gradeObjective, questionPromptForAi, reusableAttemptResult, shouldGradeWithAI } from './grading.js';
+import { attemptAnswersMatch, gradeEssayFallback, gradeObjective, gradeExactMatch, exactMatchesReference, getCachedAiGrade, setCachedAiGrade, questionPromptForAi, reusableAttemptResult, shouldGradeWithAI } from './grading.js';
 import { ensureTextbookCatalog, getTextbookLessons, getTextbookVocabulary } from './textbook.js';
 import { createConcurrencyGuard, createRateLimiter } from './rateLimit.js';
 import { recordSystemError, requestContextMiddleware, sanitizeLogText } from './monitoring.js';
@@ -450,6 +450,7 @@ app.put('/api/admin/users/:id', requireAuth, requireRole('ADMIN'), async (req, r
     if (!input.data.active || current.role !== input.data.role || input.data.password) {
       await revokeAllRefreshTokensForUser(userId);
     }
+    invalidateUserAuthCache(userId);
     return res.json({ message: 'Đã cập nhật tài khoản.' });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'Email này đã tồn tại.' });
@@ -468,6 +469,7 @@ app.delete('/api/admin/users/:id', requireAuth, requireRole('ADMIN'), async (req
     await connection.execute('DELETE FROM class_students WHERE student_id = ?', [userId]);
   });
   await revokeAllRefreshTokensForUser(userId);
+  invalidateUserAuthCache(userId);
   res.json({ message: 'Đã xóa tài khoản khỏi hoạt động. Lịch sử học và bài tập được giữ nguyên.' });
 });
 
@@ -1415,11 +1417,11 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}, previou
   const useAi = await aiEnabled();
   const resultByQuestionId = new Map();
   const aiJobs = [];
-  const aiStats = { essayQuestions: 0, batches: 0, providerCalls: 0, reusedQuestions: 0 };
+  const aiStats = { essayQuestions: 0, batches: 0, providerCalls: 0, reusedQuestions: 0, exactMatches: 0, cachedAiGrades: 0 };
   const previousAnswers = parseAttemptJson(previousAttempt?.answers_json, {});
   const previousResults = parseAttemptJson(previousAttempt?.result_json, []);
 
-  // Các dạng có đáp án xác định được chấm local, không tiêu tốn Gemini request.
+  // Các dạng có đáp án xác định hoặc khớp hoàn toàn được chấm local, không tiêu tốn Gemini request.
   for (const question of questions) {
     const answer = String(answers[String(question.id)] ?? '');
     const reused = reusableAttemptResult(question, answer, previousAnswers, previousResults);
@@ -1435,19 +1437,50 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}, previou
       aiStats.reusedQuestions += 1;
       continue;
     }
+
     let result;
+    const trimmedAnswer = answer.trim();
 
     if (question.type === 'ESSAY') {
-      // Luôn có fallback trước. Nếu AI batch lỗi, học sinh vẫn nhận được kết quả thay vì treo cả bài.
-      result = gradeEssayFallback(question, answer);
-      if (useAi && answer.trim()) {
-        aiJobs.push({ question, answer });
+      // 1. Nếu học sinh gõ đúng 100% đáp án mẫu của giáo viên (hoặc các đáp án thay thế ||)
+      // Chấm đúng ngay tại máy chủ: 0ms, 0 tốn quota AI, cực kỳ chính xác
+      if (exactMatchesReference(question, trimmedAnswer)) {
+        result = gradeExactMatch(question, answer);
+        aiStats.exactMatches += 1;
+      } else {
+        // 2. Kiểm tra xem câu trả lời này đã từng được AI chấm cho câu hỏi này chưa (bởi học sinh khác hoặc lượt làm trước)
+        const cachedGrade = getCachedAiGrade(question.id, trimmedAnswer);
+        if (cachedGrade) {
+          result = {
+            ...cachedGrade,
+            awarded: Number(cachedGrade.awarded),
+            points: Number(question.points),
+          };
+          aiStats.cachedAiGrades += 1;
+        } else {
+          // 3. Fallback mặc định ban đầu
+          result = gradeEssayFallback(question, answer);
+          if (useAi && trimmedAnswer) {
+            aiJobs.push({ question, answer });
+          }
+        }
       }
     } else if (shouldGradeWithAI(question)) {
-      result = answer.trim()
-        ? { awarded: 0, isCorrect: false, feedback: useAi ? 'AI đang đánh giá câu trả lời.' : 'Chưa có đáp án mẫu và AI hiện chưa được bật.', gradedByAi: false }
-        : { awarded: 0, isCorrect: false, feedback: 'Bạn chưa trả lời câu này.', gradedByAi: false };
-      if (useAi && answer.trim()) aiJobs.push({ question, answer });
+      if (exactMatchesReference(question, trimmedAnswer)) {
+        result = gradeExactMatch(question, answer);
+        aiStats.exactMatches += 1;
+      } else {
+        const cachedGrade = getCachedAiGrade(question.id, trimmedAnswer);
+        if (cachedGrade) {
+          result = { ...cachedGrade, points: Number(question.points) };
+          aiStats.cachedAiGrades += 1;
+        } else {
+          result = trimmedAnswer
+            ? { awarded: 0, isCorrect: false, feedback: useAi ? 'AI đang đánh giá câu trả lời.' : 'Chưa có đáp án mẫu và AI hiện chưa được bật.', gradedByAi: false }
+            : { awarded: 0, isCorrect: false, feedback: 'Bạn chưa trả lời câu này.', gradedByAi: false };
+          if (useAi && trimmedAnswer) aiJobs.push({ question, answer });
+        }
+      }
     } else if (question.type === 'SHORT_TEXT') {
       result = gradeShortTextStrict(question, answer);
     } else {
@@ -1458,6 +1491,7 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}, previou
       questionId: Number(question.id), topic: question.topic, points: Number(question.points), answer,
       referenceAnswer: question.correct_answer || '', awarded: Number(result.awarded), isCorrect: Boolean(result.isCorrect),
       feedback: result.feedback || '', gradedByAi: Boolean(result.gradedByAi),
+      exactMatch: Boolean(result.exactMatch),
     });
   }
 
@@ -1500,11 +1534,22 @@ async function gradeAssignmentAnswers(questions, answers, metadata = {}, previou
           feedback: checked.feedback || current.feedback || '',
           gradedByAi: true,
         });
+
+        // Lưu vào cache chia sẻ cả lớp
+        setCachedAiGrade(question.id, answer, checked);
       }
-    } catch {
-      for (const { question } of batch) {
+    } catch (err) {
+      console.warn('Batch AI grading failed, falling back gracefully:', err?.message || err);
+      for (const { question, answer } of batch) {
         const current = resultByQuestionId.get(Number(question.id));
-        current.feedback = `${current.feedback || ''} AI tạm thời không phản hồi nên hệ thống dùng chấm dự phòng.`.trim();
+        const fallback = gradeEssayFallback(question, answer);
+        resultByQuestionId.set(Number(question.id), {
+          ...current,
+          awarded: Number(fallback.awarded),
+          isCorrect: Boolean(fallback.isCorrect),
+          feedback: `${fallback.feedback} (Chấm đối chiếu thông minh do AI bận).`,
+          gradedByAi: false,
+        });
       }
     }
   }
@@ -2036,7 +2081,15 @@ app.post('/api/teacher/ai-ask', requireAuth, requireRole('TEACHER', 'ADMIN'), ai
   const systemPrompt = `Bạn là trợ lý AI thông minh hỗ trợ giáo viên tiếng Hàn. Bạn đã được cung cấp đầy đủ dữ liệu lớp học từ hệ thống, hãy dựa vào đó để trả lời trực tiếp, cụ thể, không hỏi lại giáo viên "vui lòng cung cấp thêm thông tin". Nếu không có đủ dữ liệu một phần nào đó, hãy nói rõ phần đó chưa có dữ liệu. Trả lời bằng tiếng Việt, ngắn gọn, thực tế và có ích.\n\nDỮ LIỆU HIỆN TẠI TỪ HỆ THỐNG:\n${fullContext}`;
 
   try {
-    const answer = await generateTextWithAI({ prompt: question, systemPrompt, temperature: 0.35, maxOutputTokens: 800, userId: req.user.id, route: 'teacher-ai-ask' });
+    const answer = await generateTextWithAI({
+      prompt: question,
+      systemPrompt,
+      temperature: 0.35,
+      maxOutputTokens: 1500,
+      thinkingBudget: 0,
+      userId: req.user.id,
+      route: 'teacher-ai-ask',
+    });
     res.json({ answer: answer.trim() });
   } catch (err) {
     const aiError = aiErrorResponse(err);

@@ -209,14 +209,29 @@ async function allGeminiCandidates({ includeInactive = false } = {}) {
   return candidates;
 }
 
+let runtimeSettingsCache = null;
+let runtimeSettingsCachedAt = 0;
+const SETTINGS_CACHE_TTL_MS = 15_000;
+
+export function invalidateSettingsCache() {
+  runtimeSettingsCache = null;
+  runtimeSettingsCachedAt = 0;
+}
+
 export async function getAiRuntimeSettings() {
+  const now = Date.now();
+  if (runtimeSettingsCache && (now - runtimeSettingsCachedAt < SETTINGS_CACHE_TTL_MS)) {
+    return runtimeSettingsCache;
+  }
   const map = await settingsMap();
   const apiKeys = (await allGeminiCandidates()).filter((item) => item.active && item.apiKey);
-  return {
+  runtimeSettingsCache = {
     apiKey: apiKeys[0]?.apiKey || '',
     apiKeys,
     model: map.get('gemini_model') || defaults.geminiModel,
   };
+  runtimeSettingsCachedAt = now;
+  return runtimeSettingsCache;
 }
 
 export async function getSafeLearningSettings() {
@@ -268,14 +283,17 @@ export async function addGeminiApiKeys(input, userId) {
     );
     added += 1;
   }
+  invalidateSettingsCache();
   return { added, skipped };
 }
 
 export async function deleteGeminiApiKey(id) {
+  invalidateSettingsCache();
   return query("DELETE FROM ai_api_keys WHERE id = ? AND provider = 'GEMINI'", [id]);
 }
 
 export async function setGeminiApiKeyActive(id, active) {
+  invalidateSettingsCache();
   return query(
     "UPDATE ai_api_keys SET active = ?, last_status = IF(?, 'READY', 'DISABLED'), cooldown_until = NULL WHERE id = ? AND provider = 'GEMINI'",
     [active ? 1 : 0, active ? 1 : 0, id],
@@ -333,6 +351,7 @@ export async function saveAdminSettings(input, userId) {
     await query("DELETE FROM system_settings WHERE setting_key = 'gemini_api_key'");
   }
 
+  invalidateSettingsCache();
   return getAdminSettings();
 }
 

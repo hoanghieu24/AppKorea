@@ -14,6 +14,13 @@ export function acceptedAnswers(correctAnswer) {
     .filter(Boolean);
 }
 
+export function exactMatchesReference(question, answer) {
+  const normActual = normalizeAnswer(answer);
+  if (!normActual) return false;
+  const expected = acceptedAnswers(question?.correct_answer);
+  return expected.includes(normActual);
+}
+
 export function shouldGradeWithAI(question) {
   return question?.type === 'ESSAY' || !String(question?.correct_answer || '').trim();
 }
@@ -35,6 +42,43 @@ export function reusableAttemptResult(question, answer, previousAnswers = {}, pr
   if (!questionId) return null;
   if (normalizeAttemptAnswer(answer) !== normalizeAttemptAnswer(previousAnswers[String(questionId)])) return null;
   return previousResults.find((item) => Number(item?.questionId) === questionId) || null;
+}
+
+// In-Memory Shared LRU Cache cho kết quả AI chấm câu tự luận
+// Khi cả lớp 50-100 em cùng nộp bài, các câu có đáp án giống nhau chỉ gọi AI đúng 1 lần
+const sharedAiGradeCache = new Map();
+const MAX_AI_CACHE_SIZE = 2500;
+
+export function getCachedAiGrade(questionId, answer) {
+  const norm = normalizeAnswer(answer);
+  if (!norm || !questionId) return null;
+  const key = `${questionId}:${norm}`;
+  const cached = sharedAiGradeCache.get(key);
+  if (!cached) return null;
+  // Refresh LRU position
+  sharedAiGradeCache.delete(key);
+  sharedAiGradeCache.set(key, cached);
+  return { ...cached };
+}
+
+export function setCachedAiGrade(questionId, answer, result) {
+  const norm = normalizeAnswer(answer);
+  if (!norm || !questionId || !result) return;
+  const key = `${questionId}:${norm}`;
+  if (sharedAiGradeCache.size >= MAX_AI_CACHE_SIZE) {
+    const oldestKey = sharedAiGradeCache.keys().next().value;
+    if (oldestKey) sharedAiGradeCache.delete(oldestKey);
+  }
+  sharedAiGradeCache.set(key, {
+    awarded: Number(result.awarded),
+    isCorrect: Boolean(result.isCorrect),
+    feedback: String(result.feedback || ''),
+    gradedByAi: true,
+  });
+}
+
+export function clearAiGradeCache() {
+  sharedAiGradeCache.clear();
 }
 
 export function snapAiScoreRatio(value) {
@@ -75,6 +119,16 @@ export function gradeObjective(question, answer) {
   };
 }
 
+export function gradeExactMatch(question, answer) {
+  return {
+    awarded: Number(question.points),
+    isCorrect: true,
+    feedback: 'Chính xác! Đáp án của bạn hoàn toàn khớp với đáp án mẫu chuẩn.',
+    gradedByAi: false,
+    exactMatch: true,
+  };
+}
+
 export function gradeEssayFallback(question, answer) {
   const actualWords = new Set(normalizeAnswer(answer).split(' ').filter(Boolean));
   const referenceWords = new Set(normalizeAnswer(question.correct_answer).split(' ').filter(Boolean));
@@ -91,7 +145,7 @@ export function gradeEssayFallback(question, answer) {
   if (isCorrect) {
     feedback = 'Diễn đạt tốt, đúng ý cốt lõi của câu hỏi!';
   } else {
-    feedback = `Chưa sát đáp án tham khảo. Đáp án chuẩn là: "${question.correct_answer}".\n💡 Giải thích: Hãy kiểm tra lại từ vựng và cấu trúc ngữ pháp để rút kinh nghiệm nhé!`;
+    feedback = `Chưa sát đáp án tham khảo. Đáp án chuẩn là: "${question.correct_answer}".\n💡 Hướng dẫn: Hãy kiểm tra lại từ vựng và cấu trúc ngữ pháp để rút kinh nghiệm nhé!`;
   }
   return {
     awarded: Number((Number(question.points) * (isCorrect ? Math.max(ratio, 0.8) : ratio)).toFixed(2)),

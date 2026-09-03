@@ -588,8 +588,8 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
     } : current);
   };
 
-  const sendAiQuestion = async () => {
-    const q = aiQuestion.trim();
+  const sendAiQuestion = async (overrideQ = '') => {
+    const q = (typeof overrideQ === 'string' && overrideQ.trim()) ? overrideQ.trim() : aiQuestion.trim();
     if (!q || aiLoading) return;
     setAiHistory((h) => [...h, { role: 'user', text: q }]);
     setAiQuestion('');
@@ -602,7 +602,7 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
       });
       setAiHistory((h) => [...h, { role: 'ai', text: answer }]);
     } catch (err) {
-      setAiHistory((h) => [...h, { role: 'ai', text: `❌ ${err.message}` }]);
+      setAiHistory((h) => [...h, { role: 'ai', text: `❌ ${err.message}`, isError: true, retryQ: q }]);
     } finally {
       setAiLoading(false);
     }
@@ -675,14 +675,21 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
           <div className="teacher-ai-ask-panel">
             <div className="teacher-ai-ask-header">
               <Bot size={16} />
-              <strong>Hỏi AI về học sinh &amp; bài tập này</strong>
-              <button className="icon-button" onClick={() => setAiOpen(false)}><X size={16} /></button>
+              <strong>Trợ lý AI phân tích bài tập &amp; học sinh</strong>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                {aiHistory.length > 0 && (
+                  <button className="btn ghost small" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => setAiHistory([])} title="Xóa đoạn chat">
+                    Xóa chat
+                  </button>
+                )}
+                <button className="icon-button" onClick={() => setAiOpen(false)}><X size={16} /></button>
+              </div>
             </div>
             {aiHistory.length === 0 && (
               <div className="teacher-ai-quick-qs">
                 {quickQuestions.map((q) => (
-                  <button key={q} className="teacher-ai-quick-q" onClick={() => { setAiQuestion(q); }}>
-                    {q}
+                  <button key={q} className="teacher-ai-quick-q" onClick={() => sendAiQuestion(q)} disabled={aiLoading}>
+                    💡 {q}
                   </button>
                 ))}
               </div>
@@ -691,13 +698,25 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
               {aiHistory.map((msg, i) => (
                 <div key={i} className={`teacher-ai-msg ${msg.role}`}>
                   {msg.role === 'ai' && <Bot size={15} />}
-                  <p>{msg.text}</p>
+                  <div style={{ whiteSpace: 'pre-line' }}>
+                    <p>{msg.text}</p>
+                    {msg.isError && msg.retryQ && (
+                      <button
+                        className="btn secondary small"
+                        style={{ marginTop: 6, fontSize: '0.75rem', padding: '4px 8px' }}
+                        onClick={() => sendAiQuestion(msg.retryQ)}
+                        disabled={aiLoading}
+                      >
+                        Thử lại câu này
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
               {aiLoading && (
                 <div className="teacher-ai-msg ai">
                   <Bot size={15} />
-                  <p className="ai-typing">AI đang phân tích...</p>
+                  <p className="ai-typing">AI đang tổng hợp số liệu lớp học...</p>
                 </div>
               )}
               <div ref={aiBottomRef} />
@@ -707,9 +726,9 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
                 value={aiQuestion}
                 onChange={(e) => setAiQuestion(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && sendAiQuestion()}
-                placeholder="Ví dụ: Học sinh nào yếu nhất? Câu nào cần ôn lại?"
+                placeholder="Ví dụ: Học sinh nào yếu nhất? Cần ôn lại kiến thức gì?"
               />
-              <button className="btn primary small" onClick={sendAiQuestion} disabled={aiLoading || !aiQuestion.trim()}>
+              <button className="btn primary small" onClick={() => sendAiQuestion()} disabled={aiLoading || !aiQuestion.trim()}>
                 <Send size={15} />
               </button>
             </div>
@@ -775,12 +794,16 @@ function TeacherView({ assignment, questions, report, setReport, reportLoading, 
                                 <div className={`latest-attempt-question ${result.isCorrect ? 'correct' : 'wrong'}`} key={result.questionId ?? index}>
                                   <div className="latest-attempt-question-head">
                                     <strong>Câu {index + 1} {result.isCorrect ? '· Đúng' : '· Sai'}</strong>
-                                    <span>{result.awarded}/{result.points} điểm</span>
+                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                      {result.exactMatch && <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: 6, background: '#e9f9f2', color: '#2eb67d', fontWeight: 700 }}>🎯 Khớp chuẩn</span>}
+                                      {result.gradedByAi && <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: 6, background: '#efedff', color: '#6d5dfc', fontWeight: 700 }}>🧠 AI chấm</span>}
+                                      <span>{result.awarded}/{result.points} điểm</span>
+                                    </span>
                                   </div>
                                   {question?.prompt && (() => { const parts = splitQuestionPrompt(question.prompt); return <><SharedContext text={parts.sharedContext} /><p className="latest-question-prompt"><FormattedQuestionText text={parts.prompt} /></p></>; })()}
                                   <div className="latest-answer-box">
                                     <p><b>Bài làm:</b> {result.answer || '—'}</p>
-                                    <p><b>AI nhận xét:</b> {result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>
+                                    <p><b>{result.gradedByAi ? 'AI nhận xét:' : result.exactMatch ? 'Đối chiếu đáp án:' : 'Nhận xét:'}</b> {result.feedback || (result.isCorrect ? 'Đúng.' : 'Cần xem lại.')}</p>
                                     {!result.isCorrect && (result.referenceAnswer || question?.correctAnswer) && (
                                       <p><b>Đáp án tham khảo:</b> {result.referenceAnswer || question?.correctAnswer}</p>
                                     )}

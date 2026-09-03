@@ -4,14 +4,9 @@ import { api } from '../api.js';
 import { PageHeader } from '../components/Shell.jsx';
 
 const MODELS = [
-  ['gemini-3.7-flash', 'Gemini 3.7 Flash · mới, mạnh và nhanh'],
-  ['gemini-3.6-flash', 'Gemini 3.6 Flash · mạnh, cân bằng'],
-  ['gemini-3.5-flash', 'Gemini 3.5 Flash · ổn định, tốc độ cao'],
-  ['gemini-3.5-flash-lite', 'Gemini 3.5 Flash-Lite · tiết kiệm, tải cao'],
-  ['gemini-3.1-flash-lite', 'Gemini 3.1 Flash-Lite · nhẹ, chi phí thấp'],
-  ['gemini-2.5-flash', 'Gemini 2.5 Flash · tương thích tốt'],
-  ['gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite · tiết kiệm'],
-  ['gemini-2.5-pro', 'Gemini 2.5 Pro · chấm bài sâu hơn'],
+  ['gemini-2.5-flash', 'Gemini 2.5 Flash · Khuyên dùng: Siêu nhanh, thông minh & ổn định'],
+  ['gemini-2.5-flash-lite', 'Gemini 2.5 Flash-Lite · Tiết kiệm quota, tối ưu tải cao cho hàng trăm học sinh'],
+  ['gemini-2.5-pro', 'Gemini 2.5 Pro · Chấm tự luận & phân tích chuyên sâu'],
 ];
 
 const defaults = {

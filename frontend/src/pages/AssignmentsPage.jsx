@@ -6,7 +6,7 @@ import {
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, formatDate } from '../api.js';
 import { Empty, PageHeader, Pagination } from '../components/Shell.jsx';
-import { extractDocxText, extractPdfText, chunkDocumentText, buildDocumentAiPrompt } from '../utils/documentParser.js';
+import { extractDocxText, extractPdfText, chunkDocumentText, buildDocumentAiPrompt, parseDocumentRuleBased } from '../utils/documentParser.js';
 
 const freshQuestion = (patch = {}) => ({
   type: 'MULTIPLE_CHOICE', prompt: '', sharedContext: '', optionsText: '', correctAnswer: '', explanation: '', topic: 'Từ vựng', points: 1,
@@ -1610,7 +1610,11 @@ export default function AssignmentsPage({ user }) {
         .map((cell) => ({ sheet: row.sheet, row: row.row, col: cell.col, text: cell.value, emphasis: cell.emphasisSegments })));
       const auditChunks = excelAuditChunks(buildExcelAuditItems(mergedQuestions));
       const auditCorrections = [];
-      if (auditChunks.length) {
+      // Chỉ kiểm định AI khi cấu trúc ban đầu có phần mơ hồ hoặc có câu trắc nghiệm thiếu đáp án
+      const hasMissingAnswers = mergedQuestions.some((q) => q.options?.length >= 2 && !q.correctAnswer);
+      const shouldAuditWithAI = Boolean(initialDiagnostics.needsStructuralAI || hasMissingAnswers || (formatHints.length > 0 && mergedQuestions.length <= 15));
+
+      if (auditChunks.length && shouldAuditWithAI) {
         setExcelStatus({
           stage: 'ai',
           title: 'AI đang kiểm định lần cuối',
@@ -1784,7 +1788,31 @@ export default function AssignmentsPage({ user }) {
         title: 'Trích xuất xong · AI đang nhận diện câu hỏi',
         detail: 'AI đang phân tích các câu hỏi, đoạn văn dùng chung, phương án lựa chọn và đáp án...',
       });
-      setMessage('Đã đọc xong file. AI đang tách và phân loại câu hỏi...');
+      setMessage('Đã đọc xong file. Đang nhận diện câu hỏi...');
+
+      // Thử bóc tách quy tắc trước: nếu tài liệu có định dạng đề thi chuẩn, trích xuất ngay tức thì 5ms, 0 tốn AI!
+      const ruleExtracted = parseDocumentRuleBased(cleanText);
+      if (ruleExtracted.questions.length >= 2) {
+        setDocProgress(100);
+        setDocStatus({
+          stage: 'done',
+          title: `Đã nhận diện thần tốc ${ruleExtracted.questions.length} câu (Quy tắc tự động)`,
+          detail: 'Cấu trúc đề chuẩn đã được trích xuất tức thì mà không cần tiêu tốn quota AI.',
+        });
+        setDocPreview({
+          fileName: file.name,
+          title: ruleExtracted.title || file.name.replace(/\.[^.]+$/, ''),
+          instructions: ruleExtracted.instructions || 'Hãy làm đầy đủ các câu bên dưới.',
+          questions: ruleExtracted.questions.map((q) => ({
+            ...q,
+            optionsText: Array.isArray(q.options) ? q.options.join('\n') : String(q.optionsText || ''),
+          })),
+          aiUsed: false,
+        });
+        setDocPreviewExpanded(true);
+        setMessage(`Đã bóc tách thành công ${ruleExtracted.questions.length} câu từ file ${file.name}.`);
+        return;
+      }
 
       const chunks = chunkDocumentText(cleanText, 3500);
       const allExtractedQuestions = [];
