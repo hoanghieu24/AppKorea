@@ -149,13 +149,6 @@ export default function LoginPage({ onLogin }) {
     }
   };
 
-  const fillDemo = (demoEmail, demoRole) => {
-    setEmail(demoEmail);
-    setError('');
-    const inputPass = document.getElementById('login-password-input');
-    if (inputPass) inputPass.focus();
-  };
-
   return (
     <div className="login-page-v2">
       <ConfettiCanvas active={status === 'success'} />
@@ -313,36 +306,6 @@ export default function LoginPage({ onLogin }) {
               </>
             )}
           </button>
-
-          {/* Hộp hỗ trợ điền nhanh cho quản trị & kiểm thử */}
-          <div className="login-demo-helper">
-            <div className="login-demo-header">
-              <span>Gợi ý tài khoản nhanh:</span>
-            </div>
-            <div className="login-demo-badges">
-              <button
-                type="button"
-                className="demo-chip"
-                onClick={() => fillDemo('admin@hanquoc.local', 'Admin')}
-              >
-                👑 Quản trị (Admin)
-              </button>
-              <button
-                type="button"
-                className="demo-chip"
-                onClick={() => fillDemo('teacher@hanquoc.local', 'Giáo viên')}
-              >
-                👩‍🏫 Giáo viên (Hana)
-              </button>
-              <button
-                type="button"
-                className="demo-chip"
-                onClick={() => fillDemo('student@hanquoc.local', 'Học sinh')}
-              >
-                🎓 Học sinh (Minh Anh)
-              </button>
-            </div>
-          </div>
 
           <div className="login-footer-note">
             <ShieldCheck size={14} />
